@@ -4,7 +4,8 @@ import requests
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-
+print("📌 USING PHONE_NUMBER_ID:", PHONE_NUMBER_ID)
+print("📌 TOKEN PRESENT:", bool(WHATSAPP_TOKEN))
 def send_whatsapp_message(to: str, text: str):
     print("🔎 ENV CHECK")
     print("WHATSAPP_TOKEN present:", bool(WHATSAPP_TOKEN))
