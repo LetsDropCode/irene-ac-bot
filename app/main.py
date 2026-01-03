@@ -7,9 +7,9 @@ app = FastAPI()
 
 app.include_router(webhook_router)
 
-@app.get("/")
-def read_root():
-    return {
-        "message": "Irene AC Bot is running!",
-        "env": ENV
-    }
+#@app.get("/")
+#def read_root():
+#    return {
+#        "message": "Irene AC Bot is running!",
+#        "env": ENV
+#    }
