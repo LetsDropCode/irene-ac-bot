@@ -1,7 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from app.webhook import router as webhook_router
-from app.config import ENV
+#from app.config import ENV
 
 app = FastAPI()
 
