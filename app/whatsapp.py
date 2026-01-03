@@ -2,44 +2,42 @@
 import os
 import requests
 
-GRAPH_API_URL = "https://graph.facebook.com/v18.0"
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+
+GRAPH_API_URL = f"https://graph.facebook.com/v22.0/{PHONE_NUMBER_ID}/messages"
 
 
-def send_whatsapp_message(to: str, message: str):
+def send_whatsapp_message(to: str, text: str):
     """
-    Send a WhatsApp text message using Meta Graph API
+    Send a WhatsApp text message using Meta Cloud API
     """
 
-    token = os.getenv("WHATSAPP_TOKEN")
-    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    # ---- TEMP DEBUG (safe, no secrets exposed) ----
+    print("🔍 Sending WhatsApp message")
+    print("WHATSAPP_TOKEN present:", bool(WHATSAPP_TOKEN))
+    print("PHONE_NUMBER_ID:", PHONE_NUMBER_ID)
+    print("To:", to)
+    print("Text:", text)
+    # ----------------------------------------------
 
-    # 🔎 TEMP DEBUG LOGS (safe – do not expose token value)
-    print("WHATSAPP_TOKEN present:", bool(token))
-    print("WHATSAPP_PHONE_NUMBER_ID:", phone_number_id)
-
-    if not token or not phone_number_id:
+    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
         print("❌ Missing WhatsApp credentials")
-        return False
-
-    url = f"{GRAPH_API_URL}/{phone_number_id}/messages"
+        return
 
     headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
     }
 
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
-        "text": {
-            "body": message
-        }
+        "text": {"body": text},
     }
 
-    response = requests.post(url, headers=headers, json=payload)
+    response = requests.post(GRAPH_API_URL, headers=headers, json=payload)
 
-    print("📤 WhatsApp send status:", response.status_code)
-    print("📤 WhatsApp response:", response.text)
-
-    return response.status_code == 200
+    print("📤 WhatsApp API status:", response.status_code)
+    print("📤 WhatsApp API response:", response.text)

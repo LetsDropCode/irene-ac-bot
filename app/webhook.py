@@ -22,8 +22,7 @@ async def verify_webhook(request: Request):
 @router.post("/webhook")
 async def receive_webhook(request: Request):
     payload = await request.json()
-
-    print("📥 Incoming WhatsApp payload:")
+    print("📩 Incoming WhatsApp payload:")
     print(payload)
 
     try:
@@ -36,19 +35,18 @@ async def receive_webhook(request: Request):
             return {"status": "no_message"}
 
         message = messages[0]
-        sender = message["from"]
-        text = message["text"]["body"]
+        from_number = message["from"]
+        text = message.get("text", {}).get("body", "")
 
-        print("👤 Sender:", sender)
-        print("💬 Text:", text)
+        print(f"📨 Message from {from_number}: {text}")
 
-        # 🔁 TEMP RESPONSE FOR TESTING
+        # 🔁 Echo reply (test)
         send_whatsapp_message(
-            to=sender,
-            message=f"✅ Bot received: {text}"
+            to=from_number,
+            text="✅ Bot is live on Railway and replying correctly!"
         )
 
     except Exception as e:
-        print("❌ Error handling webhook:", str(e))
+        print("❌ Error processing webhook:", repr(e))
 
     return {"status": "received"}
