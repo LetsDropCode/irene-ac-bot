@@ -26,21 +26,28 @@ async def receive_webhook(request: Request):
     print(payload)
 
     try:
-        entry = payload["entry"][0]
-        change = entry["changes"][0]
-        value = change["value"]
+        entry = payload.get("entry", [])[0]
+        change = entry.get("changes", [])[0]
+        value = change.get("value", {})
 
+        # Ignore delivery/status events
         messages = value.get("messages")
         if not messages:
-            return {"status": "no_message"}
+            print("ℹ️ No user message in this webhook")
+            return {"status": "ignored"}
 
         message = messages[0]
-        from_number = message["from"]
-        text = message.get("text", {}).get("body", "")
+        from_number = message.get("from")
 
+        # Only handle text messages
+        if message.get("type") != "text":
+            print("ℹ️ Non-text message received")
+            return {"status": "ignored"}
+
+        text = message["text"]["body"]
         print(f"📨 Message from {from_number}: {text}")
 
-        # 🔁 Echo reply (test)
+        # 🔁 Reply
         send_whatsapp_message(
             to=from_number,
             text="✅ Bot is live on Railway and replying correctly!"
