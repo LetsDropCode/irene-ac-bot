@@ -22,9 +22,6 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # ----------------------------
-    # Members
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id SERIAL PRIMARY KEY,
@@ -35,9 +32,6 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Submissions
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
             id SERIAL PRIMARY KEY,
@@ -50,9 +44,6 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Event codes
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
             id SERIAL PRIMARY KEY,
@@ -63,9 +54,6 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Event configuration
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
             id SERIAL PRIMARY KEY,
@@ -77,7 +65,6 @@ def init_db():
         );
     """)
 
-    # Seed defaults
     cur.execute("SELECT COUNT(*) FROM event_config;")
     if cur.fetchone()["count"] == 0:
         cur.executemany("""
