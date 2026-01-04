@@ -3,7 +3,13 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("data.db")
+# -------------------------------------------------
+# Persistent database location (Railway Volume)
+# -------------------------------------------------
+DATA_DIR = Path("/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = DATA_DIR / "data.db"
 
 
 def get_conn():
@@ -58,34 +64,34 @@ def init_db():
     """)
 
     # ----------------------------
-    # Event codes
+    # Event Codes (admin-generated)
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,
+            event TEXT NOT NULL,              -- TT, WEDLSD, SUNSOCIAL
             code TEXT NOT NULL,
-            event_date TEXT NOT NULL,       -- YYYY-MM-DD
+            event_date TEXT NOT NULL,         -- YYYY-MM-DD
             created_at TEXT NOT NULL
         )
     """)
 
     # ----------------------------
-    # Event configuration
+    # Event Configuration
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,
-            day_of_week INTEGER NOT NULL,   -- Monday=0 ... Sunday=6
-            open_time TEXT NOT NULL,        -- HH:MM
-            close_time TEXT NOT NULL,       -- HH:MM
+            event TEXT NOT NULL,               -- TT, WEDLSD, SUNSOCIAL
+            day_of_week INTEGER NOT NULL,      -- Monday=0 ... Sunday=6
+            open_time TEXT NOT NULL,           -- HH:MM
+            close_time TEXT NOT NULL,          -- HH:MM
             active INTEGER DEFAULT 1
         )
     """)
 
     # ----------------------------
-    # Seed default events
+    # Seed default events (once)
     # ----------------------------
     cur.execute("SELECT COUNT(*) FROM event_config")
     count = cur.fetchone()[0]
