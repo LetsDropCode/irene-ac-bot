@@ -1,44 +1,47 @@
 # app/services/event_detection.py
 
 from datetime import datetime, time
-from typing import Optional
+from zoneinfo import ZoneInfo
 
-# ---- EVENT CONFIG ----
-# Easy to adjust later or move to DB/admin panel
+# South Africa time
+TZ = ZoneInfo("Africa/Johannesburg")
 
-EVENTS = {
+# Event windows (easy to adjust later)
+EVENT_WINDOWS = {
     "TT": {
-        "weekday": 1,  # Tuesday (Mon=0)
-        "open": time(17, 0),
-        "close": time(22, 0),
+        "day": 1,  # Tuesday (Monday=0)
+        "start": time(17, 0),
+        "end": time(22, 0),
     },
     "WEDLSD": {
-        "weekday": 2,  # Wednesday
-        "open": time(17, 0),
-        "close": time(22, 0),
+        "day": 2,  # Wednesday
+        "start": time(17, 0),
+        "end": time(22, 0),
     },
     "SUNSOCIAL": {
-        "weekday": 6,  # Sunday
-        "open": time(5, 30),
-        "close": time(22, 0),
+        "day": 6,  # Sunday
+        "start": time(5, 30),
+        "end": time(22, 0),
     },
 }
 
-# ---- CORE LOGIC ----
 
-def get_active_event(now: Optional[datetime] = None) -> Optional[str]:
+def get_active_event(now: datetime | None = None) -> str | None:
     """
-    Returns event code if submissions are open, else None
+    Returns:
+        "TT", "WEDLSD", "SUNSOCIAL" or None
     """
-    now = now or datetime.now()
-    current_weekday = now.weekday()
+    if not now:
+        now = datetime.now(TZ)
+
+    current_day = now.weekday()
     current_time = now.time()
 
-    for event, config in EVENTS.items():
-        if current_weekday != config["weekday"]:
-            continue
-
-        if config["open"] <= current_time <= config["close"]:
+    for event, rules in EVENT_WINDOWS.items():
+        if (
+            current_day == rules["day"]
+            and rules["start"] <= current_time <= rules["end"]
+        ):
             return event
 
     return None

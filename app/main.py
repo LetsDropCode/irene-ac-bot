@@ -6,6 +6,8 @@ from app.db import init_db
 
 app = FastAPI()
 
+init_db()
+
 @app.on_event("startup")
 def startup():
     init_db()
