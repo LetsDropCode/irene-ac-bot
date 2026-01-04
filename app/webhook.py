@@ -7,6 +7,9 @@ from app.members import get_member_by_phone, create_member
 from app.services.submission_store import save_submission
 from app.services.submission_parser import parse_submission
 from app.services.validation import validate_submission
+from app.services.leaderboard import get_weekly_leaderboard
+from app.services.leaderboard_formatter import format_leaderboard
+from app.config import ADMIN_NUMBERS
 
 router = APIRouter()
 
@@ -74,6 +77,27 @@ async def receive_webhook(request: Request):
                 )
             )
             return {"status": "member_created"}
+
+        # --------------------------------------------
+        # ADMIN LEADERBOARD COMMAND
+        # --------------------------------------------
+        if from_number in ADMIN_NUMBERS and text.upper().startswith("LEADERBOARD"):
+            parts = text.upper().split()
+
+        if len(parts) != 3:
+            send_whatsapp_message(
+            to=from_number,
+            text="❌ Format: LEADERBOARD TT 6km"
+        )
+            return {"status": "bad_command"}
+
+        _, event, distance = parts
+
+        rows = get_weekly_leaderboard(event, distance)
+        message = format_leaderboard(event, distance, rows)
+
+        send_whatsapp_message(to=from_number, text=message)
+        return {"status": "leaderboard_sent"}
 
         # --------------------------------------------
         # SUBMISSION FLOW (REGISTERED MEMBERS)
