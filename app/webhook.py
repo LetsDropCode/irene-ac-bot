@@ -111,23 +111,39 @@ async def receive_webhook(request: Request):
         # ==================================================
         parsed = parse_submission(text)
 
-        is_valid, message, event = validate_submission(parsed)
+        is_valid, error_message, event = validate_submission(parsed)
 
         if not is_valid:
-            send_whatsapp_message(to=from_number, text=message)
+            send_whatsapp_message(to=from_number, text=error_message)
             return {"status": "rejected"}
 
-        # Save submission
-        save_submission(
-            phone=from_number,
-            activity=event,
-            distance_text=parsed["distance"],
+        # --------------------------------------------------
+        # Save submission (with duplicate protection)
+        # --------------------------------------------------
+        result = save_submission(
+            member_id=member["id"],
+            event=event,
+            distance=parsed["distance"],
             time_text=parsed["time"]
         )
+
+        if result == "DUPLICATE":
+            send_whatsapp_message(
+                to=from_number,
+                text=(
+                    "❌ *Submission already received*\n\n"
+                    f"You’ve already submitted for *{event}* today.\n"
+                    "Only one submission per event is allowed 🏁"
+                )
+            )
+            return {"status": "duplicate"}
+
+        pb_text = "🔥 *NEW PERSONAL BEST!* 🔥\n\n" if result else ""
 
         send_whatsapp_message(
             to=from_number,
             text=(
+                f"{pb_text}"
                 "✅ *Submission received!*\n\n"
                 f"Event: *{event}*\n"
                 f"Distance: *{parsed['distance']}*\n"
