@@ -1,13 +1,21 @@
+# app/db.py
 import sqlite3
-from pathlib import Path
-from datetime import datetime
 
-DB_PATH = Path("data.db")
+DB_PATH = "data.db"
 
-def get_conn():
+def init_db():
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    cursor = conn.cursor()
 
-def now_iso():
-    return datetime.utcnow().isoformat()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT UNIQUE NOT NULL,
+        first_name TEXT,
+        last_name TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+    conn.close()
