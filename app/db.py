@@ -52,6 +52,11 @@ def init_db():
     );
     """)
     
+    def get_db():
+        """
+        Unified DB accessor for services
+        """
+        return get_connection()
             
     conn.commit()
     conn.close()
