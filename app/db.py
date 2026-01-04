@@ -1,37 +1,23 @@
 # app/db.py
-
-import os
 import sqlite3
 from pathlib import Path
 
-# -------------------------------------------------
-# Persistent database location (Railway Volume)
-# -------------------------------------------------
-DATA_DIR = Path("/data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DB_PATH = Path(os.getenv("DATABASE_PATH", "data.db"))
+# 🔒 Hard-pinned DB location
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "data.db"
 
 
 def get_conn():
-    """
-    Returns a SQLite connection with row access by column name.
-    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-# ✅ Alias for service-layer consistency
 def get_db():
     return get_conn()
 
 
 def init_db():
-    """
-    Creates required tables if they do not exist.
-    Safe to run multiple times.
-    """
     conn = get_conn()
     cur = conn.cursor()
 
@@ -65,46 +51,42 @@ def init_db():
     """)
 
     # ----------------------------
-    # Event Codes (admin-generated)
+    # Event codes
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,              -- TT, WEDLSD, SUNSOCIAL
+            event TEXT NOT NULL,
             code TEXT NOT NULL,
-            event_date TEXT NOT NULL,         -- YYYY-MM-DD
+            event_date TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
     """)
 
     # ----------------------------
-    # Event Configuration
+    # Event configuration
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,               -- TT, WEDLSD, SUNSOCIAL
-            day_of_week INTEGER NOT NULL,      -- Monday=0 ... Sunday=6
-            open_time TEXT NOT NULL,           -- HH:MM
-            close_time TEXT NOT NULL,          -- HH:MM
+            event TEXT NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            open_time TEXT NOT NULL,
+            close_time TEXT NOT NULL,
             active INTEGER DEFAULT 1
         )
     """)
 
-    # ----------------------------
-    # Seed default events (once)
-    # ----------------------------
+    # Seed defaults
     cur.execute("SELECT COUNT(*) FROM event_config")
-    count = cur.fetchone()[0]
-
-    if count == 0:
+    if cur.fetchone()[0] == 0:
         cur.executemany("""
             INSERT INTO event_config (event, day_of_week, open_time, close_time)
             VALUES (?, ?, ?, ?)
         """, [
-            ("TT", 1, "17:00", "22:00"),        # Tuesday
-            ("WEDLSD", 2, "17:00", "22:00"),    # Wednesday
-            ("SUNSOCIAL", 6, "05:30", "22:00")  # Sunday
+            ("TT", 1, "17:00", "22:00"),
+            ("WEDLSD", 2, "17:00", "22:00"),
+            ("SUNSOCIAL", 6, "05:30", "22:00")
         ])
 
     conn.commit()

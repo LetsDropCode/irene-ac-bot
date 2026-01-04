@@ -8,7 +8,7 @@ app = FastAPI()
 
 @app.on_event("startup")
 def startup():
-    init_db()   # ✅ runs once, after Railway mounts the volume
+    init_db()
 
 app.include_router(webhook_router)
 
@@ -16,6 +16,5 @@ app.include_router(webhook_router)
 def read_root():
     return {
         "status": "ok",
-        "message": "Irene AC Bot is running",
         "env": ENV
     }
