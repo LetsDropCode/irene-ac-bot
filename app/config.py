@@ -10,8 +10,8 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 ENV = os.getenv("ENV", "development")
 
 ADMIN_NUMBERS = {
-    "27722125094", #Lindsay
-    "27738870757", #Jacqueline
-    "27829370733", #Wynand
-    "27818513864", #Johan
+    ["27722125094"], #Lindsay
+    ["27738870757"], #Jacqueline
+    ["27829370733"], #Wynand
+    ["27818513864"], #Johan
 }

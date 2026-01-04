@@ -1,35 +1,47 @@
+# app/services/submission_store.py
+
+from datetime import date
 from app.db import get_conn
 from app.services.time_utils import time_to_seconds
 
 
-def get_best_seconds(member_id, event, distance):
+def save_submission(member_id, event, distance, time_text):
     conn = get_conn()
     cur = conn.cursor()
 
+    today = date.today().isoformat()
+
+    # 🚫 Block duplicate submission
     cur.execute("""
-        SELECT MIN(seconds) AS best
-        FROM submissions
-        WHERE member_id = ? AND event = ? AND distance = ?
+        SELECT 1 FROM submissions
+        WHERE member_id = ?
+          AND activity = ?
+          AND DATE(created_at) = ?
+    """, (member_id, event, today))
+
+    if cur.fetchone():
+        conn.close()
+        return "DUPLICATE"
+
+    seconds = time_to_seconds(time_text)
+
+    # 🔥 Check PB
+    cur.execute("""
+        SELECT MIN(seconds) FROM submissions
+        WHERE member_id = ?
+          AND activity = ?
+          AND distance_text = ?
     """, (member_id, event, distance))
 
     row = cur.fetchone()
-    conn.close()
-    return row["best"] if row and row["best"] else None
+    is_pb = row[0] is None or seconds < row[0]
 
-
-def save_submission(member_id, event, distance, time_text):
-    seconds = time_to_seconds(time_text)
-    best = get_best_seconds(member_id, event, distance)
-
-    is_pb = 1 if best is None or seconds < best else 0
-
-    conn = get_conn()
-    cur = conn.cursor()
-
+    # ✅ Insert submission
     cur.execute("""
-        INSERT INTO submissions (member_id, event, distance, time, seconds, is_pb)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (member_id, event, distance, time_text, seconds, is_pb))
+        INSERT INTO submissions (
+            member_id, activity, distance_text, time_text, seconds
+        ) VALUES (?, ?, ?, ?, ?)
+    """, (member_id, event, distance, time_text, seconds))
 
     conn.commit()
     conn.close()
