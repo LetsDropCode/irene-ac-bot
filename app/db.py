@@ -42,7 +42,7 @@ def init_db():
     """)
 
     # Event codes
-    cur.execute("""""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS event_codes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         event TEXT NOT NULL,
