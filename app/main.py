@@ -8,6 +8,7 @@ app = FastAPI()
 
 @app.on_event("startup")
 def startup():
+    print("🚀 Starting up – initializing DB")
     init_db()
 
 app.include_router(webhook_router)
@@ -16,5 +17,6 @@ app.include_router(webhook_router)
 def read_root():
     return {
         "status": "ok",
+        "message": "Irene AC Bot is running",
         "env": ENV
     }
