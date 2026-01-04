@@ -1,24 +1,38 @@
-# app/services/validation.py
-from app.services.event_detection import get_active_event
+# app/db.py
+import sqlite3
+from pathlib import Path
 
-TT_ALLOWED_DISTANCES = {"4km", "6km", "8km"}
+DB_PATH = Path("data.db")
 
-def validate_submission(parsed, now=None):
-    """
-    Returns (is_valid: bool, message: str, event: str | None)
-    """
-    if not parsed:
-        return False, "❌ Format must be: CODE 6km 24:12", None
+def get_connection():
+    return sqlite3.connect(DB_PATH)
 
-    event = get_active_event(now)
-    if not event:
-        return False, "⏱️ Submissions are currently closed.", None
+def init_db():
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    distance = parsed.get("distance")
-    if not distance:
-        return False, "❌ Distance is missing.", event
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT UNIQUE NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
 
-    if event == "TT" and distance not in TT_ALLOWED_DISTANCES:
-        return False, "❌ TT distances are 4km, 6km or 8km only.", event
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id INTEGER NOT NULL,
+        event TEXT NOT NULL,
+        distance TEXT NOT NULL,
+        time TEXT NOT NULL,
+        code TEXT NOT NULL,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (member_id) REFERENCES members(id)
+    )
+    """)
 
-    return True, "OK", event
+    conn.commit()
+    conn.close()
