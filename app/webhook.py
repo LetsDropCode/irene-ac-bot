@@ -1,87 +1,66 @@
-# app/webhook.py
 from fastapi import APIRouter, Request
 from app.config import VERIFY_TOKEN
 from app.whatsapp import send_whatsapp_message
+from app.members import get_member_by_phone, create_member
 
-router = APIRouter()   # ✅ THIS WAS MISSING / BROKEN
-
+router = APIRouter()
 
 @router.get("/webhook")
 async def verify_webhook(request: Request):
     params = request.query_params
-    mode = params.get("hub.mode")
-    token = params.get("hub.verify_token")
-    challenge = params.get("hub.challenge")
-
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return int(challenge)
+    if (
+        params.get("hub.mode") == "subscribe"
+        and params.get("hub.verify_token") == VERIFY_TOKEN
+    ):
+        return int(params.get("hub.challenge"))
 
     return {"error": "Verification failed"}
-
 
 @router.post("/webhook")
 async def receive_webhook(request: Request):
     payload = await request.json()
-    print("📩 Incoming WhatsApp payload:", payload)
+    print("📩 Incoming payload:", payload)
 
     try:
-        entry = payload["entry"][0]
-        change = entry["changes"][0]
-        value = change["value"]
-
-        messages = value.get("messages")
-        if not messages:
-            return {"status": "ignored"}
-
-        message = messages[0]
-        if message.get("type") != "text":
-            return {"status": "non_text"}
-
+        message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
         from_number = message["from"]
-        text = message["text"]["body"].strip()
+        text = message.get("text", {}).get("body", "").strip()
 
-        print(f"📨 {from_number}: {text}")
+        member = get_member_by_phone(from_number)
 
-        # ---- TT COMMAND ----
-        if text.upper().startswith("TT"):
-            parts = text.split()
-
-            if len(parts) != 3:
+        # 🆕 First-time user
+        if not member:
+            if " " not in text:
                 send_whatsapp_message(
                     to=from_number,
                     text=(
-                        "❌ Invalid TT format.\n\n"
-                        "Use:\nTT 5km 21:34"
+                        "👋 Welcome to Irene Athletics Club!\n\n"
+                        "Please reply with your *Name and Surname*.\n"
+                        "Example: John Smith"
                     )
                 )
-                return {"status": "bad_tt_format"}
+                return {"status": "awaiting_name"}
 
-            _, distance, time = parts
-
-            print(f"🏁 TT SUBMISSION → {from_number} | {distance} | {time}")
+            first_name, last_name = text.split(" ", 1)
+            internal_id = create_member(from_number, first_name, last_name)
 
             send_whatsapp_message(
                 to=from_number,
                 text=(
-                    "✅ TT received!\n\n"
-                    f"Distance: {distance}\n"
-                    f"Time: {time}\n\n"
-                    "Good luck! 🏃‍♂️🔥"
+                    f"✅ Thanks {first_name}!\n\n"
+                    f"You are now registered.\n"
+                    f"Your member ID is *{internal_id}* 🏃‍♂️"
                 )
             )
-            return {"status": "tt_logged"}
+            return {"status": "member_created"}
 
-        # ---- DEFAULT RESPONSE ----
+        # 👤 Existing member
         send_whatsapp_message(
             to=from_number,
-            text=(
-                "👋 Irene AC Bot here!\n\n"
-                "To submit a Time Trial, send:\n"
-                "TT 5km 21:34"
-            )
+            text="👋 You’re already registered. Ready for your next submission!"
         )
 
     except Exception as e:
         print("❌ Webhook error:", repr(e))
 
-    return {"status": "ok"}
+    return {"status": "received"}
