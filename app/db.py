@@ -3,31 +3,47 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
 
-load_dotenv()
-
+# --------------------------------------------------
+# Database configuration
+# --------------------------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not set")
 
+
+# --------------------------------------------------
+# Connection helpers
+# --------------------------------------------------
 def get_conn():
+    """
+    Returns a PostgreSQL connection with dict-style rows.
+    """
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
     )
 
-# ✅ THIS IS WHAT YOUR APP IMPORTS
+
+# Alias used everywhere else in the app
 def get_db():
     return get_conn()
 
+
+# --------------------------------------------------
+# Database initialisation
+# --------------------------------------------------
 def init_db():
-    print("🚨 INIT_DB RUNNING 🚨")
+    print("🚨 INIT_DB START 🚨")
+    print("🔗 DATABASE_URL:", DATABASE_URL)
 
     conn = get_conn()
     cur = conn.cursor()
 
+    # ----------------------------
+    # Members
+    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id SERIAL PRIMARY KEY,
@@ -38,6 +54,9 @@ def init_db():
         );
     """)
 
+    # ----------------------------
+    # Submissions
+    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
             id SERIAL PRIMARY KEY,
@@ -50,6 +69,9 @@ def init_db():
         );
     """)
 
+    # ----------------------------
+    # Event codes
+    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
             id SERIAL PRIMARY KEY,
@@ -60,6 +82,9 @@ def init_db():
         );
     """)
 
+    # ----------------------------
+    # Event configuration
+    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
             id SERIAL PRIMARY KEY,
@@ -71,8 +96,13 @@ def init_db():
         );
     """)
 
-    cur.execute("SELECT COUNT(*) FROM event_config;")
-    if cur.fetchone()["count"] == 0:
+    # ----------------------------
+    # Seed default events (only once)
+    # ----------------------------
+    cur.execute("SELECT COUNT(*) AS count FROM event_config;")
+    count = cur.fetchone()["count"]
+
+    if count == 0:
         cur.executemany("""
             INSERT INTO event_config (event, day_of_week, open_time, close_time)
             VALUES (%s, %s, %s, %s)
@@ -81,7 +111,10 @@ def init_db():
             ("WEDLSD", 2, "17:00", "22:00"),
             ("SUNSOCIAL", 6, "05:30", "22:00"),
         ])
+        print("✅ Seeded event_config")
 
     conn.commit()
     cur.close()
     conn.close()
+
+    print("✅ INIT_DB COMPLETE")
