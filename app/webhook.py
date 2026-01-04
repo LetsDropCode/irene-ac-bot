@@ -10,9 +10,9 @@ from app.services.validation import validate_submission
 from app.services.leaderboard import get_weekly_leaderboard
 from app.services.leaderboard_formatter import format_leaderboard
 from app.config import ADMIN_NUMBERS
+from app.services.admin_codes import generate_admin_code_message
 
 router = APIRouter()
-
 
 # --------------------------------------------------
 # Webhook verification (Meta)
@@ -43,6 +43,11 @@ async def receive_webhook(request: Request):
         from_number = message["from"]
         text = message.get("text", {}).get("body", "").strip()
 
+        # 🔐 Admin-only: daily codes
+        if  from_number in ADMIN_NUMBERS and text == "ADMIN CODES":
+            reply = generate_admin_code_message()
+            send_whatsapp_message(from_number, reply)
+            return {"status": "admin_codes_sent"}
         print(f"📨 Message from {from_number}: {text}")
 
         # --------------------------------------------
