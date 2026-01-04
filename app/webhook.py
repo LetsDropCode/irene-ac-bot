@@ -1,16 +1,12 @@
 # app/webhook.py
 
 from fastapi import APIRouter, Request
-from app.config import VERIFY_TOKEN
+from app.config import VERIFY_TOKEN, ADMIN_NUMBERS
 from app.whatsapp import send_whatsapp_message
 from app.members import get_member_by_phone, create_member
-from app.services.submission_store import save_submission
 from app.services.submission_parser import parse_submission
 from app.services.validation import validate_submission
-from app.services.leaderboard import get_weekly_leaderboard
-from app.services.leaderboard_formatter import format_leaderboard
-from app.config import ADMIN_NUMBERS
-from app.services.admin_codes import generate_admin_code_message
+from app.services.submission_store import save_submission
 
 router = APIRouter()
 
@@ -43,26 +39,29 @@ async def receive_webhook(request: Request):
         from_number = message["from"]
         text = message.get("text", {}).get("body", "").strip()
 
-        # 🔐 Admin-only: daily codes
-        if  from_number in ADMIN_NUMBERS and text == "ADMIN CODES":
+        print(f"📨 Message from {from_number}: {text}")
+
+        # ==================================================
+        # ADMIN: DAILY EVENT CODES
+        # ==================================================
+        if from_number in ADMIN_NUMBERS and text.upper() == "ADMIN CODES":
+            from app.services.admin_codes import generate_admin_code_message
             reply = generate_admin_code_message()
             send_whatsapp_message(from_number, reply)
             return {"status": "admin_codes_sent"}
-        print(f"📨 Message from {from_number}: {text}")
 
-        # --------------------------------------------
-        # MEMBER CHECK / REGISTRATION
-        # --------------------------------------------
+        # ==================================================
+        # MEMBER REGISTRATION
+        # ==================================================
         member = get_member_by_phone(from_number)
 
         if not member:
-            # Expecting Name + Surname
             if " " not in text:
                 send_whatsapp_message(
                     to=from_number,
                     text=(
                         "👋 Welcome to *Irene Athletics Club*!\n\n"
-                        "Please reply with your *Name and Surname* to register.\n"
+                        "Please reply with your *Name and Surname*.\n"
                         "Example:\n"
                         "*John Smith*"
                     )
@@ -78,35 +77,38 @@ async def receive_webhook(request: Request):
                     f"✅ Thanks {first_name}!\n\n"
                     f"You’re now registered.\n"
                     f"Member ID: *{internal_id}*\n\n"
-                    "You can now submit your run when submissions are open 🏃‍♂️"
+                    "You can submit once runs are open 🏃‍♂️"
                 )
             )
             return {"status": "member_created"}
 
-        # --------------------------------------------
-        # ADMIN LEADERBOARD COMMAND
-        # --------------------------------------------
+        # ==================================================
+        # ADMIN: LEADERBOARD COMMAND
+        # ==================================================
         if from_number in ADMIN_NUMBERS and text.upper().startswith("LEADERBOARD"):
             parts = text.upper().split()
 
-        if len(parts) != 3:
-            send_whatsapp_message(
-            to=from_number,
-            text="❌ Format: LEADERBOARD TT 6km"
-        )
-            return {"status": "bad_command"}
+            if len(parts) != 3:
+                send_whatsapp_message(
+                    to=from_number,
+                    text="❌ Format: LEADERBOARD TT 6km"
+                )
+                return {"status": "bad_command"}
 
-        _, event, distance = parts
+            _, event, distance = parts
 
-        rows = get_weekly_leaderboard(event, distance)
-        message = format_leaderboard(event, distance, rows)
+            from app.services.leaderboard import get_weekly_leaderboard
+            from app.services.leaderboard_formatter import format_leaderboard
 
-        send_whatsapp_message(to=from_number, text=message)
-        return {"status": "leaderboard_sent"}
+            rows = get_weekly_leaderboard(event, distance)
+            message = format_leaderboard(event, distance, rows)
 
-        # --------------------------------------------
-        # SUBMISSION FLOW (REGISTERED MEMBERS)
-        # --------------------------------------------
+            send_whatsapp_message(to=from_number, text=message)
+            return {"status": "leaderboard_sent"}
+
+        # ==================================================
+        # RUN SUBMISSION FLOW
+        # ==================================================
         parsed = parse_submission(text)
 
         is_valid, message, event = validate_submission(parsed)
@@ -115,33 +117,26 @@ async def receive_webhook(request: Request):
             send_whatsapp_message(to=from_number, text=message)
             return {"status": "rejected"}
 
-        # --------------------------------------------
-        # VALID SUBMISSION (Phase E will save to DB)
-        # --------------------------------------------
-        distance = parsed["distance"]
-        time = parsed["time"]
-        code = parsed["code"]
-
-        is_pb = save_submission(
-            member_id=member["id"],
-            event=event,
-            distance=distance,
-            time_text=time
+        # Save submission
+        save_submission(
+            phone=from_number,
+            activity=event,
+            distance_text=parsed["distance"],
+            time_text=parsed["time"]
         )
-        pb_text = "🔥 *NEW PERSONAL BEST!* 🔥\n\n" if is_pb else ""
+
         send_whatsapp_message(
             to=from_number,
             text=(
                 "✅ *Submission received!*\n\n"
                 f"Event: *{event}*\n"
-                f"Distance: *{distance}*\n"
-                f"Time: *{time}*\n"
-                f"Code: *{code}*\n\n"
+                f"Distance: *{parsed['distance']}*\n"
+                f"Time: *{parsed['time']}*\n\n"
                 "🏁 Well done!"
             )
         )
 
-        print("✅ Valid submission:", parsed, "Event:", event)
+        print("✅ Submission saved:", parsed)
 
     except Exception as e:
         print("❌ Webhook error:", repr(e))
