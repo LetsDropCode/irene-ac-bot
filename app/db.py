@@ -41,5 +41,17 @@ def init_db():
     )
     """)
 
+    # Event codes
+    cur.execute("""""
+    CREATE TABLE IF NOT EXISTS event_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event TEXT NOT NULL,
+        code TEXT NOT NULL,
+        valid_date DATE NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """)
+    
+            
     conn.commit()
     conn.close()
