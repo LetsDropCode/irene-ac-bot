@@ -1,5 +1,6 @@
 # app/db.py
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from pathlib import Path
 DATA_DIR = Path("/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DB_PATH = DATA_DIR / "data.db"
+DB_PATH = Path(os.getenv("DATABASE_PATH", "data.db"))
 
 
 def get_conn():
