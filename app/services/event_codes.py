@@ -3,16 +3,18 @@ from datetime import date
 from app.db import get_db
 from app.services.code_generator import generate_event_code
 
-def create_event_code(event: str, valid_date: date):
+def create_event_code(event: str, event_date=None):
+    if not event_date:
+        event_date = date.today().isoformat()
+
     conn = get_db()
     cur = conn.cursor()
 
-    # Check if code already exists
     cur.execute("""
         SELECT code FROM event_codes
-        WHERE event = ? AND valid_date = ?
-    """, (event, valid_date))
-    
+        WHERE event = ? AND event_date = ?
+    """, (event, event_date))
+
     existing = cur.fetchone()
     if existing:
         conn.close()
@@ -21,9 +23,9 @@ def create_event_code(event: str, valid_date: date):
     code = generate_event_code()
 
     cur.execute("""
-        INSERT INTO event_codes (event, code, valid_date, created_at)
+        INSERT INTO event_codes (event, code, event_date, created_at)
         VALUES (?, ?, ?, datetime('now'))
-    """, (event, code, valid_date))
+    """, (event, code, event_date))
 
     conn.commit()
     conn.close()

@@ -9,8 +9,8 @@ def generate_admin_code_message(now=None):
     if not events:
         return "ℹ️ No scheduled events today."
 
+    today = date.today().isoformat()
     lines = ["📅 *Today's Run Codes*"]
-    today = date.today()
 
     for event in events:
         code = create_event_code(event, today)
