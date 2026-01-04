@@ -1,6 +1,6 @@
 # app/services/validation.py
 from datetime import datetime
-from app.services.event_detector import get_active_event
+from app.services.event_detection import get_active_event
 
 TT_ALLOWED_DISTANCES = {"4km", "6km", "8km"}
 
