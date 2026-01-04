@@ -6,11 +6,9 @@ from app.db import init_db
 
 app = FastAPI()
 
-init_db()
-
 @app.on_event("startup")
 def startup():
-    init_db()
+    init_db()   # ✅ runs once, after Railway mounts the volume
 
 app.include_router(webhook_router)
 
