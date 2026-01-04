@@ -1,21 +1,24 @@
-# app/db.py
-import sqlite3
+# app/services/validation.py
+from app.services.event_detection import get_active_event
 
-DB_PATH = "data.db"
+TT_ALLOWED_DISTANCES = {"4km", "6km", "8km"}
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+def validate_submission(parsed, now=None):
+    """
+    Returns (is_valid: bool, message: str, event: str | None)
+    """
+    if not parsed:
+        return False, "❌ Format must be: CODE 6km 24:12", None
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS members (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        phone TEXT UNIQUE NOT NULL,
-        first_name TEXT,
-        last_name TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+    event = get_active_event(now)
+    if not event:
+        return False, "⏱️ Submissions are currently closed.", None
 
-    conn.commit()
-    conn.close()
+    distance = parsed.get("distance")
+    if not distance:
+        return False, "❌ Distance is missing.", event
+
+    if event == "TT" and distance not in TT_ALLOWED_DISTANCES:
+        return False, "❌ TT distances are 4km, 6km or 8km only.", event
+
+    return True, "OK", event
