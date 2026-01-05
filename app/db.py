@@ -1,42 +1,25 @@
 # app/db.py
-
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# --------------------------------------------------
-# Database configuration
-# --------------------------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not set")
 
-
-# --------------------------------------------------
-# Connection helpers
-# --------------------------------------------------
 def get_conn():
-    """
-    Returns a PostgreSQL connection with dict-style rows.
-    """
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
     )
 
-
-# Alias used everywhere else in the app
+# Alias used everywhere else
 def get_db():
     return get_conn()
 
-
-# --------------------------------------------------
-# Database initialisation
-# --------------------------------------------------
 def init_db():
-    print("🚨 INIT_DB START 🚨")
-    print("🔗 DATABASE_URL:", DATABASE_URL)
+    print("🚀 Initialising database...")
 
     conn = get_conn()
     cur = conn.cursor()
@@ -70,7 +53,7 @@ def init_db():
     """)
 
     # ----------------------------
-    # Event codes
+    # Event Codes
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
@@ -78,12 +61,13 @@ def init_db():
             event TEXT NOT NULL,
             code TEXT NOT NULL,
             event_date DATE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (event, event_date)
         );
     """)
 
     # ----------------------------
-    # Event configuration
+    # Event Config
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
@@ -96,13 +80,9 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Seed default events (only once)
-    # ----------------------------
+    # Seed defaults once
     cur.execute("SELECT COUNT(*) AS count FROM event_config;")
-    count = cur.fetchone()["count"]
-
-    if count == 0:
+    if cur.fetchone()["count"] == 0:
         cur.executemany("""
             INSERT INTO event_config (event, day_of_week, open_time, close_time)
             VALUES (%s, %s, %s, %s)
@@ -117,4 +97,4 @@ def init_db():
     cur.close()
     conn.close()
 
-    print("✅ INIT_DB COMPLETE")
+    print("✅ Database ready")
