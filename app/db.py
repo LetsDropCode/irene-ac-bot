@@ -14,18 +14,16 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 async def webhook(request: Request):
     payload = await request.json()
 
-    # Loop through WhatsApp structure safely
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
 
             value = change.get("value", {})
 
             # --------------------------------------------------
-            # ✅ Ignore delivery / read status callbacks
+            # ✅ Ignore delivery / read receipts
             # --------------------------------------------------
             if "messages" not in value:
-                # This is a sent / delivered / read receipt
-                return {"status": "ignored"}
+                continue
 
             message = value["messages"][0]
 
@@ -33,7 +31,7 @@ async def webhook(request: Request):
             text = message.get("text", {}).get("body", "").strip()
 
             if not from_number or not text:
-                return {"status": "invalid_message"}
+                continue
 
             print(f"📨 Message from {from_number}: {text}")
 
@@ -41,7 +39,7 @@ async def webhook(request: Request):
             cur = conn.cursor()
 
             # --------------------------------------------------
-            # 🔍 Look up or create member
+            # 🔍 Look up member
             # --------------------------------------------------
             cur.execute(
                 "SELECT * FROM members WHERE phone = %s;",
@@ -49,8 +47,10 @@ async def webhook(request: Request):
             )
             member = cur.fetchone()
 
+            # --------------------------------------------------
+            # 🆕 First-time user
+            # --------------------------------------------------
             if not member:
-                # First-time user
                 cur.execute(
                     """
                     INSERT INTO members (phone, first_name, last_name, participation_type)
@@ -63,19 +63,22 @@ async def webhook(request: Request):
                 conn.commit()
 
                 reply = (
-                    "👋 Welcome to the Irene AC WhatsApp bot!\n\n"
+                    "👋 Welcome to the *Irene AC WhatsApp Bot*!\n\n"
                     "Before we get going, how do you usually participate?\n\n"
                     "Reply with:\n"
-                    "🏃 RUNNER\n"
-                    "🚶 WALKER\n"
-                    "🏃‍♂️🚶 BOTH"
+                    "🏃 *RUNNER*\n"
+                    "🚶 *WALKER*\n"
+                    "🏃‍♂️🚶 *BOTH*"
                 )
 
+            # --------------------------------------------------
+            # 👋 Returning user (Phase 1 placeholder)
+            # --------------------------------------------------
             else:
                 reply = (
-                    "👋 Hi again!\n\n"
-                    "I’ve got you registered. Submission features are active.\n"
-                    "More coming very soon 👀"
+                    "👋 Welcome back!\n\n"
+                    "You’re registered and ready to go.\n"
+                    "More features coming very soon 👀"
                 )
 
             cur.close()
