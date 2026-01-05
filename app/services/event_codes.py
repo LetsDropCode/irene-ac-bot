@@ -1,24 +1,17 @@
 # app/services/event_codes.py
-import random
-import string
 from datetime import date
 from app.db import get_db
+from app.services.code_generator import generate_event_code
 
-def _generate_code():
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
-
-def get_or_create_event_code(event: str):
-    today = date.today()
-
+def create_event_code(event: str, valid_date: date):
     conn = get_db()
     cur = conn.cursor()
 
-    # Check if code already exists
     cur.execute("""
         SELECT code
         FROM event_codes
         WHERE event = %s AND event_date = %s
-    """, (event, today))
+    """, (event, valid_date))
 
     row = cur.fetchone()
     if row:
@@ -26,16 +19,14 @@ def get_or_create_event_code(event: str):
         conn.close()
         return row["code"]
 
-    # Create new code
-    code = _generate_code()
+    code = generate_event_code()
 
     cur.execute("""
         INSERT INTO event_codes (event, code, event_date)
         VALUES (%s, %s, %s)
-    """, (event, code, today))
+    """, (event, code, valid_date))
 
     conn.commit()
     cur.close()
     conn.close()
-
     return code
