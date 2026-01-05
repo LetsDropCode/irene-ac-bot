@@ -80,6 +80,56 @@ async def webhook(request: Request):
 
     return {"status": "ok"}
 
+            # --------------------------------------------------
+            # 🧭 Participation selection (first-time setup)
+            # --------------------------------------------------
+    if member and member["participation_type"] is None:
+        choice = text.upper()
+
+    if choice in ["RUNNER", "WALKER", "BOTH"]:
+        cur.execute(
+            """
+            UPDATE members
+            SET participation_type = %s
+            WHERE id = %s;
+            """,
+            (choice, member["id"])
+        )
+        conn.commit()
+
+        if choice == "RUNNER":
+            reply = (
+                "🏃 Awesome — you’re set up as a *RUNNER*.\n\n"
+                "On run days, just send your time and distance as usual."
+            )
+        elif choice == "WALKER":
+            reply = (
+                "🚶 Great — you’re set up as a *WALKER*.\n\n"
+                "On walk days, you’ll only need to submit your *time*."
+            )
+        else:  # BOTH
+            reply = (
+                "🏃‍♂️🚶 Perfect — you’re set up as *BOTH*.\n\n"
+                "On the day, I’ll ask whether you’re running or walking."
+            )
+
+        cur.close()
+        conn.close()
+        send_whatsapp_message(from_number, reply)
+        return {"status": "participation_set"}
+
+    else:
+        reply = (
+            "Before we continue, please reply with one of the following:\n\n"
+            "🏃 RUNNER\n"
+            "🚶 WALKER\n"
+            "🏃‍♂️🚶 BOTH"
+        )
+
+        cur.close()
+        conn.close()
+        send_whatsapp_message(from_number, reply)
+        return {"status": "awaiting_participation"}
 
 # --------------------------------------------------
 # WhatsApp sender
