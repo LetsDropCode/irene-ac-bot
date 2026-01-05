@@ -24,7 +24,7 @@ def init_db():
     cur = conn.cursor()
 
     # ----------------------------
-    # Members
+    # Core tables (minimal schema)
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS members (
@@ -32,14 +32,10 @@ def init_db():
             phone TEXT UNIQUE NOT NULL,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
-            participation_type TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
 
-    # ----------------------------
-    # Submissions
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
             id SERIAL PRIMARY KEY,
@@ -48,14 +44,10 @@ def init_db():
             distance_text TEXT,
             time_text TEXT NOT NULL,
             seconds INTEGER NOT NULL,
-            mode TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
 
-    # ----------------------------
-    # Event codes
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
             id SERIAL PRIMARY KEY,
@@ -66,9 +58,6 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Event configuration
-    # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
             id SERIAL PRIMARY KEY,
@@ -81,22 +70,19 @@ def init_db():
     """)
 
     # ----------------------------
-    # Migrations / Backfills
+    # Migrations (SAFE)
     # ----------------------------
-
-    # Add participation_type if missing
     cur.execute("""
         ALTER TABLE members
         ADD COLUMN IF NOT EXISTS participation_type TEXT;
     """)
 
-    # Add mode if missing
     cur.execute("""
         ALTER TABLE submissions
         ADD COLUMN IF NOT EXISTS mode TEXT;
     """)
 
-    # Backfill defaults
+    # Backfills
     cur.execute("""
         UPDATE members
         SET participation_type = 'RUNNER'
@@ -108,7 +94,7 @@ def init_db():
         SET mode = 'RUN'
         WHERE mode IS NULL;
     """)
-    
+
     # ----------------------------
     # Seed events
     # ----------------------------

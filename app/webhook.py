@@ -19,9 +19,7 @@ async def webhook(request: Request):
         for change in entry.get("changes", []):
             value = change.get("value", {})
 
-            # ---------------------------------------------
-            # Ignore delivery/read status callbacks
-            # ---------------------------------------------
+            # Ignore delivery/read receipts
             if "messages" not in value:
                 return {"status": "ignored"}
 
@@ -46,14 +44,15 @@ async def webhook(request: Request):
             )
             member = cur.fetchone()
 
+            # First-time user
             if not member:
                 cur.execute(
                     """
                     INSERT INTO members (phone, first_name, last_name, participation_type)
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (%s, %s, %s, NULL)
                     RETURNING *;
                     """,
-                    (from_number, "Unknown", "Member", None)
+                    (from_number, "Unknown", "Member")
                 )
                 member = cur.fetchone()
                 conn.commit()
@@ -66,70 +65,68 @@ async def webhook(request: Request):
                     "🚶 WALKER\n"
                     "🏃‍♂️🚶 BOTH"
                 )
-            else:
-                reply = (
-                    "👋 Hi!\n\n"
-                    "You’re registered 👍\n"
-                    "Submission features are live."
-                )
+
+                cur.close()
+                conn.close()
+                send_whatsapp_message(from_number, reply)
+                return {"status": "awaiting_participation"}
+
+            # ---------------------------------------------
+            # Participation setup
+            # ---------------------------------------------
+            if member["participation_type"] is None:
+                choice = text.upper()
+
+                if choice in ["RUNNER", "WALKER", "BOTH"]:
+                    cur.execute(
+                        """
+                        UPDATE members
+                        SET participation_type = %s
+                        WHERE id = %s;
+                        """,
+                        (choice, member["id"])
+                    )
+                    conn.commit()
+
+                    if choice == "RUNNER":
+                        reply = "🏃 You’re set up as a *RUNNER*."
+                    elif choice == "WALKER":
+                        reply = "🚶 You’re set up as a *WALKER*."
+                    else:
+                        reply = (
+                            "🏃‍♂️🚶 You’re set up as *BOTH*.\n\n"
+                            "On the day, I’ll ask whether you’re running or walking."
+                        )
+
+                    cur.close()
+                    conn.close()
+                    send_whatsapp_message(from_number, reply)
+                    return {"status": "participation_set"}
+
+                else:
+                    reply = (
+                        "Please reply with one of:\n\n"
+                        "🏃 RUNNER\n"
+                        "🚶 WALKER\n"
+                        "🏃‍♂️🚶 BOTH"
+                    )
+
+                    cur.close()
+                    conn.close()
+                    send_whatsapp_message(from_number, reply)
+                    return {"status": "awaiting_participation"}
+
+            # ---------------------------------------------
+            # Normal flow placeholder
+            # ---------------------------------------------
+            reply = "✅ You’re registered. Submission features coming next."
 
             cur.close()
             conn.close()
-
             send_whatsapp_message(from_number, reply)
 
     return {"status": "ok"}
 
-            # --------------------------------------------------
-            # 🧭 Participation selection (first-time setup)
-            # --------------------------------------------------
-    if member and member["participation_type"] is None:
-        choice = text.upper()
-
-    if choice in ["RUNNER", "WALKER", "BOTH"]:
-        cur.execute(
-            """
-            UPDATE members
-            SET participation_type = %s
-            WHERE id = %s;
-            """,
-            (choice, member["id"])
-        )
-        conn.commit()
-
-        if choice == "RUNNER":
-            reply = (
-                "🏃 Awesome — you’re set up as a *RUNNER*.\n\n"
-                "On run days, just send your time and distance as usual."
-            )
-        elif choice == "WALKER":
-            reply = (
-                "🚶 Great — you’re set up as a *WALKER*.\n\n"
-                "On walk days, you’ll only need to submit your *time*."
-            )
-        else:  # BOTH
-            reply = (
-                "🏃‍♂️🚶 Perfect — you’re set up as *BOTH*.\n\n"
-                "On the day, I’ll ask whether you’re running or walking."
-            )
-
-        cur.close()
-        conn.close()
-        send_whatsapp_message(from_number, reply)
-        return {"status": "participation_set"}
-
-    else:
-        reply = (
-            "Before we continue, please reply with one of the following:\n\n"
-            "🏃 RUNNER\n"
-            "🚶 WALKER\n"
-            "🏃‍♂️🚶 BOTH"
-        )
-
-        cur.close()
-        conn.close()
-        send_whatsapp_message(from_number, reply)
-        return {"status": "awaiting_participation"}
 
 # --------------------------------------------------
 # WhatsApp sender
@@ -149,5 +146,4 @@ def send_whatsapp_message(to_number: str, message: str):
     }
 
     response = requests.post(url, headers=headers, json=payload)
-
     print("📤 WhatsApp response:", response.status_code)
