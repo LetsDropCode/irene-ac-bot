@@ -81,8 +81,22 @@ def init_db():
     """)
 
     # ----------------------------
-    # Backfills
+    # Migrations / Backfills
     # ----------------------------
+
+    # Add participation_type if missing
+    cur.execute("""
+        ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS participation_type TEXT;
+    """)
+
+    # Add mode if missing
+    cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS mode TEXT;
+    """)
+
+    # Backfill defaults
     cur.execute("""
         UPDATE members
         SET participation_type = 'RUNNER'
@@ -94,7 +108,7 @@ def init_db():
         SET mode = 'RUN'
         WHERE mode IS NULL;
     """)
-
+    
     # ----------------------------
     # Seed events
     # ----------------------------
