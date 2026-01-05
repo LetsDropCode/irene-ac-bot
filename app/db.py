@@ -1,4 +1,5 @@
 # app/db.py
+
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -8,17 +9,32 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not set")
 
+# Internal guard so init only runs once per container
+_db_initialised = False
+
+
 def get_conn():
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
     )
 
-# Alias used everywhere else
+
+# Alias used throughout services
 def get_db():
     return get_conn()
 
+
 def init_db():
+    """
+    Initialise database schema.
+    Safe to call multiple times.
+    """
+    global _db_initialised
+
+    if _db_initialised:
+        return
+
     print("🚀 Initialising database...")
 
     conn = get_conn()
@@ -53,7 +69,7 @@ def init_db():
     """)
 
     # ----------------------------
-    # Event Codes
+    # Event codes
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_codes (
@@ -61,13 +77,12 @@ def init_db():
             event TEXT NOT NULL,
             code TEXT NOT NULL,
             event_date DATE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (event, event_date)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
 
     # ----------------------------
-    # Event Config
+    # Event configuration
     # ----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS event_config (
@@ -80,7 +95,9 @@ def init_db():
         );
     """)
 
-    # Seed defaults once
+    # ----------------------------
+    # Seed defaults
+    # ----------------------------
     cur.execute("SELECT COUNT(*) AS count FROM event_config;")
     if cur.fetchone()["count"] == 0:
         cur.executemany("""
@@ -91,10 +108,10 @@ def init_db():
             ("WEDLSD", 2, "17:00", "22:00"),
             ("SUNSOCIAL", 6, "05:30", "22:00"),
         ])
-        print("✅ Seeded event_config")
 
     conn.commit()
     cur.close()
     conn.close()
 
+    _db_initialised = True
     print("✅ Database ready")
