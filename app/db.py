@@ -1,5 +1,4 @@
 # app/db.py
-
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -9,34 +8,26 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not set")
 
-# Internal guard so init only runs once per container
-_db_initialised = False
+# Railway sometimes gives postgres:// which psycopg2 hates
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 
 def get_conn():
     return psycopg2.connect(
         DATABASE_URL,
-        cursor_factory=RealDictCursor
+        cursor_factory=RealDictCursor,
+        options="-c search_path=public"
     )
 
 
-# Alias used throughout services
+# Alias used everywhere else
 def get_db():
     return get_conn()
 
 
 def init_db():
-    """
-    Initialise database schema.
-    Safe to call multiple times.
-    """
-    global _db_initialised
-
-    if _db_initialised:
-        return
-
     print("🚀 Initialising database...")
-
     conn = get_conn()
     cur = conn.cursor()
 
@@ -95,9 +86,7 @@ def init_db():
         );
     """)
 
-    # ----------------------------
-    # Seed defaults
-    # ----------------------------
+    # Seed events once
     cur.execute("SELECT COUNT(*) AS count FROM event_config;")
     if cur.fetchone()["count"] == 0:
         cur.executemany("""
@@ -110,8 +99,12 @@ def init_db():
         ])
 
     conn.commit()
+
+    # 🔍 HARD VERIFY (this is the missing piece)
+    cur.execute("SELECT to_regclass('public.members') AS exists;")
+    exists = cur.fetchone()["exists"]
+    print("🔍 members table:", exists)
+
     cur.close()
     conn.close()
-
-    _db_initialised = True
     print("✅ Database ready")
