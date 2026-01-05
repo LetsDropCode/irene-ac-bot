@@ -1,118 +1,116 @@
-# app/webhook.py
+# app/db.py
 
 import os
-from fastapi import APIRouter, Request
-from app.db import get_db
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-router = APIRouter()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-
-
-@router.post("/webhook")
-async def webhook(request: Request):
-    payload = await request.json()
-
-    for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
-
-            value = change.get("value", {})
-
-            # --------------------------------------------------
-            # ✅ Ignore delivery / read receipts
-            # --------------------------------------------------
-            if "messages" not in value:
-                continue
-
-            message = value["messages"][0]
-
-            from_number = message.get("from")
-            text = message.get("text", {}).get("body", "").strip()
-
-            if not from_number or not text:
-                continue
-
-            print(f"📨 Message from {from_number}: {text}")
-
-            conn = get_db()
-            cur = conn.cursor()
-
-            # --------------------------------------------------
-            # 🔍 Look up member
-            # --------------------------------------------------
-            cur.execute(
-                "SELECT * FROM members WHERE phone = %s;",
-                (from_number,)
-            )
-            member = cur.fetchone()
-
-            # --------------------------------------------------
-            # 🆕 First-time user
-            # --------------------------------------------------
-            if not member:
-                cur.execute(
-                    """
-                    INSERT INTO members (phone, first_name, last_name, participation_type)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING *;
-                    """,
-                    (from_number, "Unknown", "Member", None)
-                )
-                member = cur.fetchone()
-                conn.commit()
-
-                reply = (
-                    "👋 Welcome to the *Irene AC WhatsApp Bot*!\n\n"
-                    "Before we get going, how do you usually participate?\n\n"
-                    "Reply with:\n"
-                    "🏃 *RUNNER*\n"
-                    "🚶 *WALKER*\n"
-                    "🏃‍♂️🚶 *BOTH*"
-                )
-
-            # --------------------------------------------------
-            # 👋 Returning user (Phase 1 placeholder)
-            # --------------------------------------------------
-            else:
-                reply = (
-                    "👋 Welcome back!\n\n"
-                    "You’re registered and ready to go.\n"
-                    "More features coming very soon 👀"
-                )
-
-            cur.close()
-            conn.close()
-
-            # --------------------------------------------------
-            # 📤 Send WhatsApp reply
-            # --------------------------------------------------
-            send_whatsapp_message(from_number, reply)
-
-    return {"status": "ok"}
+if not DATABASE_URL:
+    raise RuntimeError("❌ DATABASE_URL not set")
 
 
-# --------------------------------------------------
-# 📤 WhatsApp Send Helper
-# --------------------------------------------------
-def send_whatsapp_message(to_number: str, message: str):
-    import requests
+def get_db():
+    return psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=RealDictCursor
+    )
 
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {"body": message},
-    }
+def init_db():
+    print("🚀 Initialising database...")
 
-    response = requests.post(url, headers=headers, json=payload)
+    conn = get_db()
+    cur = conn.cursor()
 
-    print("📤 WhatsApp send response:")
-    print("📤 Status:", response.status_code)
-    print("📤 Body:", response.text)
+    # ----------------------------
+    # Members
+    # ----------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS members (
+            id SERIAL PRIMARY KEY,
+            phone TEXT UNIQUE NOT NULL,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            participation_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    # ----------------------------
+    # Submissions
+    # ----------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id SERIAL PRIMARY KEY,
+            member_id INTEGER NOT NULL REFERENCES members(id),
+            activity TEXT NOT NULL,
+            distance_text TEXT,
+            time_text TEXT NOT NULL,
+            seconds INTEGER NOT NULL,
+            mode TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    # ----------------------------
+    # Event codes
+    # ----------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS event_codes (
+            id SERIAL PRIMARY KEY,
+            event TEXT NOT NULL,
+            code TEXT NOT NULL,
+            event_date DATE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    # ----------------------------
+    # Event configuration
+    # ----------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS event_config (
+            id SERIAL PRIMARY KEY,
+            event TEXT NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            open_time TEXT NOT NULL,
+            close_time TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        );
+    """)
+
+    # ----------------------------
+    # Backfills
+    # ----------------------------
+    cur.execute("""
+        UPDATE members
+        SET participation_type = 'RUNNER'
+        WHERE participation_type IS NULL;
+    """)
+
+    cur.execute("""
+        UPDATE submissions
+        SET mode = 'RUN'
+        WHERE mode IS NULL;
+    """)
+
+    # ----------------------------
+    # Seed events
+    # ----------------------------
+    cur.execute("SELECT COUNT(*) AS count FROM event_config;")
+    if cur.fetchone()["count"] == 0:
+        cur.executemany("""
+            INSERT INTO event_config (event, day_of_week, open_time, close_time)
+            VALUES (%s, %s, %s, %s)
+        """, [
+            ("TT", 1, "17:00", "22:00"),
+            ("WEDLSD", 2, "17:00", "22:00"),
+            ("SUNSOCIAL", 6, "05:30", "22:00"),
+        ])
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    print("✅ Database ready")
