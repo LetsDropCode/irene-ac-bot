@@ -1,50 +1,37 @@
 # app/members.py
-import sqlite3
-from datetime import datetime
-
-DB_PATH = "data.db"
-
-
-def get_connection():
-    return sqlite3.connect(DB_PATH)
+from app.db import get_db
 
 
 def get_member_by_phone(phone: str):
-    conn = get_connection()
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT id, phone, first_name, last_name FROM members WHERE phone = ?",
-        (phone,),
+        "SELECT * FROM members WHERE phone = %s",
+        (phone,)
     )
-    row = cur.fetchone()
+
+    member = cur.fetchone()
+    cur.close()
     conn.close()
-
-    if row:
-        return {
-            "id": row[0],
-            "phone": row[1],
-            "first_name": row[2],
-            "last_name": row[3],
-        }
-
-    return None
+    return member
 
 
 def create_member(phone: str, first_name: str, last_name: str):
-    conn = get_connection()
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
         """
-        INSERT INTO members (phone, first_name, last_name, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO members (phone, first_name, last_name)
+        VALUES (%s, %s, %s)
+        RETURNING id
         """,
-        (phone, first_name, last_name, datetime.utcnow()),
+        (phone, first_name, last_name)
     )
 
+    member_id = cur.fetchone()["id"]
     conn.commit()
-    member_id = cur.lastrowid
+    cur.close()
     conn.close()
-
     return member_id

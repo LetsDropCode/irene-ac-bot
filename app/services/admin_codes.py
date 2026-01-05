@@ -1,19 +1,13 @@
 # app/services/admin_codes.py
-from datetime import date
-from app.services.event_codes import create_event_code
-from app.services.event_resolver import get_today_events
+from app.services.event_codes import get_or_create_event_code
 
-def generate_admin_code_message(now=None):
-    events = get_today_events(now)
+def generate_admin_code_message():
+    events = ["TT", "WEDLSD", "SUNSOCIAL"]
 
-    if not events:
-        return "ℹ️ No scheduled events today."
-
-    today = date.today().isoformat()
-    lines = ["📅 *Today's Run Codes*"]
+    lines = ["📋 *Today’s Event Codes*"]
 
     for event in events:
-        code = create_event_code(event, today)
-        lines.append(f"{event}: *{code}*")
+        code = get_or_create_event_code(event)
+        lines.append(f"• {event}: *{code}*")
 
     return "\n".join(lines)
