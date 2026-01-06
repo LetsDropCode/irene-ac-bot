@@ -4,20 +4,16 @@ from app.db import get_db
 
 
 def set_submission_state(event: str, is_open: int) -> None:
-    """
-    Opens or closes submissions for an event.
-    is_open: 1 = open, 0 = closed
-    """
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
         """
         UPDATE event_config
-        SET active = %s
+        SET submissions_open = %s
         WHERE event = %s;
         """,
-        (is_open, event)
+        (is_open, event),
     )
 
     conn.commit()
@@ -25,25 +21,25 @@ def set_submission_state(event: str, is_open: int) -> None:
     conn.close()
 
 
-def submissions_are_open(event: str) -> bool:
-    """
-    Returns True if submissions are open for the event.
-    """
+def is_submission_open(event: str) -> bool:
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
         """
-        SELECT active
+        SELECT submissions_open
         FROM event_config
         WHERE event = %s
         LIMIT 1;
         """,
-        (event,)
+        (event,),
     )
 
     row = cur.fetchone()
     cur.close()
     conn.close()
 
-    return bool(row and row["active"] == 1)
+    if not row:
+        return False
+
+    return bool(row["submissions_open"])
