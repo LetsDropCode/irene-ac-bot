@@ -8,7 +8,7 @@ from app.db import get_db
 from app.whatsapp import send_whatsapp_message
 
 # Services
-from app.services.code_generator import generate_event_code
+from app.services.admin_code_service import generate_event_code 
 from app.services.event_detector import detect_today_event
 from app.services.event_code_validator import store_event_code
 from app.services.submission_handler import handle_submission
