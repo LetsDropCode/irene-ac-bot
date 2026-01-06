@@ -185,28 +185,25 @@ async def webhook(request: Request):
             # --------------------------------------------------
             # USER SUBMISSION CHECK
             # --------------------------------------------------
-            event = get_active_event()
-            if not event:
-                send_whatsapp_message(
-                    from_number, "⏱️ Submissions are currently closed."
-                )
-                cur.close()
-                conn.close()
-                return {"status": "submissions_closed"}
-
+            # Admin commands should work if an event is scheduled TODAY
             cur.execute(
-                "SELECT submissions_open FROM event_config WHERE event = %s;",
-                (event,),
+                """
+                SELECT event
+                FROM event_config
+    WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
+      AND active = 1
+                LIMIT 1;
+                """
             )
             row = cur.fetchone()
 
-            if not row or row["submissions_open"] == 0:
-                send_whatsapp_message(
-                    from_number, "⏱️ Submissions are currently closed."
-                )
+            if not row:
+                send_whatsapp_message(from_number, "⚠️ No event scheduled for today.")
                 cur.close()
                 conn.close()
-                return {"status": "submissions_closed"}
+                return {"status": "no_event_today"}
+
+            event = row["event"]
 
             # --------------------------------------------------
             # PARSE + STORE SUBMISSION
