@@ -9,7 +9,7 @@ from app.whatsapp import send_whatsapp_message
 
 # Services
 from app.services.admin_code_service import generate_code 
-from app.services.event_detector import detect_today_event
+from app.services.event_detector import get_active_event
 from app.services.event_code_validator import store_event_code
 from app.services.submission_handler import handle_submission
 
@@ -77,7 +77,7 @@ async def webhook(request: Request):
                     )
                     return {"status": "unauthorised"}
 
-                event = detect_today_event()
+                event = get_active_event()
 
                 if not event:
                     send_whatsapp_message(
