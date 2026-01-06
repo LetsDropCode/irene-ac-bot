@@ -116,19 +116,45 @@ async def webhook(request: Request):
                     conn.close()
                     return {"status": "no_active_event"}
 
-                open_flag = text_upper == "OPEN SUBMISSIONS"
-                set_submission_state(event, open_flag)
+                current_state = is_submission_open(event)
 
-                reply = (
-                    f"🟢 *{event} submissions are OPEN*"
-                    if open_flag
-                    else f"🔴 *{event} submissions are CLOSED*"
-                )
+                if text_upper == "OPEN SUBMISSIONS":
+                    if current_state:
+                        send_whatsapp_message(
+                            from_number,
+                            f"ℹ️ *{event} submissions are already OPEN*",
+                        )
+                        cur.close()
+                        conn.close()
+                        return {"status": "already_open"}
 
-                send_whatsapp_message(from_number, reply)
-                cur.close()
-                conn.close()
-                return {"status": "submission_gate_updated"}
+                    set_submission_state(event, True)
+                    send_whatsapp_message(
+                        from_number,
+                        f"🟢 *{event} submissions are OPEN*",
+                    )
+                    cur.close()
+                    conn.close()
+                    return {"status": "opened"}
+
+                if text_upper == "CLOSE SUBMISSIONS":
+                    if not current_state:
+                        send_whatsapp_message(
+                            from_number,
+                            f"ℹ️ *{event} submissions are already CLOSED*",
+                        )
+                        cur.close()
+                        conn.close()
+                        return {"status": "already_closed"}
+
+                    set_submission_state(event, False)
+                    send_whatsapp_message(
+                        from_number,
+                        f"🔴 *{event} submissions are CLOSED*",
+                    )
+                    cur.close()
+                    conn.close()
+                    return {"status": "closed"}
 
             # ==================================================
             # MEMBER LOOKUP / CREATE
@@ -177,7 +203,7 @@ async def webhook(request: Request):
                         else "🚶 You’re set up as a *WALKER*."
                         if text_upper == "WALKER"
                         else "🏃‍♂️🚶 You’re set up as *BOTH*.\n\n"
-                             "On the day, I’ll ask whether you’re running or walking."
+                        "On the day, I’ll ask whether you’re running or walking."
                     )
 
                     send_whatsapp_message(from_number, reply)
@@ -194,29 +220,17 @@ async def webhook(request: Request):
             # ==================================================
             # USER SUBMISSION FLOW
             # ==================================================
-            cur.execute(
-                """
-                SELECT event
-                FROM event_config
-                WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
-                  AND active = TRUE
-                LIMIT 1;
-                """
-            )
-            today = cur.fetchone()
-
-            if not today:
+            event = get_active_event()
+            if not event:
                 send_whatsapp_message(from_number, "⚠️ No event scheduled for today.")
                 cur.close()
                 conn.close()
                 return {"status": "no_event_today"}
 
-            event = today["event"]
-
             if not is_submission_open(event):
                 send_whatsapp_message(
                     from_number,
-                    "⏱️ Submissions are currently closed."
+                    "⏱️ Submissions are currently closed.",
                 )
                 cur.close()
                 conn.close()
@@ -247,7 +261,7 @@ async def webhook(request: Request):
 
             send_whatsapp_message(
                 from_number,
-                "✅ Submission received. Lekker run/walk 👏"
+                "✅ Submission received. Lekker run/walk 👏",
             )
 
             cur.close()
