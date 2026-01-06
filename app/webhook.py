@@ -10,10 +10,7 @@ from app.services.event_detector import get_active_event
 from app.services.admin_code_service import generate_code
 from app.services.submission_parser import parse_submission
 from app.services.submission_service import store_submission
-from app.services.submission_gate import (
-    set_submission_state,
-    submissions_are_open,
-)
+from app.services.submission_gate import is_submission_open, set_submission_state
 
 router = APIRouter()
 
@@ -33,7 +30,7 @@ async def webhook(request: Request):
         for change in entry.get("changes", []):
             value = change.get("value", {})
 
-            # Ignore delivery / read receipts
+            # Ignore delivery/read receipts
             if "messages" not in value:
                 return {"status": "ignored"}
 
@@ -44,7 +41,7 @@ async def webhook(request: Request):
             if not from_number or not text:
                 return {"status": "invalid"}
 
-            text_upper = text.upper()
+            text_upper = text.upper().replace("SUBMISSION", "SUBMISSIONS")
             print(f"📨 {from_number}: {text}")
 
             conn = get_db()
@@ -114,84 +111,98 @@ async def webhook(request: Request):
                 conn.close()
                 return {"status": "participation_set"}
 
-            # ==================================================
-            # ADMIN COMMANDS (BYPASS EVENT WINDOW)
-            # ==================================================
-            if from_number in ADMIN_NUMBERS:
+            # --------------------------------------------------
+            # ADMIN: ADD CODE (DAY-BASED, NOT TIME-BASED)
+            # --------------------------------------------------
+            if text_upper == "ADD CODE":
+                if from_number not in ADMIN_NUMBERS:
+                    send_whatsapp_message(from_number, "⛔ Not authorised.")
+                    cur.close()
+                    conn.close()
+                    return {"status": "unauthorised"}
 
-                # ---------- ADD CODE ----------
-                if text_upper == "ADD CODE":
-                    event = get_active_event()
-                    if not event:
-                        send_whatsapp_message(
-                            from_number,
-                            "⚠️ No event scheduled for right now."
-                        )
-                        cur.close()
-                        conn.close()
-                        return {"status": "no_event_today"}
+                # Determine event by DAY (not active window)
+                cur.execute(
+                    """
+                    SELECT event
+                    FROM event_config
+                    WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
+                      AND active = 1
+                    LIMIT 1;
+                    """
+                )
+                row = cur.fetchone()
 
-                    code = generate_code()
-
-                    cur.execute(
-                        """
-                        INSERT INTO event_codes (event, code, event_date)
-                        VALUES (%s, %s, CURRENT_DATE);
-                        """,
-                        (event, code)
-                    )
-                    conn.commit()
-
+                if not row:
                     send_whatsapp_message(
                         from_number,
-                        f"🔐 *{event} CODE FOR TODAY*\n\n{code}"
+                        "⚠️ No event scheduled for today."
                     )
-
                     cur.close()
                     conn.close()
-                    return {"status": "code_created"}
+                    return {"status": "no_event_today"}
 
-                # ---------- OPEN / CLOSE SUBMISSIONS ----------
-                if text_upper in {"OPEN SUBMISSIONS", "CLOSE SUBMISSIONS"}:
-                    event = get_active_event()
-                    if not event:
-                        send_whatsapp_message(
-                            from_number,
-                            "⚠️ No active event right now."
-                        )
-                        cur.close()
-                        conn.close()
-                        return {"status": "no_event"}
+                event = row["event"]
+                code = generate_code()
 
-                    if text_upper == "OPEN SUBMISSIONS":
-                        set_submission_state(event, 1)
-                        reply = f"🟢 *{event} submissions are now OPEN*"
-                    else:
-                        set_submission_state(event, 0)
-                        reply = f"🔴 *{event} submissions are now CLOSED*"
+                cur.execute(
+                    """
+                    INSERT INTO event_codes (event, code, event_date)
+                    VALUES (%s, %s, CURRENT_DATE);
+                    """,
+                    (event, code)
+                )
+                conn.commit()
 
-                    send_whatsapp_message(from_number, reply)
-                    cur.close()
-                    conn.close()
-                    return {"status": "submission_gate_updated"}
-
-            # ==================================================
-            # ATHLETE FLOW (REQUIRES ACTIVE EVENT)
-            # ==================================================
-            event = get_active_event()
-            if not event:
                 send_whatsapp_message(
                     from_number,
-                    "⏱ Submissions are currently closed."
+                    f"🔐 *{event} CODE FOR TODAY*\n\n{code}"
                 )
+
                 cur.close()
                 conn.close()
-                return {"status": "no_event"}
+                return {"status": "code_created"}
 
-            if not submissions_are_open(event):
+            # --------------------------------------------------
+            # ADMIN: OPEN / CLOSE SUBMISSIONS
+            # --------------------------------------------------
+            if text_upper in {"OPEN SUBMISSIONS", "CLOSE SUBMISSIONS"}:
+                if from_number not in ADMIN_NUMBERS:
+                    send_whatsapp_message(from_number, "⛔ Not authorised.")
+                    cur.close()
+                    conn.close()
+                    return {"status": "unauthorised"}
+
+                event = get_active_event()
+                if not event:
+                    send_whatsapp_message(
+                        from_number,
+                        "⚠️ No active event."
+                    )
+                    cur.close()
+                    conn.close()
+                    return {"status": "no_active_event"}
+
+                if text_upper == "OPEN SUBMISSIONS":
+                    set_submission_state(event, 1)
+                    reply = f"🟢 *{event} submissions are now OPEN*"
+                else:
+                    set_submission_state(event, 0)
+                    reply = f"🔴 *{event} submissions are now CLOSED*"
+
+                send_whatsapp_message(from_number, reply)
+                cur.close()
+                conn.close()
+                return {"status": "submission_gate_updated"}
+
+            # --------------------------------------------------
+            # SUBMISSION WINDOW CHECK (USERS ONLY)
+            # --------------------------------------------------
+            event = get_active_event()
+            if not event or not is_submission_open(event):
                 send_whatsapp_message(
                     from_number,
-                    "⏱ Submissions are currently closed."
+                    "⏱️ Submissions are currently closed."
                 )
                 cur.close()
                 conn.close()
