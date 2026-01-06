@@ -1,32 +1,40 @@
-from datetime import datetime, time
+# app/services/event_detector.py
+
+from datetime import datetime
 from app.db import get_db
 
-def get_active_event(now=None):
-    """
-    Returns event name if an event is currently open, else None
-    """
-    now = now or datetime.now()
-    weekday = now.weekday()  # Monday=0
-    current_time = now.time()
 
-    db = get_db()
-    cur = db.cursor()
+def get_active_event() -> str | None:
+    """
+    Returns the active event name for *now*
+    based on event_config.
+    """
 
-    cur.execute("""
-        SELECT event, open_time, close_time
+    now = datetime.now()
+    day_of_week = now.weekday()  # Monday = 0
+    current_time = now.strftime("%H:%M")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT event
         FROM event_config
-        WHERE day_of_week = ?
+        WHERE day_of_week = %s
           AND active = 1
-    """, (weekday,))
+          AND %s BETWEEN open_time AND close_time
+        LIMIT 1;
+        """,
+        (day_of_week, current_time)
+    )
 
-    rows = cur.fetchall()
-    db.close()
+    row = cur.fetchone()
 
-    for row in rows:
-        open_t = time.fromisoformat(row["open_time"])
-        close_t = time.fromisoformat(row["close_time"])
+    cur.close()
+    conn.close()
 
-        if open_t <= current_time <= close_t:
-            return row["event"]
+    if not row:
+        return None
 
-    return None
+    return row["event"]

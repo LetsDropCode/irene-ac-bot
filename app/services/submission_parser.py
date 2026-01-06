@@ -2,44 +2,46 @@
 
 import re
 
-SUBMISSION_PATTERN = re.compile(
-    r"""
-    ^\s*
-    (?P<distance>\d{1,2}km)      # 4km, 6km, 10km
-    \s+
-    (?P<time>\d{1,2}:\d{2})      # MM:SS or M:SS
-    \s+
-    (?P<code>[A-Z0-9]{3,8})      # CODE (3–8 chars)
-    \s*$
-    """,
-    re.IGNORECASE | re.VERBOSE
-)
 
-
-def parse_submission(text: str) -> dict | None:
+def parse_submission(text: str):
     """
-    Parses a submission message.
+    Parses submission text.
+    Returns dict or None if invalid.
 
-    Expected format:
-        4km 18:45 ABC
+    RUN examples:
+    - 5km 24:30 TT123
+    - 6km 31:10 ABC
 
-    Returns:
-        {
-            "distance": "4km",
-            "time": "18:45",
-            "code": "ABC"
+    WALK examples:
+    - 45:30
+    """
+
+    text = text.strip().upper()
+
+    # -------------------------
+    # WALK: time only (MM:SS or HH:MM:SS)
+    # -------------------------
+    walk_match = re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", text)
+    if walk_match:
+        return {
+            "type": "WALK",
+            "time": text
         }
-        or None if invalid
-    """
-    if not text:
-        return None
 
-    match = SUBMISSION_PATTERN.match(text.strip())
-    if not match:
-        return None
+    # -------------------------
+    # RUN: distance + time + code
+    # -------------------------
+    run_match = re.fullmatch(
+        r"(\d+(?:\.\d+)?KM)\s+(\d{1,2}:\d{2})\s+([A-Z0-9]+)",
+        text
+    )
 
-    return {
-        "distance": match.group("distance").lower(),
-        "time": match.group("time"),
-        "code": match.group("code").upper()
-    }
+    if run_match:
+        return {
+            "type": "RUN",
+            "distance": run_match.group(1),
+            "time": run_match.group(2),
+            "code": run_match.group(3)
+        }
+
+    return None
