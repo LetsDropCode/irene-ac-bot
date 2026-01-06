@@ -7,7 +7,6 @@ from app.services.event_detector import get_active_event
 from app.services.admin_code_service import generate_code
 from app.services.submission_parser import parse_submission
 from app.services.submission_service import store_submission
-from app.services.submission_gate import set_submission_state, is_submission_open
 
 router = APIRouter()
 
@@ -27,9 +26,7 @@ async def webhook(request: Request):
         for change in entry.get("changes", []):
             value = change.get("value", {})
 
-            # --------------------------------------------------
             # Ignore delivery/read receipts
-            # --------------------------------------------------
             if "messages" not in value:
                 return {"status": "ignored"}
 
@@ -42,7 +39,6 @@ async def webhook(request: Request):
 
             text_upper = (
                 text.upper()
-                .replace("SUBMISSION", "SUBMISSIONS")
                 .replace("ADD CODES", "ADD CODE")
             )
 
@@ -52,10 +48,8 @@ async def webhook(request: Request):
             cur = conn.cursor()
 
             # ==================================================
-            # ADMIN COMMANDS (ALWAYS FIRST)
+            # ADMIN: ADD CODE
             # ==================================================
-
-            # ---------- ADMIN: ADD CODE ----------
             if text_upper == "ADD CODE":
                 if from_number not in ADMIN_NUMBERS:
                     send_whatsapp_message(from_number, "⛔ Not authorised.")
@@ -100,61 +94,6 @@ async def webhook(request: Request):
                 cur.close()
                 conn.close()
                 return {"status": "code_created"}
-
-            # ---------- ADMIN: OPEN / CLOSE SUBMISSIONS ----------
-            if text_upper in {"OPEN SUBMISSIONS", "CLOSE SUBMISSIONS"}:
-                if from_number not in ADMIN_NUMBERS:
-                    send_whatsapp_message(from_number, "⛔ Not authorised.")
-                    cur.close()
-                    conn.close()
-                    return {"status": "unauthorised"}
-
-                event = get_active_event()
-                if not event:
-                    send_whatsapp_message(from_number, "⚠️ No active event.")
-                    cur.close()
-                    conn.close()
-                    return {"status": "no_active_event"}
-
-                current_state = is_submission_open(event)
-
-                if text_upper == "OPEN SUBMISSIONS":
-                    if current_state:
-                        send_whatsapp_message(
-                            from_number,
-                            f"ℹ️ *{event} submissions are already OPEN*",
-                        )
-                        cur.close()
-                        conn.close()
-                        return {"status": "already_open"}
-
-                    set_submission_state(event, True)
-                    send_whatsapp_message(
-                        from_number,
-                        f"🟢 *{event} submissions are OPEN*",
-                    )
-                    cur.close()
-                    conn.close()
-                    return {"status": "opened"}
-
-                if text_upper == "CLOSE SUBMISSIONS":
-                    if not current_state:
-                        send_whatsapp_message(
-                            from_number,
-                            f"ℹ️ *{event} submissions are already CLOSED*",
-                        )
-                        cur.close()
-                        conn.close()
-                        return {"status": "already_closed"}
-
-                    set_submission_state(event, False)
-                    send_whatsapp_message(
-                        from_number,
-                        f"🔴 *{event} submissions are CLOSED*",
-                    )
-                    cur.close()
-                    conn.close()
-                    return {"status": "closed"}
 
             # ==================================================
             # MEMBER LOOKUP / CREATE
@@ -218,7 +157,7 @@ async def webhook(request: Request):
                 return {"status": "participation_set"}
 
             # ==================================================
-            # USER SUBMISSION FLOW
+            # USER SUBMISSION FLOW (CODE-ONLY)
             # ==================================================
             event = get_active_event()
             if not event:
@@ -227,16 +166,6 @@ async def webhook(request: Request):
                 conn.close()
                 return {"status": "no_event_today"}
 
-            if not is_submission_open(event):
-                send_whatsapp_message(
-                    from_number,
-                    "⏱️ Submissions are currently closed.",
-                )
-                cur.close()
-                conn.close()
-                return {"status": "submissions_closed"}
-
-            # ---------- PARSE + STORE ----------
             parsed = parse_submission(text)
             if not parsed:
                 send_whatsapp_message(
