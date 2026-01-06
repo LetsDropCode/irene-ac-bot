@@ -135,7 +135,7 @@ async def webhook(request: Request):
                     send_whatsapp_message(from_number, "⚠️ No event scheduled for today.")
                 else:
                     open_flag = text_upper == "OPEN SUBMISSIONS"
-                    set_submission_state(today["event"], int(open_flag))
+                    set_submission_state(today["event"], open_flag)
                     state = "OPEN" if open_flag else "CLOSED"
                     send_whatsapp_message(
                         from_number,
