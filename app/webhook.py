@@ -1,7 +1,6 @@
 # app/webhook.py
 
 import os
-from datetime import datetime
 from fastapi import APIRouter, Request
 
 from app.db import get_db
@@ -9,58 +8,32 @@ from app.whatsapp import send_whatsapp_message
 
 from app.services.event_detector import get_active_event
 from app.services.admin_code_service import generate_code
-from app.services.submission_handler import handle_submission
+from app.services.submission_parser import parse_submission
+from app.services.submission_handler import store_submission
+
 
 router = APIRouter()
 
-# -----------------------------------------
-# CONFIG
-# -----------------------------------------
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+
+# ⚠️ Replace with real admin numbers
 ADMIN_NUMBERS = {
-    "27722135094",  # <-- YOU
+    "27722135094",  # Lindsay
 }
 
-# -----------------------------------------
-# HELPERS
-# -----------------------------------------
-def get_today_event() -> str | None:
-    """Return today's event ignoring open/close times"""
-    today = datetime.now().weekday()  # Monday = 0
 
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT event
-        FROM event_config
-        WHERE day_of_week = %s
-          AND active = 1
-        LIMIT 1;
-        """,
-        (today,)
-    )
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    return row["event"] if row else None
-
-
-# -----------------------------------------
-# WEBHOOK
-# -----------------------------------------
 @router.post("/webhook")
 async def webhook(request: Request):
     payload = await request.json()
 
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-
             value = change.get("value", {})
 
-            # Ignore WhatsApp delivery/read receipts
+            # -----------------------------------
+            # Ignore delivery / read receipts
+            # -----------------------------------
             if "messages" not in value:
                 return {"status": "ignored"}
 
@@ -72,15 +45,19 @@ async def webhook(request: Request):
                 return {"status": "invalid"}
 
             text_upper = text.upper()
+
             print(f"📨 {from_number}: {text}")
 
             conn = get_db()
             cur = conn.cursor()
 
-            # -----------------------------------------
-            # MEMBER LOOKUP / CREATE
-            # -----------------------------------------
-            cur.execute("SELECT * FROM members WHERE phone = %s;", (from_number,))
+            # -----------------------------------
+            # Load / create member
+            # -----------------------------------
+            cur.execute(
+                "SELECT * FROM members WHERE phone = %s;",
+                (from_number,)
+            )
             member = cur.fetchone()
 
             if not member:
@@ -97,72 +74,68 @@ async def webhook(request: Request):
 
                 send_whatsapp_message(
                     from_number,
-                    "👋 Welcome to the Irene AC WhatsApp bot!\n\n"
+                    "👋 Welcome to the Irene AC bot!\n\n"
                     "How do you usually participate?\n\n"
-                    "🏃 RUNNER\n🚶 WALKER\n🏃‍♂️🚶 BOTH"
+                    "🏃 RUNNER\n"
+                    "🚶 WALKER\n"
+                    "🏃‍♂️🚶 BOTH"
                 )
-
-                cur.close()
-                conn.close()
-                return {"status": "registered"}
-
-            # -----------------------------------------
-            # PARTICIPATION SETUP
-            # -----------------------------------------
-            if member["participation_type"] is None:
-                if text_upper in {"RUNNER", "WALKER", "BOTH"}:
-                    cur.execute(
-                        """
-                        UPDATE members
-                        SET participation_type = %s
-                        WHERE id = %s;
-                        """,
-                        (text_upper, member["id"])
-                    )
-                    conn.commit()
-
-                    send_whatsapp_message(
-                        from_number,
-                        f"✅ You’re set up as *{text_upper}*.\n\n"
-                        "You can submit during event hours."
-                    )
-
-                    cur.close()
-                    conn.close()
-                    return {"status": "participation_set"}
-
-                send_whatsapp_message(
-                    from_number,
-                    "Please reply with one of:\n\n"
-                    "🏃 RUNNER\n🚶 WALKER\n🏃‍♂️🚶 BOTH"
-                )
-
                 cur.close()
                 conn.close()
                 return {"status": "awaiting_participation"}
 
-            # -----------------------------------------
-            # ADMIN: ADD CODE (DAY-BASED, NOT TIME-BASED)
-            # -----------------------------------------
+            # -----------------------------------
+            # Participation setup
+            # -----------------------------------
+            if member["participation_type"] is None:
+                if text_upper in {"RUNNER", "WALKER", "BOTH"}:
+                    cur.execute(
+                        "UPDATE members SET participation_type = %s WHERE id = %s;",
+                        (text_upper, member["id"])
+                    )
+                    conn.commit()
+
+                    if text_upper == "RUNNER":
+                        reply = "🏃 You’re set as a *RUNNER*."
+                    elif text_upper == "WALKER":
+                        reply = "🚶 You’re set as a *WALKER*."
+                    else:
+                        reply = "🏃‍♂️🚶 You’re set as *BOTH*."
+
+                    send_whatsapp_message(from_number, reply)
+                else:
+                    send_whatsapp_message(
+                        from_number,
+                        "Please reply with:\n🏃 RUNNER\n🚶 WALKER\n🏃‍♂️🚶 BOTH"
+                    )
+
+                cur.close()
+                conn.close()
+                return {"status": "participation_set"}
+
+            # -----------------------------------
+            # ADMIN: ADD CODE (allowed ANY time)
+            # -----------------------------------
             if text_upper == "ADD CODE":
                 if from_number not in ADMIN_NUMBERS:
                     send_whatsapp_message(
                         from_number,
-                        "⛔ You’re not authorised to create event codes."
+                        "⛔ You are not authorised to add event codes."
                     )
                     cur.close()
                     conn.close()
                     return {"status": "unauthorised"}
 
-                event = get_today_event()
+                event = get_active_event()
+
                 if not event:
                     send_whatsapp_message(
                         from_number,
-                        "⚠️ No event configured for today."
+                        "⚠️ No active event right now."
                     )
                     cur.close()
                     conn.close()
-                    return {"status": "no_event_today"}
+                    return {"status": "no_event"}
 
                 code = generate_code()
 
@@ -177,18 +150,28 @@ async def webhook(request: Request):
 
                 send_whatsapp_message(
                     from_number,
-                    f"🔐 *{event} CODE FOR TODAY*\n\n`{code}`"
+                    f"🔐 {event} CODE FOR TODAY\n\n{code}"
                 )
 
                 cur.close()
                 conn.close()
                 return {"status": "code_created"}
 
-            # -----------------------------------------
-            # SUBMISSIONS (TIME-BASED)
-            # -----------------------------------------
-            active_event = get_active_event()
-            if not active_event:
+            # -----------------------------------
+            # Submission window enforcement
+            # -----------------------------------
+            cur.execute(
+                """
+                SELECT submissions_open
+                FROM event_config
+                WHERE event = %s
+                LIMIT 1;
+                """,
+                (get_active_event(),)
+            )
+            row = cur.fetchone()
+
+            if not row or not row["submissions_open"]:
                 send_whatsapp_message(
                     from_number,
                     "⏱️ Submissions are currently closed."
@@ -197,16 +180,39 @@ async def webhook(request: Request):
                 conn.close()
                 return {"status": "closed"}
 
-            response = handle_submission(
-                conn=conn,
-                member=member,
-                message=text,
-                event=active_event
+            # -----------------------------------
+            # Parse submission
+            # -----------------------------------
+            parsed = parse_submission(text)
+
+            if not parsed:
+                send_whatsapp_message(
+                    from_number,
+                    "❌ Could not read submission.\n\n"
+                    "Example:\n"
+                    "5km 25:30 CODE123\n"
+                    "25:30 CODE123 (walkers)"
+                )
+                cur.close()
+                conn.close()
+                return {"status": "parse_failed"}
+
+            store_submission(
+                member_id=member["id"],
+                activity=parsed["activity"],
+                distance_text=parsed.get("distance"),
+                time_text=parsed["time"],
+                seconds=parsed["seconds"],
+                mode=parsed["mode"]
             )
 
-            send_whatsapp_message(from_number, response)
+            send_whatsapp_message(
+                from_number,
+                "✅ Submission received. Well done!"
+            )
 
             cur.close()
             conn.close()
+            return {"status": "submitted"}
 
     return {"status": "ok"}
