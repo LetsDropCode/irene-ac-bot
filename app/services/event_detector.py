@@ -4,14 +4,39 @@ from datetime import datetime
 from app.db import get_db
 
 
+def get_today_event() -> str | None:
+    """
+    Returns the event scheduled for TODAY (ignores time window)
+    """
+    today = datetime.now().weekday()  # Monday = 0
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT event
+        FROM event_config
+        WHERE day_of_week = %s
+          AND active = 1
+        LIMIT 1;
+        """,
+        (today,),
+    )
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return row["event"] if row else None
+
+
 def get_active_event() -> str | None:
     """
-    Returns the active event name for *now*
-    based on event_config.
+    Returns the event that is ACTIVE RIGHT NOW (time-based)
     """
-
     now = datetime.now()
-    day_of_week = now.weekday()  # Monday = 0
+    day_of_week = now.weekday()
     current_time = now.strftime("%H:%M")
 
     conn = get_db()
@@ -26,15 +51,11 @@ def get_active_event() -> str | None:
           AND %s BETWEEN open_time AND close_time
         LIMIT 1;
         """,
-        (day_of_week, current_time)
+        (day_of_week, current_time),
     )
 
     row = cur.fetchone()
-
     cur.close()
     conn.close()
 
-    if not row:
-        return None
-
-    return row["event"]
+    return row["event"] if row else None

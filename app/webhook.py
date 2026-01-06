@@ -5,7 +5,10 @@ from fastapi import APIRouter, Request
 from app.db import get_db
 from app.whatsapp import send_whatsapp_message
 
-from app.services.event_detector import get_active_event
+from app.services.event_detector import (
+    get_today_event,
+    get_active_event,
+)
 from app.services.admin_code_service import generate_code
 from app.services.submission_parser import parse_submission
 from app.services.submission_service import store_submission
@@ -29,6 +32,7 @@ async def webhook(request: Request):
         for change in entry.get("changes", []):
             value = change.get("value", {})
 
+            # Ignore delivery / read receipts
             if "messages" not in value:
                 return {"status": "ignored"}
 
@@ -48,7 +52,10 @@ async def webhook(request: Request):
             # --------------------------------------------------
             # MEMBER LOOKUP / CREATE
             # --------------------------------------------------
-            cur.execute("SELECT * FROM members WHERE phone = %s;", (from_number,))
+            cur.execute(
+                "SELECT * FROM members WHERE phone = %s;",
+                (from_number,),
+            )
             member = cur.fetchone()
 
             if not member:
@@ -91,14 +98,19 @@ async def webhook(request: Request):
                         if text_upper == "RUNNER"
                         else "🚶 You’re set up as a *WALKER*."
                         if text_upper == "WALKER"
-                        else "🏃‍♂️🚶 You’re set up as *BOTH*.\n\n"
+                        else
+                        "🏃‍♂️🚶 You’re set up as *BOTH*.\n\n"
                         "On the day, I’ll ask whether you’re running or walking."
                     )
+
                     send_whatsapp_message(from_number, reply)
                 else:
                     send_whatsapp_message(
                         from_number,
-                        "Please reply with:\n🏃 RUNNER\n🚶 WALKER\n🏃‍♂️🚶 BOTH",
+                        "Please reply with:\n"
+                        "🏃 RUNNER\n"
+                        "🚶 WALKER\n"
+                        "🏃‍♂️🚶 BOTH",
                     )
 
                 cur.close()
@@ -106,7 +118,7 @@ async def webhook(request: Request):
                 return {"status": "participation_set"}
 
             # --------------------------------------------------
-            # ADMIN: ADD CODE (DAY-BASED)
+            # ADMIN: ADD CODE (DAY-BASED, NOT TIME-BASED)
             # --------------------------------------------------
             if text_upper == "ADD CODE":
                 if from_number not in ADMIN_NUMBERS:
@@ -115,26 +127,16 @@ async def webhook(request: Request):
                     conn.close()
                     return {"status": "unauthorised"}
 
-                cur.execute(
-                    """
-                    SELECT event
-                    FROM event_config
-                    WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
-                      AND active = 1
-                    LIMIT 1;
-                    """
-                )
-                row = cur.fetchone()
-
-                if not row:
+                event = get_today_event()
+                if not event:
                     send_whatsapp_message(
-                        from_number, "⚠️ No event scheduled for today."
+                        from_number,
+                        "⚠️ No event scheduled for today.",
                     )
                     cur.close()
                     conn.close()
                     return {"status": "no_event_today"}
 
-                event = row["event"]
                 code = generate_code()
 
                 cur.execute(
@@ -147,14 +149,16 @@ async def webhook(request: Request):
                 conn.commit()
 
                 send_whatsapp_message(
-                    from_number, f"🔐 *{event} CODE FOR TODAY*\n\n{code}"
+                    from_number,
+                    f"🔐 *{event} CODE FOR TODAY*\n\n{code}",
                 )
+
                 cur.close()
                 conn.close()
                 return {"status": "code_created"}
 
             # --------------------------------------------------
-            # ADMIN: OPEN / CLOSE SUBMISSIONS
+            # ADMIN: OPEN / CLOSE SUBMISSIONS (DAY-BASED)
             # --------------------------------------------------
             if text_upper in {"OPEN SUBMISSIONS", "CLOSE SUBMISSIONS"}:
                 if from_number not in ADMIN_NUMBERS:
@@ -163,12 +167,15 @@ async def webhook(request: Request):
                     conn.close()
                     return {"status": "unauthorised"}
 
-                event = get_active_event()
+                event = get_today_event()
                 if not event:
-                    send_whatsapp_message(from_number, "⚠️ No active event.")
+                    send_whatsapp_message(
+                        from_number,
+                        "⚠️ No event scheduled for today.",
+                    )
                     cur.close()
                     conn.close()
-                    return {"status": "no_active_event"}
+                    return {"status": "no_event_today"}
 
                 if text_upper == "OPEN SUBMISSIONS":
                     set_submission_state(event, 1)
@@ -183,31 +190,18 @@ async def webhook(request: Request):
                 return {"status": "submission_gate_updated"}
 
             # --------------------------------------------------
-            # USER SUBMISSION CHECK
+            # USER SUBMISSIONS (TIME-BASED)
             # --------------------------------------------------
-            # Admin commands should work if an event is scheduled TODAY
-            cur.execute(
-                """
-                SELECT event
-                FROM event_config
-    WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
-      AND active = 1
-                LIMIT 1;
-                """
-            )
-            row = cur.fetchone()
-
-            if not row:
-                send_whatsapp_message(from_number, "⚠️ No event scheduled for today.")
+            event = get_active_event()
+            if not event:
+                send_whatsapp_message(
+                    from_number,
+                    "⏱️ Submissions are currently closed.",
+                )
                 cur.close()
                 conn.close()
-                return {"status": "no_event_today"}
+                return {"status": "submissions_closed"}
 
-            event = row["event"]
-
-            # --------------------------------------------------
-            # PARSE + STORE SUBMISSION
-            # --------------------------------------------------
             parsed = parse_submission(text)
             if not parsed:
                 send_whatsapp_message(
@@ -231,7 +225,8 @@ async def webhook(request: Request):
             )
 
             send_whatsapp_message(
-                from_number, "✅ Submission received. Lekker run/walk 👏"
+                from_number,
+                "✅ Submission received. Lekker run/walk 👏",
             )
 
             cur.close()
