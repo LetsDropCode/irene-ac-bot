@@ -156,7 +156,43 @@ async def webhook(request: Request):
                 cur.close()
                 conn.close()
                 return {"status": "no_event"}
+            # --------------------------------------------------
+            # ADMIN: OPEN / CLOSE SUBMISSIONS
+            # --------------------------------------------------
+            if text_upper in {"OPEN SUBMISSIONS", "CLOSE SUBMISSIONS"}:
+                if from_number not in ADMIN_NUMBERS:
+                    send_whatsapp_message(from_number, "⛔ Not authorised.")
+                cur.close()
+                conn.close()
+                return {"status": "unauthorised"}
 
+            event = get_active_event()
+
+            if not event:
+                send_whatsapp_message(
+                from_number,
+                "⚠️ No event scheduled right now."
+                )
+                cur.close()
+                conn.close()
+                return {"status": "no_event"}
+
+            from app.services.submission_gate import set_submission_state
+
+            if text_upper == "OPEN SUBMISSIONS":
+                set_submission_state(event, 1)
+                reply = f"🟢 *{event} submissions are now OPEN*"
+
+            else:
+                set_submission_state(event, 0)
+                reply = f"🔴 *{event} submissions are now CLOSED*"
+
+            send_whatsapp_message(from_number, reply)
+            cur.close()
+            conn.close()
+            return {"status": "submission_gate_updated"}
+        
+        
             # --------------------------------------------------
             # PARSE SUBMISSION
             # --------------------------------------------------
