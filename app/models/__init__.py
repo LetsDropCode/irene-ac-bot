@@ -1,9 +1,5 @@
-from app.models.submission import Submission
-from app.models.event import Event
-from app.models.event_code import EventCode
+# app/models/__init__.py
 
-__all__ = [
-    "Submission",
-    "Event",
-    "EventCode",
-]
+from app.models.submission import Submission
+
+__all__ = ["Submission"]
