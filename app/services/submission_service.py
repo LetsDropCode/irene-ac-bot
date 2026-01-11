@@ -1,89 +1,64 @@
 # app/services/submission_service.py
+
+from datetime import datetime
+from typing import Optional
+
 from app.db import get_db
+from app.models import Submission
 
-def store_submission(
-    member_id,
-    activity,
-    distance_text,
-    time_text,
-    seconds,
+
+def get_or_create_submission(
+    phone: str,
+    tt_date: Optional[str] = None,
 ):
-    conn = get_db()
-    cur = conn.cursor()
+    """
+    Fetch the user's active TT submission for the day,
+    or create one if it doesn't exist yet.
+    """
 
-    cur.execute(
-        """
-        SELECT id, confirmed
-        FROM submissions
-        WHERE member_id = %s
-          AND activity = %s
-          AND created_at::date = CURRENT_DATE
-        LIMIT 1;
-        """,
-        (member_id, activity),
+    db = get_db()
+
+    if not tt_date:
+        tt_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+    submission = (
+        db.query(Submission)
+        .filter(
+            Submission.phone == phone,
+            Submission.tt_date == tt_date,
+        )
+        .first()
     )
 
-    existing = cur.fetchone()
+    if submission:
+        return submission
 
-    if existing:
-        if existing["confirmed"]:
-            cur.close()
-            conn.close()
-            return "locked"
-
-        cur.execute(
-            """
-            UPDATE submissions
-            SET
-                distance_text = %s,
-                time_text = %s,
-                seconds = %s,
-                updated_at = NOW()
-            WHERE id = %s;
-            """,
-            (distance_text, time_text, seconds, existing["id"]),
-        )
-        action = "updated"
-    else:
-        cur.execute(
-            """
-            INSERT INTO submissions (
-                member_id,
-                activity,
-                distance_text,
-                time_text,
-                seconds,
-                confirmed,
-                created_at
-            )
-            VALUES (%s, %s, %s, %s, %s, FALSE, NOW());
-            """,
-            (member_id, activity, distance_text, time_text, seconds),
-        )
-        action = "created"
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return action
-
-
-def confirm_submission(member_id, activity="TT"):
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        UPDATE submissions
-        SET confirmed = TRUE
-        WHERE member_id = %s
-          AND activity = %s
-          AND created_at::date = CURRENT_DATE;
-        """,
-        (member_id, activity),
+    submission = Submission(
+        phone=phone,
+        tt_date=tt_date,
+        distance_km=None,
+        time_str=None,
+        confirmed=False,
+        created_at=datetime.utcnow(),
     )
 
-    conn.commit()
-    cur.close()
-    conn.close()
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+
+    return submission
+
+
+def update_distance(submission: Submission, distance_km: int):
+    submission.distance_km = distance_km
+    submission.updated_at = datetime.utcnow()
+
+
+def update_time(submission: Submission, time_str: str):
+    submission.time_str = time_str
+    submission.updated_at = datetime.utcnow()
+
+
+def confirm_submission(submission: Submission):
+    submission.confirmed = True
+    submission.updated_at = datetime.utcnow()
