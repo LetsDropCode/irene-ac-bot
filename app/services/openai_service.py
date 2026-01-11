@@ -1,96 +1,37 @@
-from app.db import get_db
+# app/services/openai_service.py
+import os
+from openai import OpenAI
 
-def store_submission(
-    member_id,
-    activity,
-    distance_text,
-    time_text,
-    seconds,
-):
-    conn = get_db()
-    cur = conn.cursor()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    cur.execute(
-        """
-        SELECT id, confirmed
-        FROM submissions
-        WHERE member_id = %s
-          AND activity = %s
-          AND created_at::date = CURRENT_DATE
-        ORDER BY created_at DESC
-        LIMIT 1;
-        """,
-        (member_id, activity),
-    )
-
-    existing = cur.fetchone()
-
-    if existing:
-        if existing["confirmed"]:
-            cur.close()
-            conn.close()
-            return "locked"
-
-        cur.execute(
-            """
-            UPDATE submissions
-            SET
-                distance_text = %s,
-                time_text = %s,
-                seconds = %s,
-                updated_at = NOW()
-            WHERE id = %s;
-            """,
-            (distance_text, time_text, seconds, existing["id"]),
+def coach_reply(prompt: str) -> str:
+    """
+    Short, friendly, motivating coaching feedback.
+    Uses GPT-5.
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-5",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a friendly Irene AC running club coach. "
+                        "Be encouraging, concise, and practical. "
+                        "No emojis unless celebratory."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            max_tokens=120,
+            temperature=0.5,
         )
-        action = "updated"
-    else:
-        cur.execute(
-            """
-            INSERT INTO submissions (
-                member_id,
-                activity,
-                distance_text,
-                time_text,
-                seconds,
-                confirmed,
-                created_at
-            )
-            VALUES (%s, %s, %s, %s, %s, FALSE, NOW());
-            """,
-            (member_id, activity, distance_text, time_text, seconds),
-        )
-        action = "created"
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        return response.choices[0].message.content.strip()
 
-    return action
-
-
-def confirm_submission(member_id, activity="TT"):
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        UPDATE submissions
-        SET confirmed = TRUE,
-            updated_at = NOW()
-        WHERE id = (
-            SELECT id
-            FROM submissions
-            WHERE member_id = %s
-              AND activity = %s
-              AND created_at::date = CURRENT_DATE
-            ORDER BY created_at DESC
-            LIMIT 1
-        );
-        """,
-        (member_id, activity),
-    )
-
-    conn.commit()
-    cur.close()
-    conn.close()
+    except Exception as e:
+        # Fail soft — NEVER crash webhook
+        return "Great effort! Consistency beats everything — see you at the next session 💪"
