@@ -1,14 +1,22 @@
-# app/services/openai_service.py
 import os
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def get_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    return OpenAI(api_key=api_key)
+
 
 def coach_reply(prompt: str) -> str:
-    """
-    Short, friendly, motivating coaching feedback.
-    Uses GPT-5.
-    """
+    client = get_client()
+    if not client:
+        # 🔁 Graceful fallback (NO CRASH)
+        return (
+            "Nice effort tonight 👏\n\n"
+            "Keep showing up consistently — that’s where the gains come from 💪"
+        )
+
     try:
         response = client.chat.completions.create(
             model="gpt-5",
@@ -16,22 +24,20 @@ def coach_reply(prompt: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "You are a friendly Irene AC running club coach. "
-                        "Be encouraging, concise, and practical. "
-                        "No emojis unless celebratory."
+                        "You are a friendly, motivating running club coach. "
+                        "Keep replies short, positive, and practical."
                     ),
                 },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
+                {"role": "user", "content": prompt},
             ],
             max_tokens=120,
-            temperature=0.5,
         )
-
         return response.choices[0].message.content.strip()
 
     except Exception as e:
-        # Fail soft — NEVER crash webhook
-        return "Great effort! Consistency beats everything — see you at the next session 💪"
+        # 🛡️ Absolute safety net
+        print("⚠️ OpenAI error:", e)
+        return (
+            "Solid session 💥\n"
+            "Consistency beats perfection — see you at the next one!"
+        )
