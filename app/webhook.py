@@ -1,6 +1,5 @@
 from datetime import datetime, time
-import pytz
-
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Request
 
 from app.db import get_db
@@ -14,7 +13,7 @@ from app.services.submission_service import (
 
 router = APIRouter()
 
-TZ = pytz.timezone("Africa/Johannesburg")
+TZ = ZoneInfo("Africa/Johannesburg")
 TT_START = time(16, 30)
 TT_END = time(22, 30)
 
