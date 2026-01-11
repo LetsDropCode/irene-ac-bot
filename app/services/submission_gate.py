@@ -3,10 +3,9 @@ import pytz
 
 TZ = pytz.timezone("Africa/Johannesburg")
 
-TT_DAY = 1          # Tuesday (Mon=0)
+TT_DAY = 1  # Tuesday
 TT_START = time(16, 30)
 TT_END = time(22, 30)
-
 
 def ensure_tt_open():
     now = datetime.now(TZ)
@@ -15,9 +14,6 @@ def ensure_tt_open():
         return False, "⛔ Time Trials only happen on *Tuesdays*."
 
     if not (TT_START <= now.time() <= TT_END):
-        return False, (
-            "⏱ Time Trial submissions are open from "
-            "*16:30 to 22:30*."
-        )
+        return False, "⏱ TT submissions are open from *16:30–22:30*."
 
     return True, None

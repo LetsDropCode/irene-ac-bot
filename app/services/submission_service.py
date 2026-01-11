@@ -1,64 +1,60 @@
-# app/services/submission_service.py
-
 from datetime import datetime
-from typing import Optional
-
 from app.db import get_db
-from app.models import Submission
+
+def create_submission(phone: str, tt_code: str):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO submissions (member_id, activity, time_text, seconds)
+        SELECT id, 'TT', '', 0
+        FROM members
+        WHERE phone = %s
+        RETURNING id;
+    """, (phone,))
+
+    submission_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return submission_id
 
 
-def get_or_create_submission(
-    phone: str,
-    tt_date: Optional[str] = None,
-):
-    """
-    Fetch the user's active TT submission for the day,
-    or create one if it doesn't exist yet.
-    """
-
-    db = get_db()
-
-    if not tt_date:
-        tt_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-    submission = (
-        db.query(Submission)
-        .filter(
-            Submission.phone == phone,
-            Submission.tt_date == tt_date,
-        )
-        .first()
-    )
-
-    if submission:
-        return submission
-
-    submission = Submission(
-        phone=phone,
-        tt_date=tt_date,
-        distance_km=None,
-        time_str=None,
-        confirmed=False,
-        created_at=datetime.utcnow(),
-    )
-
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-
-    return submission
+def save_distance(submission_id: int, distance: str):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE submissions
+        SET distance_text = %s
+        WHERE id = %s;
+    """, (distance, submission_id))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
-def update_distance(submission: Submission, distance_km: int):
-    submission.distance_km = distance_km
-    submission.updated_at = datetime.utcnow()
+def save_time(submission_id: int, time_text: str, seconds: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE submissions
+        SET time_text = %s,
+            seconds = %s
+        WHERE id = %s;
+    """, (time_text, seconds, submission_id))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
-def update_time(submission: Submission, time_str: str):
-    submission.time_str = time_str
-    submission.updated_at = datetime.utcnow()
-
-
-def confirm_submission(submission: Submission):
-    submission.confirmed = True
-    submission.updated_at = datetime.utcnow()
+def confirm_submission(submission_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE submissions
+        SET created_at = NOW()
+        WHERE id = %s;
+    """, (submission_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
