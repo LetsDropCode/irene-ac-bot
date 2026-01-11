@@ -46,3 +46,15 @@ def send_whatsapp_buttons(to: str, text: str, buttons: list[dict]):
         },
     }
     requests.post(GRAPH_URL, json=payload, headers=HEADERS)
+
+# --- TEXT MESSAGE WRAPPER (BACKWARD COMPATIBILITY) ---
+
+def send_text(to: str, body: str):
+    """
+    Backward-compatible wrapper used by webhook.py
+    """
+    return send_whatsapp_message(
+        to=to,
+        message_type="text",
+        body=body
+    )
