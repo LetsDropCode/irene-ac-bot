@@ -7,30 +7,42 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
 GRAPH_URL = f"https://graph.facebook.com/v22.0/{PHONE_NUMBER_ID}/messages"
 
+HEADERS = {
+    "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+    "Content-Type": "application/json",
+}
+
+
 def send_whatsapp_message(to: str, text: str):
-    # 🔍 TEMP DEBUG (Step 2.3)
-    print("📌 DEBUG — WhatsApp ENV CHECK")
-    print("📌 PHONE_NUMBER_ID:", PHONE_NUMBER_ID)
-    print("📌 WHATSAPP_TOKEN present:", bool(WHATSAPP_TOKEN))
-
-    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
-        print("❌ Missing WhatsApp env vars — aborting send")
-        return
-
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
         "text": {"body": text},
     }
+    requests.post(GRAPH_URL, json=payload, headers=HEADERS)
 
-    response = requests.post(GRAPH_URL, json=payload, headers=headers)
 
-    print("📤 WhatsApp send response:")
-    print("📤 Status:", response.status_code)
-    print("📤 Body:", response.text)
+def send_whatsapp_buttons(to: str, text: str, buttons: list[dict]):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": text},
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": b["id"],
+                            "title": b["title"],
+                        },
+                    }
+                    for b in buttons
+                ]
+            },
+        },
+    }
+    requests.post(GRAPH_URL, json=payload, headers=HEADERS)

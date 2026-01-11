@@ -1,21 +1,38 @@
+from datetime import datetime, time
+import pytz
+
 from fastapi import APIRouter, Request
 
 from app.db import get_db
-from app.whatsapp import send_whatsapp_message
-
-from app.services.event_detector import get_active_event
-from app.services.admin_code_service import generate_code
-from app.services.submission_parser import parse_submission
-from app.services.submission_service import store_submission
+from app.whatsapp import send_whatsapp_message, send_whatsapp_buttons
+from app.services.openai_service import coach_reply
+from app.services.submission_parser import parse_time_only
+from app.services.submission_service import (
+    store_submission,
+    confirm_submission,
+)
 
 router = APIRouter()
 
-ADMIN_NUMBERS = {
-    "27722135094",  # Lindsay
-    "27738870757",  # Jacqueline
-    "27829370733",  # Wynand
-    "27818513864",  # Johan
-}
+TZ = pytz.timezone("Africa/Johannesburg")
+TT_START = time(16, 30)
+TT_END = time(22, 30)
+
+DISTANCE_BUTTONS = [
+    {"id": "DIST_4", "title": "4 km"},
+    {"id": "DIST_6", "title": "6 km"},
+    {"id": "DIST_8", "title": "8 km"},
+]
+
+EDIT_CONFIRM_BUTTONS = [
+    {"id": "EDIT_TIME", "title": "✏️ Edit time"},
+    {"id": "CONFIRM_TT", "title": "✅ Confirm"},
+]
+
+
+def in_tt_window() -> bool:
+    now = datetime.now(TZ).time()
+    return TT_START <= now <= TT_END
 
 
 @router.post("/webhook")
@@ -25,75 +42,21 @@ async def webhook(request: Request):
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
-
-            # Ignore delivery/read receipts
             if "messages" not in value:
                 return {"status": "ignored"}
 
-            message = value["messages"][0]
-            from_number = message.get("from")
-            text = message.get("text", {}).get("body", "").strip()
+            msg = value["messages"][0]
+            from_number = msg.get("from")
 
-            if not from_number or not text:
-                return {"status": "invalid"}
-
-            text_upper = (
-                text.upper()
-                .replace("ADD CODES", "ADD CODE")
+            text = msg.get("text", {}).get("body", "").strip()
+            button_id = (
+                msg.get("interactive", {})
+                .get("button_reply", {})
+                .get("id")
             )
-
-            print(f"📨 {from_number}: {text}")
 
             conn = get_db()
             cur = conn.cursor()
-
-            # ==================================================
-            # ADMIN: ADD CODE
-            # ==================================================
-            if text_upper == "ADD CODE":
-                if from_number not in ADMIN_NUMBERS:
-                    send_whatsapp_message(from_number, "⛔ Not authorised.")
-                    cur.close()
-                    conn.close()
-                    return {"status": "unauthorised"}
-
-                cur.execute(
-                    """
-                    SELECT event
-                    FROM event_config
-                    WHERE day_of_week = EXTRACT(DOW FROM CURRENT_DATE)::int
-                      AND active = TRUE
-                    LIMIT 1;
-                    """
-                )
-                today = cur.fetchone()
-
-                if not today:
-                    send_whatsapp_message(
-                        from_number, "⚠️ No event scheduled for today."
-                    )
-                    cur.close()
-                    conn.close()
-                    return {"status": "no_event_today"}
-
-                code = generate_code()
-
-                cur.execute(
-                    """
-                    INSERT INTO event_codes (event, code, event_date)
-                    VALUES (%s, %s, CURRENT_DATE);
-                    """,
-                    (today["event"], code),
-                )
-                conn.commit()
-
-                send_whatsapp_message(
-                    from_number,
-                    f"🔐 *{today['event']} CODE FOR TODAY*\n\n{code}",
-                )
-                cur.close()
-                conn.close()
-                return {"status": "code_created"}
 
             # ==================================================
             # MEMBER LOOKUP / CREATE
@@ -105,7 +68,7 @@ async def webhook(request: Request):
                 cur.execute(
                     """
                     INSERT INTO members (phone, first_name, last_name, participation_type)
-                    VALUES (%s, 'Unknown', 'Member', NULL)
+                    VALUES (%s, NULL, NULL, 'RUNNER')
                     RETURNING *;
                     """,
                     (from_number,),
@@ -115,86 +78,206 @@ async def webhook(request: Request):
 
                 send_whatsapp_message(
                     from_number,
-                    "👋 Welcome to the Irene AC WhatsApp bot!\n\n"
-                    "How do you usually participate?\n\n"
-                    "🏃 RUNNER\n"
-                    "🚶 WALKER\n"
-                    "🏃‍♂️🚶 BOTH",
+                    coach_reply(
+                        "Welcome the member and politely ask for their first name and surname."
+                    ),
                 )
                 cur.close()
                 conn.close()
-                return {"status": "awaiting_participation"}
+                return {"status": "ask_name"}
 
             # ==================================================
-            # PARTICIPATION SETUP
+            # NAME & SURNAME CAPTURE
             # ==================================================
-            if member["participation_type"] is None:
-                if text_upper in {"RUNNER", "WALKER", "BOTH"}:
+            if not member["first_name"] or not member["last_name"]:
+                parts = text.split()
+                if len(parts) >= 2:
                     cur.execute(
-                        "UPDATE members SET participation_type = %s WHERE id = %s;",
-                        (text_upper, member["id"]),
+                        """
+                        UPDATE members
+                        SET first_name = %s,
+                            last_name = %s
+                        WHERE id = %s;
+                        """,
+                        (parts[0], " ".join(parts[1:]), member["id"]),
                     )
                     conn.commit()
 
-                    reply = (
-                        "🏃 You’re set up as a *RUNNER*."
-                        if text_upper == "RUNNER"
-                        else "🚶 You’re set up as a *WALKER*."
-                        if text_upper == "WALKER"
-                        else "🏃‍♂️🚶 You’re set up as *BOTH*.\n\n"
-                        "On the day, I’ll ask whether you’re running or walking."
-                    )
-
-                    send_whatsapp_message(from_number, reply)
-                else:
                     send_whatsapp_message(
                         from_number,
-                        "Please reply with:\n🏃 RUNNER\n🚶 WALKER\n🏃‍♂️🚶 BOTH",
+                        coach_reply(
+                            "Confirm registration and explain how to submit a TT."
+                        ),
                     )
 
-                cur.close()
-                conn.close()
-                return {"status": "participation_set"}
+                    send_whatsapp_buttons(
+                        from_number,
+                        "How far did you run tonight?",
+                        DISTANCE_BUTTONS,
+                    )
 
-            # ==================================================
-            # USER SUBMISSION FLOW (CODE-ONLY)
-            # ==================================================
-            event = get_active_event()
-            if not event:
-                send_whatsapp_message(from_number, "⚠️ No event scheduled for today.")
-                cur.close()
-                conn.close()
-                return {"status": "no_event_today"}
+                    cur.close()
+                    conn.close()
+                    return {"status": "name_saved"}
 
-            parsed = parse_submission(text)
-            if not parsed:
                 send_whatsapp_message(
                     from_number,
-                    "❌ I couldn’t read that.\n\n"
-                    "Examples:\n"
-                    "5km 25:30 CODE123\n"
-                    "25:30 CODE123 (walkers)",
+                    "Please reply with *First name and Surname* 🙂",
                 )
                 cur.close()
                 conn.close()
-                return {"status": "parse_failed"}
+                return {"status": "await_name"}
 
-            store_submission(
+            # ==================================================
+            # VIEW PROGRESS
+            # ==================================================
+            if text.upper() in {"MY PROGRESS", "PROGRESS"}:
+                cur.execute(
+                    """
+                    SELECT distance_text, time_text, created_at
+                    FROM submissions
+                    WHERE member_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 5;
+                    """,
+                    (member["id"],),
+                )
+                rows = cur.fetchall()
+
+                if not rows:
+                    send_whatsapp_message(
+                        from_number,
+                        "No TT history yet — let’s change that 💪",
+                    )
+                else:
+                    history = "\n".join(
+                        f"{r['created_at'].date()} — {r['distance_text']} in {r['time_text']}"
+                        for r in rows
+                    )
+                    send_whatsapp_message(
+                        from_number,
+                        f"📊 *Your recent TT results:*\n\n{history}",
+                    )
+
+                cur.close()
+                conn.close()
+                return {"status": "progress"}
+
+            # ==================================================
+            # DISTANCE BUTTONS
+            # ==================================================
+            if button_id in {"DIST_4", "DIST_6", "DIST_8"}:
+                distance = button_id.replace("DIST_", "") + "km"
+
+                cur.execute(
+                    """
+                    UPDATE members
+                    SET pending_distance = %s
+                    WHERE id = %s;
+                    """,
+                    (distance, member["id"]),
+                )
+                conn.commit()
+
+                send_whatsapp_message(
+                    from_number,
+                    coach_reply("Ask the runner for their time in a friendly coach tone."),
+                )
+
+                cur.close()
+                conn.close()
+                return {"status": "await_time"}
+
+            # ==================================================
+            # EDIT / CONFIRM BUTTONS
+            # ==================================================
+            if button_id == "EDIT_TIME":
+                send_whatsapp_message(
+                    from_number,
+                    coach_reply("No stress — send your corrected time."),
+                )
+                cur.close()
+                conn.close()
+                return {"status": "edit_time"}
+
+            if button_id == "CONFIRM_TT":
+                confirm_submission(member["id"])
+
+                send_whatsapp_message(
+                    from_number,
+                    coach_reply(
+                        "All locked in ✅ Great effort tonight — recover well 👊"
+                    ),
+                )
+
+                cur.close()
+                conn.close()
+                return {"status": "confirmed"}
+
+            # ==================================================
+            # TT WINDOW ENFORCEMENT
+            # ==================================================
+            if not in_tt_window():
+                send_whatsapp_message(
+                    from_number,
+                    "⏱️ TT submissions are open from *16:30 to 22:30* only.",
+                )
+                cur.close()
+                conn.close()
+                return {"status": "closed"}
+
+            # ==================================================
+            # TIME SUBMISSION
+            # ==================================================
+            parsed = parse_time_only(text)
+            if not parsed:
+                send_whatsapp_message(
+                    from_number,
+                    "Please send your *time only* (e.g. 27:41).",
+                )
+                cur.close()
+                conn.close()
+                return {"status": "bad_time"}
+
+            distance = member.get("pending_distance")
+            if not distance:
+                send_whatsapp_buttons(
+                    from_number,
+                    "Please select your distance first:",
+                    DISTANCE_BUTTONS,
+                )
+                cur.close()
+                conn.close()
+                return {"status": "need_distance"}
+
+            action = store_submission(
                 member_id=member["id"],
-                activity=parsed["activity"],
-                distance_text=parsed.get("distance"),
+                activity="TT",
+                distance_text=distance,
                 time_text=parsed["time"],
                 seconds=parsed["seconds"],
-                mode=parsed["mode"],
             )
 
-            send_whatsapp_message(
+            if action == "locked":
+                send_whatsapp_message(
+                    from_number,
+                    "🔒 Your TT is already confirmed and locked.",
+                )
+                cur.close()
+                conn.close()
+                return {"status": "locked"}
+
+            send_whatsapp_buttons(
                 from_number,
-                "✅ Submission received. Lekker run/walk 👏",
+                coach_reply(
+                    f"{distance} in {parsed['time']} 💪\n\n"
+                    "Want to confirm or edit?"
+                ),
+                EDIT_CONFIRM_BUTTONS,
             )
 
             cur.close()
             conn.close()
-            return {"status": "submitted"}
+            return {"status": action}
 
     return {"status": "ok"}

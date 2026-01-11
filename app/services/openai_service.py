@@ -1,4 +1,3 @@
-# app/services/submission_service.py
 from app.db import get_db
 
 def store_submission(
@@ -18,6 +17,7 @@ def store_submission(
         WHERE member_id = %s
           AND activity = %s
           AND created_at::date = CURRENT_DATE
+        ORDER BY created_at DESC
         LIMIT 1;
         """,
         (member_id, activity),
@@ -76,10 +76,17 @@ def confirm_submission(member_id, activity="TT"):
     cur.execute(
         """
         UPDATE submissions
-        SET confirmed = TRUE
-        WHERE member_id = %s
-          AND activity = %s
-          AND created_at::date = CURRENT_DATE;
+        SET confirmed = TRUE,
+            updated_at = NOW()
+        WHERE id = (
+            SELECT id
+            FROM submissions
+            WHERE member_id = %s
+              AND activity = %s
+              AND created_at::date = CURRENT_DATE
+            ORDER BY created_at DESC
+            LIMIT 1
+        );
         """,
         (member_id, activity),
     )

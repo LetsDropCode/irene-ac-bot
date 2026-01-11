@@ -1,47 +1,15 @@
 # app/services/submission_parser.py
-
 import re
+from app.services.time_utils import time_to_seconds
 
+TIME_ONLY = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
-def parse_submission(text: str):
-    """
-    Parses submission text.
-    Returns dict or None if invalid.
+def parse_time_only(text: str):
+    text = text.strip()
+    if not TIME_ONLY.match(text):
+        return None
 
-    RUN examples:
-    - 5km 24:30 TT123
-    - 6km 31:10 ABC
-
-    WALK examples:
-    - 45:30
-    """
-
-    text = text.strip().upper()
-
-    # -------------------------
-    # WALK: time only (MM:SS or HH:MM:SS)
-    # -------------------------
-    walk_match = re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", text)
-    if walk_match:
-        return {
-            "type": "WALK",
-            "time": text
-        }
-
-    # -------------------------
-    # RUN: distance + time + code
-    # -------------------------
-    run_match = re.fullmatch(
-        r"(\d+(?:\.\d+)?KM)\s+(\d{1,2}:\d{2})\s+([A-Z0-9]+)",
-        text
-    )
-
-    if run_match:
-        return {
-            "type": "RUN",
-            "distance": run_match.group(1),
-            "time": run_match.group(2),
-            "code": run_match.group(3)
-        }
-
-    return None
+    return {
+        "time": text,
+        "seconds": time_to_seconds(text),
+    }

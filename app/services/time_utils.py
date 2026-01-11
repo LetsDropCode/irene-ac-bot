@@ -1,3 +1,4 @@
+# app/services/time_utils.py
 def time_to_seconds(time_str: str) -> int:
     parts = [int(p) for p in time_str.split(":")]
 
