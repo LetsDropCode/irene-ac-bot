@@ -1,13 +1,25 @@
-# app/services/time_utils.py
-def time_to_seconds(time_str: str) -> int:
-    parts = [int(p) for p in time_str.split(":")]
+from datetime import datetime, time
+import pytz
 
-    if len(parts) == 2:
-        m, s = parts
-        return m * 60 + s
+TZ = pytz.timezone("Africa/Johannesburg")
 
-    if len(parts) == 3:
-        h, m, s = parts
-        return h * 3600 + m * 60 + s
+TT_DAY = 1  # Tuesday (Mon=0)
+TT_START = time(16, 30)
+TT_END = time(22, 30)
 
-    raise ValueError("Invalid time format")
+def now_local():
+    return datetime.now(TZ)
+
+def is_tt_day():
+    return now_local().weekday() == TT_DAY
+
+def is_tt_window_open():
+    now = now_local().time()
+    return TT_START <= now <= TT_END
+
+def tt_status():
+    if not is_tt_day():
+        return "not_tt_day"
+    if not is_tt_window_open():
+        return "closed"
+    return "open"

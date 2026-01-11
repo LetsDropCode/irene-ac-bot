@@ -1,41 +1,36 @@
-# app/services/validation.py
-
-from datetime import datetime, date
+import re
+from datetime import date
 from app.db import get_db
-from app.services.event_detector import get_active_event
 
 TT_ALLOWED_DISTANCES = {"4km", "6km", "8km"}
 
-def is_valid_code(event: str, code: str) -> bool:
+TIME_PATTERN = re.compile(r"^(\d{1,2}:\d{2}|\d{1,2}:\d{2}:\d{2})$")
+
+
+def is_valid_time(value: str) -> bool:
+    return bool(TIME_PATTERN.match(value.strip()))
+
+
+def is_valid_tt_code(code: str) -> bool:
+    if not code:
+        return False
+
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT 1
         FROM event_codes
-        WHERE event = %s
-          AND code = %s
-          AND event_date = CURRENT_DATE
-    """, (event, code))
+        WHERE event = 'TT'
+          AND UPPER(code) = UPPER(%s)
+          AND event_date = %s
+        LIMIT 1;
+        """,
+        (code.strip(), date.today())
+    )
 
     valid = cur.fetchone() is not None
     cur.close()
     conn.close()
     return valid
-
-
-def validate_submission(parsed, now=None):
-    if not parsed:
-        return False, "❌ Format must be: CODE 6km 24:12", None
-
-    event = get_active_event(now)
-    if not event:
-        return False, "⏱️ Submissions are currently closed.", None
-
-    if not is_valid_code(event, parsed["code"]):
-        return False, "❌ Invalid or expired run code.", event
-
-    if event == "TT" and parsed["distance"] not in TT_ALLOWED_DISTANCES:
-        return False, "❌ TT distances are 4km, 6km or 8km only.", event
-
-    return True, "OK", event
