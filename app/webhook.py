@@ -1,3 +1,5 @@
+# app/webhook.py
+
 from fastapi import APIRouter, Request
 
 from app.whatsapp import (
@@ -11,8 +13,8 @@ from app.services.member_service import (
     create_member,
     save_member_name,
     has_name,
-    mark_popia_acknowledged,
-    set_leaderboard_opt_out,
+    acknowledge_popia,
+    opt_out_leaderboard,
 )
 
 from app.services.submission_service import (
@@ -34,9 +36,8 @@ from app.services.openai_service import coach_reply
 
 router = APIRouter()
 
-
 # ─────────────────────────────────────────────
-# WhatsApp payload extractor
+# WhatsApp payload extractor (SAFE)
 # ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
     try:
@@ -62,7 +63,7 @@ def extract_whatsapp_message(payload: dict):
 
         return sender, text, button
 
-    except Exception:
+    except (KeyError, IndexError, TypeError):
         return None, None, None
 
 
@@ -75,7 +76,7 @@ async def webhook(request: Request):
         return {"status": "ignored"}
 
     # ─────────────────────────────────────────────
-    # 🔒 TT DAY + TIME GATE
+    # 🔒 TT DAY + TIME GATE (GLOBAL)
     # ─────────────────────────────────────────────
     allowed, reason = ensure_tt_open()
     if not allowed:
@@ -90,10 +91,10 @@ async def webhook(request: Request):
         member = create_member(sender)
 
     # ─────────────────────────────────────────────
-    # 🛑 POPIA: LEADERBOARD OPT-OUT ONLY
+    # 🛑 POPIA (LEADERBOARD OPT-OUT ONLY)
     # ─────────────────────────────────────────────
     if text and text.upper() in {"STOP", "OPT OUT"}:
-        set_leaderboard_opt_out(sender)
+        opt_out_leaderboard(sender)
         send_text(
             sender,
             "✅ You’ve opted out of leaderboards.\n\n"
@@ -104,16 +105,17 @@ async def webhook(request: Request):
     if not member["popia_acknowledged"]:
         send_text(
             sender,
-            "ℹ️ POPIA Notice\n\n"
-            "Your attendance is recorded for safety and club admin.\n"
-            "Time Trial results may appear on leaderboards.\n\n"
-            "Reply OK to continue or STOP to opt out of leaderboards."
+            "ℹ️ *POPIA Notice*\n\n"
+            "• Attendance is recorded for safety & admin\n"
+            "• Results may appear on leaderboards\n\n"
+            "Reply *OK* to continue or *STOP* to opt out of leaderboards."
         )
-        mark_popia_acknowledged(sender)
+        if text and text.upper() == "OK":
+            acknowledge_popia(sender)
         return {"status": "popia_notice"}
 
     # ─────────────────────────────────────────────
-    # 🧾 NAME CAPTURE (UNCHANGED)
+    # 🧾 NAME CAPTURE (ONCE ONLY)
     # ─────────────────────────────────────────────
     if not has_name(member):
 
@@ -141,14 +143,14 @@ async def webhook(request: Request):
         return {"status": "name_saved"}
 
     # ─────────────────────────────────────────────
-    # 📋 SUBMISSION SESSION
+    # 📋 SUBMISSION SESSION (DAILY)
     # ─────────────────────────────────────────────
     submission = get_or_create_submission(sender)
 
     # ─────────────────────────────────────────────
     # 0️⃣ TT CODE — MUST COME FIRST
     # ─────────────────────────────────────────────
-    if not submission.tt_code_verified:
+    if not submission["tt_code_verified"]:
 
         if not text:
             send_text(
@@ -169,7 +171,7 @@ async def webhook(request: Request):
             )
             return {"status": "bad_code"}
 
-        mark_code_verified(submission, text.upper())
+        mark_code_verified(sender, text.upper())
 
         send_text(
             sender,
@@ -187,7 +189,7 @@ async def webhook(request: Request):
         btn_id = button.get("id")
 
         if btn_id in {"4km", "6km", "8km"}:
-            save_distance(submission, btn_id.replace("km", ""))
+            save_distance(sender, btn_id.replace("km", ""))
             send_text(
                 sender,
                 coach_reply(
@@ -197,12 +199,12 @@ async def webhook(request: Request):
             return {"status": "ask_time"}
 
         if btn_id == "confirm":
-            confirm_submission(submission)
+            confirm_submission(sender)
             send_text(
                 sender,
                 coach_reply(
                     f"Congratulate the runner for completing "
-                    f"{submission.distance} in {submission.time}."
+                    f"{submission['distance']} in {submission['time']}."
                 )
             )
             return {"status": "confirmed"}
@@ -223,14 +225,14 @@ async def webhook(request: Request):
     # ─────────────────────────────────────────────
     # 2️⃣ DISTANCE HARD GATE
     # ─────────────────────────────────────────────
-    if not submission.distance:
+    if not submission["distance"]:
         send_distance_buttons(sender)
         return {"status": "need_distance"}
 
     # ─────────────────────────────────────────────
     # 3️⃣ TIME CAPTURE
     # ─────────────────────────────────────────────
-    if not submission.time:
+    if not submission["time"]:
         if not text or not is_valid_time(text):
             send_text(
                 sender,
@@ -240,16 +242,16 @@ async def webhook(request: Request):
             )
             return {"status": "bad_time"}
 
-        save_time(submission, text)
+        save_time(sender, text)
         send_confirm_buttons(
             sender,
-            submission.distance,
-            submission.time,
+            submission["distance"],
+            text,
         )
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 4️⃣ FALLBACK
+    # 4️⃣ FALLBACK (ALREADY SUBMITTED)
     # ─────────────────────────────────────────────
     send_text(
         sender,

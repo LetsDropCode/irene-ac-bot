@@ -1,96 +1,56 @@
-# app/services/openai_service.py
-
 import os
 from typing import Optional
 
 try:
     from openai import OpenAI
 except ImportError:
-    OpenAI = None  # Safety fallback
-
+    OpenAI = None
 
 SYSTEM_PROMPT = """
 You are a friendly but focused athletics club coach.
-Tone:
-- Encouraging
-- Clear
-- WhatsApp-friendly
-- South African running culture
-Rules:
-- Never invent data
-- Never override system decisions
-- Keep replies under 4 lines
+Tone: Encouraging, clear, WhatsApp-friendly.
+Never invent data. Keep replies under 4 lines.
 """
-
 
 _client: Optional["OpenAI"] = None
 
-
-def _get_client() -> Optional["OpenAI"]:
+def _client_safe():
     global _client
-
-    if _client is not None:
+    if _client:
         return _client
 
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if not api_key or not OpenAI:
+    key = os.getenv("OPENAI_API_KEY")
+    if not key or not OpenAI:
         return None
 
-    _client = OpenAI(api_key=api_key)
+    _client = OpenAI(api_key=key)
     return _client
 
-
 def coach_reply(prompt: str) -> str:
-    """
-    Returns an AI-generated coach message if OpenAI is configured.
-    Falls back to safe static messaging if not.
-    """
-    client = _get_client()
-
+    client = _client_safe()
     if not client:
-        # 🔒 Phase 1 fallback (never crash)
-        return fallback_message(prompt)
+        return fallback(prompt)
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-5",
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.4,
         )
-        return response.choices[0].message.content.strip()
-
+        return res.choices[0].message.content.strip()
     except Exception:
-        # Absolute safety net
-        return fallback_message(prompt)
+        return fallback(prompt)
 
-
-# ─────────────────────────────────────────────
-# PHASE 1 FALLBACK MESSAGES
-# ─────────────────────────────────────────────
-
-def fallback_message(prompt: str) -> str:
-    prompt_lower = prompt.lower()
-
-    if "welcome" in prompt_lower:
-        return (
-            "👋 Welcome to tonight’s Time Trial!\n\n"
-            "Please send the TT code from your run leader to continue."
-        )
-
-    if "distance" in prompt_lower:
-        return "👍 Great! Please select your TT distance."
-
-    if "time" in prompt_lower:
+def fallback(prompt: str) -> str:
+    if "welcome" in prompt.lower():
+        return "👋 Welcome! Please send tonight’s TT code to continue."
+    if "distance" in prompt.lower():
+        return "👍 Select your TT distance."
+    if "time" in prompt.lower():
         return "⏱ Please send your time (mm:ss or hh:mm:ss)."
-
-    if "congratulate" in prompt_lower:
-        return "🔥 Well done! Your Time Trial has been recorded."
-
-    if "edit" in prompt_lower:
-        return "⏱ Editing is closed for tonight."
-
+    if "congratulate" in prompt.lower():
+        return "🔥 Well done! Your TT is recorded."
     return "✅ Got it!"

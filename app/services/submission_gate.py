@@ -5,7 +5,6 @@ SA_TZ = ZoneInfo("Africa/Johannesburg")
 TT_DAY = 1  # Tuesday
 TT_CLOSE = time(22, 30)
 
-
 def ensure_tt_open():
     now = datetime.now(SA_TZ)
 
