@@ -14,4 +14,5 @@ ADMIN_NUMBERS = {
     "27738870757", #Jacqueline
     "27829370733", #Wynand
     "27818513864", #Johan
+    "27828827067", #Janine
 }
