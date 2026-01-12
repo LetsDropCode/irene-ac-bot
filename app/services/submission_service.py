@@ -1,60 +1,109 @@
-from datetime import datetime
+from datetime import datetime, date
 from app.db import get_db
+from app.models.submission import Submission
 
-def create_submission(phone: str, tt_code: str):
+# ─────────────────────────────────────────────
+# CORE FETCH / CREATE
+# ─────────────────────────────────────────────
+def get_or_create_submission(phone: str) -> Submission:
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
-        INSERT INTO submissions (member_id, activity, time_text, seconds)
-        SELECT id, 'TT', '', 0
-        FROM members
+    today = date.today()
+
+    cur.execute(
+        """
+        SELECT *
+        FROM submissions
+        WHERE phone = %s AND created_at::date = %s
+        LIMIT 1
+        """,
+        (phone, today),
+    )
+
+    row = cur.fetchone()
+
+    if row:
+        cur.close()
+        conn.close()
+        return Submission(**row)
+
+    cur.execute(
+        """
+        INSERT INTO submissions (
+            phone,
+            tt_code_verified,
+            confirmed,
+            created_at,
+            updated_at
+        )
+        VALUES (%s, FALSE, FALSE, NOW(), NOW())
+        RETURNING *
+        """,
+        (phone,),
+    )
+
+    submission = Submission(**cur.fetchone())
+    conn.commit()
+    cur.close()
+    conn.close()
+    return submission
+
+
+# ─────────────────────────────────────────────
+# UPDATE HELPERS
+# ─────────────────────────────────────────────
+def mark_code_verified(submission: Submission, code: str):
+    _update(
+        submission.phone,
+        {"tt_code_verified": True, "tt_code": code},
+    )
+
+
+def save_distance(submission: Submission, distance: str):
+    _update(submission.phone, {"distance": distance})
+
+
+def save_time(submission: Submission, time_str: str, seconds: int):
+    _update(
+        submission.phone,
+        {
+            "time": time_str,
+            "seconds": seconds,
+        },
+    )
+
+
+def confirm_submission(submission: Submission):
+    _update(submission.phone, {"confirmed": True})
+
+
+# ─────────────────────────────────────────────
+# EDIT WINDOW
+# ─────────────────────────────────────────────
+def is_edit_window_open(submission: Submission) -> bool:
+    return not submission.confirmed
+
+
+# ─────────────────────────────────────────────
+# INTERNAL UPDATE
+# ─────────────────────────────────────────────
+def _update(phone: str, fields: dict):
+    conn = get_db()
+    cur = conn.cursor()
+
+    set_clause = ", ".join(f"{k} = %s" for k in fields)
+    values = list(fields.values()) + [phone]
+
+    cur.execute(
+        f"""
+        UPDATE submissions
+        SET {set_clause}, updated_at = NOW()
         WHERE phone = %s
-        RETURNING id;
-    """, (phone,))
+        """,
+        values,
+    )
 
-    submission_id = cur.fetchone()["id"]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return submission_id
-
-
-def save_distance(submission_id: int, distance: str):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE submissions
-        SET distance_text = %s
-        WHERE id = %s;
-    """, (distance, submission_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def save_time(submission_id: int, time_text: str, seconds: int):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE submissions
-        SET time_text = %s,
-            seconds = %s
-        WHERE id = %s;
-    """, (time_text, seconds, submission_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def confirm_submission(submission_id: int):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE submissions
-        SET created_at = NOW()
-        WHERE id = %s;
-    """, (submission_id,))
     conn.commit()
     cur.close()
     conn.close()

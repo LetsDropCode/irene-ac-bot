@@ -6,6 +6,7 @@ from app.whatsapp import (
     send_confirm_buttons,
 )
 
+from app.services.submission_gate import ensure_tt_open
 from app.services.submission_service import (
     get_or_create_submission,
     save_distance,
@@ -14,14 +15,12 @@ from app.services.submission_service import (
     is_edit_window_open,
     mark_code_verified,
 )
-
 from app.services.validation import (
     is_valid_time,
     is_valid_tt_code,
 )
-
-from app.services.submission_gate import ensure_tt_open
 from app.services.openai_service import coach_reply
+from app.services.time_utils import time_to_seconds
 
 router = APIRouter()
 
@@ -52,14 +51,13 @@ async def webhook(request: Request):
     # 0️⃣ TT CODE — MUST COME FIRST
     # ─────────────────────────────────────────────
     if not submission.tt_code_verified:
-
         if not text or text.lower() in {"hi", "hello"}:
             send_text(
                 sender,
                 coach_reply(
-                    "Welcome a runner to tonight’s time trial and "
-                    "ask them to send the TT code to continue."
-                )
+                    "Welcome the runner and ask them to send the "
+                    "Time Trial code to continue."
+                ),
             )
             return {"status": "await_code"}
 
@@ -67,21 +65,19 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Politely tell the runner the TT code is invalid "
-                    "and they should check with the run leader."
-                )
+                    "Politely say the TT code is invalid and they "
+                    "should check with the run leader."
+                ),
             )
             return {"status": "bad_code"}
 
-        # ✅ Code valid
         mark_code_verified(submission, text.upper())
-
         send_text(
             sender,
             coach_reply(
-                "Acknowledge the runner warmly and ask them to "
-                "select a distance for their time trial."
-            )
+                "Acknowledge the runner warmly and ask them "
+                "to select a distance."
+            ),
         )
         send_distance_buttons(sender)
         return {"status": "code_verified"}
@@ -97,9 +93,9 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Ask the runner to send their time in mm:ss "
-                    "or hh:mm:ss format."
-                )
+                    "Ask the runner to send their time in "
+                    "mm:ss or hh:mm:ss format."
+                ),
             )
             return {"status": "ask_time"}
 
@@ -109,8 +105,8 @@ async def webhook(request: Request):
                 sender,
                 coach_reply(
                     f"Congratulate the runner for completing "
-                    f"{submission.distance} in {submission.time}."
-                )
+                    f"{submission.distance} km in {submission.time}."
+                ),
             )
             return {"status": "confirmed"}
 
@@ -120,8 +116,8 @@ async def webhook(request: Request):
                     sender,
                     coach_reply(
                         "Explain politely that editing is closed "
-                        "for tonight’s time trial."
-                    )
+                        "for tonight’s Time Trial."
+                    ),
                 )
                 return {"status": "edit_closed"}
 
@@ -144,11 +140,12 @@ async def webhook(request: Request):
                 sender,
                 "⏱ Please send *time only*:\n"
                 "• 27:41\n"
-                "• 01:27:41"
+                "• 01:27:41",
             )
             return {"status": "bad_time"}
 
-        save_time(submission, text)
+        seconds = time_to_seconds(text)
+        save_time(submission, text, seconds)
         send_confirm_buttons(
             sender,
             submission.distance,
@@ -157,13 +154,13 @@ async def webhook(request: Request):
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 4️⃣ FALLBACK (already submitted)
+    # 4️⃣ FALLBACK
     # ─────────────────────────────────────────────
     send_text(
         sender,
         coach_reply(
-            "Let the runner know their time trial is already "
+            "Let the runner know their Time Trial is already "
             "submitted and they can send Edit if needed."
-        )
+        ),
     )
     return {"status": "done"}
