@@ -18,3 +18,7 @@ def read_root():
         "status": "ok",
         "env": ENV
     }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
