@@ -1,19 +1,30 @@
-from datetime import datetime
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
+# South Africa timezone (no pytz needed)
 SA_TZ = ZoneInfo("Africa/Johannesburg")
 
-TT_DAY = 1  # Tuesday
-TT_START = datetime(16, 30)
-TT_END = datetime(22, 30)
+# TT submission window (Phase 1 rule)
+TT_CLOSE_TIME = time(22, 30)  # 22:30 local time
 
-def ensure_tt_open():
-    now = datetime.now(SA_TZ)
 
-    if now.weekday() != TT_DAY:
-        return False, "⛔ Time Trials only happen on *Tuesdays*."
+def ensure_tt_open() -> bool:
+    """
+    Returns True if TT submissions are currently allowed.
+    Submissions automatically close daily at 22:30 (SA time).
+    """
+    now = datetime.now(SA_TZ).time()
+    return now < TT_CLOSE_TIME
 
-    if not (TT_START <= now.time() <= TT_END):
-        return False, "⏱ TT submissions are open from *16:30–22:30*."
 
-    return True, None
+def tt_status_message() -> str:
+    """
+    Human-readable TT status message for members.
+    """
+    if ensure_tt_open():
+        return "⏱️ Time Trial submissions are OPEN.\nPlease submit your distance and time."
+    return (
+        "🚫 Time Trial submissions are CLOSED.\n"
+        "Submissions close daily at 22:30.\n"
+        "Please try again tomorrow."
+    )
