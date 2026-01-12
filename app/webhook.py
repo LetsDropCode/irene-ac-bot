@@ -1,10 +1,18 @@
+# app/webhook.py
+
 from fastapi import APIRouter, Request
 
-from app.config import ADMIN_NUMBERS
 from app.whatsapp import (
     send_text,
     send_distance_buttons,
     send_confirm_buttons,
+)
+
+from app.services.member_service import (
+    get_member,
+    create_member,
+    save_member_name,
+    has_name,
 )
 
 from app.services.submission_service import (
@@ -23,14 +31,10 @@ from app.services.validation import (
 
 from app.services.submission_gate import ensure_tt_open
 from app.services.openai_service import coach_reply
-from app.services.admin_code_service import create_today_tt_code
 
 router = APIRouter()
 
 
-# ─────────────────────────────────────────────
-# WhatsApp payload extractor (Meta format)
-# ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
     try:
         entry = payload["entry"][0]
@@ -50,68 +54,82 @@ def extract_whatsapp_message(payload: dict):
         if msg["type"] == "text":
             text = msg["text"]["body"].strip()
 
-        elif msg["type"] == "interactive":
+        if msg["type"] == "interactive":
             button = msg["interactive"]["button_reply"]
 
         return sender, text, button
 
-    except (KeyError, IndexError, TypeError):
+    except Exception:
         return None, None, None
 
 
-# ─────────────────────────────────────────────
-# Main Webhook
-# ─────────────────────────────────────────────
 @router.post("/webhook")
 async def webhook(request: Request):
     payload = await request.json()
-
     sender, text, button = extract_whatsapp_message(payload)
 
     if not sender:
         return {"status": "ignored"}
 
     # ─────────────────────────────────────────────
-    # 🛠 ADMIN: TT CODE GENERATION
-    # ─────────────────────────────────────────────
-    if sender in ADMIN_NUMBERS and text:
-        command = text.lower().strip()
-
-        if command in {"tt code", "generate tt", "code"}:
-            code = create_today_tt_code()
-
-            send_text(
-                sender,
-                (
-                    "🔑 *Tonight’s TT Code*\n\n"
-                    f"*{code}*\n\n"
-                    "Share this with runners 👟"
-                ),
-            )
-            return {"status": "admin_code_generated"}
-
-    # ─────────────────────────────────────────────
-    # 🔒 HARD TIME GATE (GLOBAL)
+    # 🔒 TT DAY + TIME GATE
     # ─────────────────────────────────────────────
     allowed, reason = ensure_tt_open()
     if not allowed:
         send_text(sender, reason)
         return {"status": "tt_closed"}
 
+    # ─────────────────────────────────────────────
+    # 👤 MEMBER LOOKUP / CREATE
+    # ─────────────────────────────────────────────
+    member = get_member(sender)
+    if not member:
+        member = create_member(sender)
+
+    # ─────────────────────────────────────────────
+    # 🧾 NAME CAPTURE (ONCE ONLY)
+    # ─────────────────────────────────────────────
+    if not has_name(member):
+
+        if not text or len(text.split()) < 2:
+            send_text(
+                sender,
+                "👋 Before we continue, please send your *first name and surname*.\n\n"
+                "_Example: Sipho Dlamini_"
+            )
+            return {"status": "await_name"}
+
+        parts = text.split()
+        first_name = parts[0]
+        last_name = " ".join(parts[1:])
+
+        save_member_name(sender, first_name, last_name)
+
+        send_text(
+            sender,
+            coach_reply(
+                "Thank the runner for confirming their name and ask them "
+                "to send the TT code to continue."
+            )
+        )
+        return {"status": "name_saved"}
+
+    # ─────────────────────────────────────────────
+    # 📋 SUBMISSION SESSION
+    # ─────────────────────────────────────────────
     submission = get_or_create_submission(sender)
 
     # ─────────────────────────────────────────────
-    # 0️⃣ TT CODE REQUIRED
+    # 0️⃣ TT CODE — MUST COME FIRST
     # ─────────────────────────────────────────────
     if not submission.tt_code_verified:
 
-        if not text or text.lower() in {"hi", "hello", "hey"}:
+        if not text:
             send_text(
                 sender,
                 coach_reply(
-                    "Welcome a runner to tonight’s time trial and "
-                    "ask them to send the TT code to continue."
-                ),
+                    "Welcome the runner and ask them to send tonight’s TT code."
+                )
             )
             return {"status": "await_code"}
 
@@ -119,21 +137,19 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Politely tell the runner the TT code is invalid "
+                    "Politely explain that the TT code is invalid "
                     "and they should check with the run leader."
-                ),
+                )
             )
             return {"status": "bad_code"}
 
-        # ✅ Code verified
         mark_code_verified(submission, text.upper())
 
         send_text(
             sender,
             coach_reply(
-                "Acknowledge the runner warmly and ask them to "
-                "select a distance for their time trial."
-            ),
+                "Acknowledge the runner warmly and ask them to select a distance."
+            )
         )
         send_distance_buttons(sender)
         return {"status": "code_verified"}
@@ -146,25 +162,22 @@ async def webhook(request: Request):
 
         if btn_id in {"4km", "6km", "8km"}:
             save_distance(submission, btn_id.replace("km", ""))
-
             send_text(
                 sender,
                 coach_reply(
-                    "Ask the runner to send their time in mm:ss "
-                    "or hh:mm:ss format."
-                ),
+                    "Ask the runner to send their time in mm:ss or hh:mm:ss."
+                )
             )
             return {"status": "ask_time"}
 
         if btn_id == "confirm":
             confirm_submission(submission)
-
             send_text(
                 sender,
                 coach_reply(
                     f"Congratulate the runner for completing "
                     f"{submission.distance} in {submission.time}."
-                ),
+                )
             )
             return {"status": "confirmed"}
 
@@ -173,9 +186,8 @@ async def webhook(request: Request):
                 send_text(
                     sender,
                     coach_reply(
-                        "Explain politely that editing is closed "
-                        "for tonight’s time trial."
-                    ),
+                        "Explain politely that editing is closed for tonight."
+                    )
                 )
                 return {"status": "edit_closed"}
 
@@ -183,7 +195,7 @@ async def webhook(request: Request):
             return {"status": "edit"}
 
     # ─────────────────────────────────────────────
-    # 2️⃣ DISTANCE REQUIRED
+    # 2️⃣ DISTANCE HARD GATE
     # ─────────────────────────────────────────────
     if not submission.distance:
         send_distance_buttons(sender)
@@ -198,7 +210,7 @@ async def webhook(request: Request):
                 sender,
                 "⏱ Please send *time only*:\n"
                 "• 27:41\n"
-                "• 01:27:41",
+                "• 01:27:41"
             )
             return {"status": "bad_time"}
 
@@ -211,13 +223,13 @@ async def webhook(request: Request):
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 4️⃣ FALLBACK (ALREADY SUBMITTED)
+    # 4️⃣ FALLBACK
     # ─────────────────────────────────────────────
     send_text(
         sender,
         coach_reply(
-            "Let the runner know their time trial is already "
-            "submitted and they can send Edit if needed."
-        ),
+            "Let the runner know their time trial is already submitted "
+            "and they can send Edit if needed."
+        )
     )
     return {"status": "done"}
