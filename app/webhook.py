@@ -1,5 +1,3 @@
-# app/webhook.py
-
 from fastapi import APIRouter, Request
 
 from app.whatsapp import (
@@ -13,6 +11,8 @@ from app.services.member_service import (
     create_member,
     save_member_name,
     has_name,
+    mark_popia_acknowledged,
+    set_leaderboard_opt_out,
 )
 
 from app.services.submission_service import (
@@ -35,6 +35,9 @@ from app.services.openai_service import coach_reply
 router = APIRouter()
 
 
+# ─────────────────────────────────────────────
+# WhatsApp payload extractor
+# ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
     try:
         entry = payload["entry"][0]
@@ -87,7 +90,30 @@ async def webhook(request: Request):
         member = create_member(sender)
 
     # ─────────────────────────────────────────────
-    # 🧾 NAME CAPTURE (ONCE ONLY)
+    # 🛑 POPIA: LEADERBOARD OPT-OUT ONLY
+    # ─────────────────────────────────────────────
+    if text and text.upper() in {"STOP", "OPT OUT"}:
+        set_leaderboard_opt_out(sender)
+        send_text(
+            sender,
+            "✅ You’ve opted out of leaderboards.\n\n"
+            "Your attendance will still be recorded for safety and admin."
+        )
+        return {"status": "leaderboard_opt_out"}
+
+    if not member["popia_acknowledged"]:
+        send_text(
+            sender,
+            "ℹ️ POPIA Notice\n\n"
+            "Your attendance is recorded for safety and club admin.\n"
+            "Time Trial results may appear on leaderboards.\n\n"
+            "Reply OK to continue or STOP to opt out of leaderboards."
+        )
+        mark_popia_acknowledged(sender)
+        return {"status": "popia_notice"}
+
+    # ─────────────────────────────────────────────
+    # 🧾 NAME CAPTURE (UNCHANGED)
     # ─────────────────────────────────────────────
     if not has_name(member):
 
