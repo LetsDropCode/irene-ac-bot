@@ -6,7 +6,6 @@ from app.whatsapp import (
     send_confirm_buttons,
 )
 
-from app.services.submission_gate import ensure_tt_open
 from app.services.submission_service import (
     get_or_create_submission,
     save_distance,
@@ -15,24 +14,57 @@ from app.services.submission_service import (
     is_edit_window_open,
     mark_code_verified,
 )
+
 from app.services.validation import (
     is_valid_time,
     is_valid_tt_code,
 )
+
+from app.services.submission_gate import ensure_tt_open
 from app.services.openai_service import coach_reply
-from app.services.time_utils import time_to_seconds
 
 router = APIRouter()
 
 
+# ─────────────────────────────────────────────
+# WhatsApp payload extractor (REQUIRED)
+# ─────────────────────────────────────────────
+def extract_whatsapp_message(payload: dict):
+    try:
+        entry = payload["entry"][0]
+        change = entry["changes"][0]
+        value = change["value"]
+
+        messages = value.get("messages")
+        if not messages:
+            return None, None, None
+
+        msg = messages[0]
+        sender = msg["from"]
+
+        text = None
+        button = None
+
+        if msg["type"] == "text":
+            text = msg["text"]["body"].strip()
+
+        if msg["type"] == "interactive":
+            button = msg["interactive"]["button_reply"]
+
+        return sender, text, button
+
+    except (KeyError, IndexError, TypeError):
+        return None, None, None
+
+
+# ─────────────────────────────────────────────
+# Main webhook
+# ─────────────────────────────────────────────
 @router.post("/webhook")
 async def webhook(request: Request):
     payload = await request.json()
 
-    message = payload.get("message", {})
-    sender = message.get("from")
-    text = (message.get("text") or "").strip()
-    button = message.get("button_reply")
+    sender, text, button = extract_whatsapp_message(payload)
 
     if not sender:
         return {"status": "ignored"}
@@ -51,13 +83,14 @@ async def webhook(request: Request):
     # 0️⃣ TT CODE — MUST COME FIRST
     # ─────────────────────────────────────────────
     if not submission.tt_code_verified:
-        if not text or text.lower() in {"hi", "hello"}:
+
+        if not text or text.lower() in {"hi", "hello", "hey"}:
             send_text(
                 sender,
                 coach_reply(
-                    "Welcome the runner and ask them to send the "
-                    "Time Trial code to continue."
-                ),
+                    "Welcome a runner to tonight’s time trial and "
+                    "ask them to send the TT code to continue."
+                )
             )
             return {"status": "await_code"}
 
@@ -65,19 +98,21 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Politely say the TT code is invalid and they "
-                    "should check with the run leader."
-                ),
+                    "Politely tell the runner the TT code is invalid "
+                    "and they should check with the run leader."
+                )
             )
             return {"status": "bad_code"}
 
+        # ✅ Code valid
         mark_code_verified(submission, text.upper())
+
         send_text(
             sender,
             coach_reply(
-                "Acknowledge the runner warmly and ask them "
-                "to select a distance."
-            ),
+                "Acknowledge the runner warmly and ask them to "
+                "select a distance for their time trial."
+            )
         )
         send_distance_buttons(sender)
         return {"status": "code_verified"}
@@ -93,9 +128,9 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Ask the runner to send their time in "
-                    "mm:ss or hh:mm:ss format."
-                ),
+                    "Ask the runner to send their time in mm:ss "
+                    "or hh:mm:ss format."
+                )
             )
             return {"status": "ask_time"}
 
@@ -105,8 +140,8 @@ async def webhook(request: Request):
                 sender,
                 coach_reply(
                     f"Congratulate the runner for completing "
-                    f"{submission.distance} km in {submission.time}."
-                ),
+                    f"{submission.distance} in {submission.time}."
+                )
             )
             return {"status": "confirmed"}
 
@@ -116,8 +151,8 @@ async def webhook(request: Request):
                     sender,
                     coach_reply(
                         "Explain politely that editing is closed "
-                        "for tonight’s Time Trial."
-                    ),
+                        "for tonight’s time trial."
+                    )
                 )
                 return {"status": "edit_closed"}
 
@@ -135,17 +170,16 @@ async def webhook(request: Request):
     # 3️⃣ TIME CAPTURE
     # ─────────────────────────────────────────────
     if not submission.time:
-        if not is_valid_time(text):
+        if not text or not is_valid_time(text):
             send_text(
                 sender,
                 "⏱ Please send *time only*:\n"
                 "• 27:41\n"
-                "• 01:27:41",
+                "• 01:27:41"
             )
             return {"status": "bad_time"}
 
-        seconds = time_to_seconds(text)
-        save_time(submission, text, seconds)
+        save_time(submission, text)
         send_confirm_buttons(
             sender,
             submission.distance,
@@ -154,13 +188,13 @@ async def webhook(request: Request):
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 4️⃣ FALLBACK
+    # 4️⃣ FALLBACK (already submitted)
     # ─────────────────────────────────────────────
     send_text(
         sender,
         coach_reply(
-            "Let the runner know their Time Trial is already "
+            "Let the runner know their time trial is already "
             "submitted and they can send Edit if needed."
-        ),
+        )
     )
     return {"status": "done"}
