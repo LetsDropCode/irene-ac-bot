@@ -1,14 +1,14 @@
-from datetime import datetime, time
-import pytz
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-TZ = pytz.timezone("Africa/Johannesburg")
+SA_TZ = ZoneInfo("Africa/Johannesburg")
 
 TT_DAY = 1  # Tuesday
-TT_START = time(16, 30)
-TT_END = time(22, 30)
+TT_START = datetime(16, 30)
+TT_END = datetime(22, 30)
 
 def ensure_tt_open():
-    now = datetime.now(TZ)
+    now = datetime.now(SA_TZ)
 
     if now.weekday() != TT_DAY:
         return False, "⛔ Time Trials only happen on *Tuesdays*."
