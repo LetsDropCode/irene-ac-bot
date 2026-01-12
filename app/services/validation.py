@@ -2,9 +2,7 @@ import re
 from datetime import date
 from app.db import get_db
 
-TT_ALLOWED_DISTANCES = {"4km", "6km", "8km"}
-
-TIME_PATTERN = re.compile(r"^(\d{1,2}:\d{2}|\d{1,2}:\d{2}:\d{2})$")
+TIME_PATTERN = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
 def is_valid_time(value: str) -> bool:
@@ -12,9 +10,6 @@ def is_valid_time(value: str) -> bool:
 
 
 def is_valid_tt_code(code: str) -> bool:
-    if not code:
-        return False
-
     conn = get_db()
     cur = conn.cursor()
 
@@ -22,12 +17,10 @@ def is_valid_tt_code(code: str) -> bool:
         """
         SELECT 1
         FROM event_codes
-        WHERE event = 'TT'
-          AND UPPER(code) = UPPER(%s)
+        WHERE UPPER(code) = UPPER(%s)
           AND event_date = %s
-        LIMIT 1;
         """,
-        (code.strip(), date.today())
+        (code.strip(), date.today()),
     )
 
     valid = cur.fetchone() is not None
