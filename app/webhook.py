@@ -69,8 +69,11 @@ async def webhook(request: Request):
     payload = await request.json()
     sender, text, button = extract_whatsapp_message(payload)
 
-    if not sender:
-        return {"status": "ignored"}
+    # ─────────────────────────────────────────────
+    # FIX 1️⃣: Ignore non-user-input events
+    # ─────────────────────────────────────────────
+    if not sender or (not text and not button):
+        return {"status": "ignored_event"}
 
     # ─────────────────────────────────────────────
     # 🔒 GLOBAL TT GATE
@@ -88,7 +91,7 @@ async def webhook(request: Request):
         member = create_member(sender)
 
     # ─────────────────────────────────────────────
-    # 🧾 NAME CAPTURE (ONCE)
+    # 🧾 NAME CAPTURE
     # ─────────────────────────────────────────────
     if not member.get("first_name") or not member.get("last_name"):
         if not text or len(text.split()) < 2:
@@ -101,11 +104,7 @@ async def webhook(request: Request):
             return {"status": "await_name"}
 
         parts = text.split()
-        save_member_name(
-            member["id"],
-            parts[0],
-            " ".join(parts[1:])
-        )
+        save_member_name(member["id"], parts[0], " ".join(parts[1:]))
 
         send_text(
             sender,
@@ -117,7 +116,7 @@ async def webhook(request: Request):
         return {"status": "name_saved"}
 
     # ─────────────────────────────────────────────
-    # 🏃 PARTICIPATION TYPE (BACKFILL SAFE)
+    # 🏃 PARTICIPATION TYPE
     # ─────────────────────────────────────────────
     if not member.get("participation_type"):
         if not button:
@@ -134,7 +133,7 @@ async def webhook(request: Request):
         send_text(
             sender,
             coach_reply(
-                "Acknowledge their choice and ask for tonight’s TT code."
+                "Great! Please send tonight’s TT code."
             )
         )
         return {"status": "participation_saved"}
@@ -152,7 +151,7 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Welcome the runner and ask them to send tonight’s TT code."
+                    "Please send tonight’s TT code."
                 )
             )
             return {"status": "await_code"}
@@ -161,37 +160,30 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Politely explain that the TT code is invalid."
+                    "That TT code is not valid."
                 )
             )
             return {"status": "bad_code"}
 
         verify_tt_code(submission["id"], text.upper())
-
-        send_text(
-            sender,
-            coach_reply(
-                "Code verified — ask them to select a distance."
-            )
-        )
         send_distance_buttons(sender)
         return {"status": "code_verified"}
 
     # ─────────────────────────────────────────────
-    # 1️⃣ DISTANCE BUTTONS
+    # 1️⃣ DISTANCE
     # ─────────────────────────────────────────────
     if button and button.get("id") in {"4km", "6km", "8km"}:
         save_distance(submission["id"], button["id"].replace("km", ""))
         send_text(
             sender,
             coach_reply(
-                "Ask the runner to send their time."
+                "Please send your time."
             )
         )
         return {"status": "distance_saved"}
 
     # ─────────────────────────────────────────────
-    # 2️⃣ TIME CAPTURE
+    # 2️⃣ TIME
     # ─────────────────────────────────────────────
     if submission["distance_text"] and not submission["time_text"]:
         if not text or not is_valid_time(text):
@@ -203,41 +195,29 @@ async def webhook(request: Request):
             )
             return {"status": "bad_time"}
 
-        # Convert to seconds safely
         parts = list(map(int, text.split(":")))
         seconds = parts[-1] + parts[-2] * 60
         if len(parts) == 3:
             seconds += parts[0] * 3600
 
         save_time(submission["id"], text, seconds)
-
-        send_confirm_buttons(
-            sender,
-            submission["distance_text"],
-            text,
-        )
+        send_confirm_buttons(sender, submission["distance_text"], text)
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 3️⃣ CONFIRM / COMPLETE
+    # 3️⃣ CONFIRM
     # ─────────────────────────────────────────────
     if button and button.get("id") == "confirm":
         confirm_submission(submission["id"])
         send_text(
             sender,
             coach_reply(
-                "Congratulate the runner for completing their TT."
+                "🔥 Well done! Your TT has been recorded."
             )
         )
         return {"status": "complete"}
 
     # ─────────────────────────────────────────────
-    # FALLBACK
+    # FIX 2️⃣: Silent fallback (NO MESSAGE)
     # ─────────────────────────────────────────────
-    send_text(
-        sender,
-        coach_reply(
-            "Let them know their TT is already submitted."
-        )
-    )
-    return {"status": "done"}
+    return {"status": "noop"}
