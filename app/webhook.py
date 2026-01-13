@@ -8,7 +8,7 @@ from app.whatsapp import (
 )
 
 from app.config import ADMIN_NUMBERS
-from app.services.admin_code_service import create_today_tt_code
+from app.services.event_code_service import create_today_tt_code
 
 from app.services.member_service import (
     get_member,
@@ -37,6 +37,16 @@ from app.services.openai_service import coach_reply
 
 router = APIRouter()
 
+ADMIN_NUMBERS = {
+    "27722125094", #Lindsay
+    "27738870757", #Jacqueline
+    "27829370733", #Wynand
+    "27818513864", #Johan
+    "27828827067", #Janine
+}
+
+def is_admin(sender:str)->bool:
+    return sender in ADMIN_NUMBERS
 
 # ─────────────────────────────────────────────
 # WhatsApp payload extractor (SAFE)
