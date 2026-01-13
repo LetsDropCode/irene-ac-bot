@@ -3,6 +3,7 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from contextlib import contextmanager
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -10,12 +11,44 @@ if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not set")
 
 
+# --------------------------------------------------
+# Connection helpers
+# --------------------------------------------------
+
 def get_db():
+    """
+    Returns a raw psycopg2 connection.
+    Used by init_db and any legacy code.
+    """
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
     )
 
+
+@contextmanager
+def get_cursor():
+    """
+    Context-managed cursor with auto commit / rollback.
+    This is what service layers (submission_service, member_service)
+    should use.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# --------------------------------------------------
+# Database initialisation & migrations
+# --------------------------------------------------
 
 def init_db():
     print("🚀 Initialising database...")
@@ -70,7 +103,7 @@ def init_db():
     """)
 
     # ----------------------------
-    # Migrations (SAFE)
+    # SAFE migrations
     # ----------------------------
     cur.execute("""
         ALTER TABLE members
@@ -82,7 +115,7 @@ def init_db():
         ADD COLUMN IF NOT EXISTS mode TEXT;
     """)
 
-    # Backfills
+    # Backfills (idempotent)
     cur.execute("""
         UPDATE members
         SET participation_type = 'RUNNER'
@@ -96,7 +129,7 @@ def init_db():
     """)
 
     # ----------------------------
-    # Seed events
+    # Seed events (safe)
     # ----------------------------
     cur.execute("SELECT COUNT(*) AS count FROM event_config;")
     if cur.fetchone()["count"] == 0:
