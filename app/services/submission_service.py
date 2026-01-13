@@ -1,107 +1,131 @@
-# app/services/submission_service.py
-
-from datetime import date
-from app.db import get_db
-from app.models.submission import Submission
+from datetime import date, datetime, timedelta
+from app.db import get_cursor
 
 
-def time_to_seconds(value: str) -> int:
-    """
-    Converts mm:ss or hh:mm:ss to seconds
-    """
-    parts = value.split(":")
+# ─────────────────────────────────────────────
+# GET OR CREATE SUBMISSION (ONE PER DAY)
+# ─────────────────────────────────────────────
+def get_or_create_submission(member):
+    today = date.today()
 
-    if len(parts) == 2:  # mm:ss
-        minutes, seconds = parts
-        return int(minutes) * 60 + int(seconds)
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id,
+                   distance_text,
+                   seconds,
+                   confirmed,
+                   tt_code_verified,
+                   created_at
+            FROM submissions
+            WHERE member_id = %s
+              AND created_at::date = %s
+            """,
+            (member["id"], today),
+        )
 
-    if len(parts) == 3:  # hh:mm:ss
-        hours, minutes, seconds = parts
-        return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+        row = cur.fetchone()
 
-    raise ValueError("Invalid time format")
+        if row:
+            return _row_to_submission(row)
 
+        cur.execute(
+            """
+            INSERT INTO submissions (member_id, created_at, confirmed)
+            VALUES (%s, NOW(), FALSE)
+            RETURNING id,
+                      distance_text,
+                      seconds,
+                      confirmed,
+                      tt_code_verified,
+                      created_at
+            """,
+            (member["id"],),
+        )
 
-def get_or_create_submission(phone: str) -> Submission:
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT *
-        FROM submissions
-        WHERE phone = %s AND created_at::date = %s
-        LIMIT 1
-        """,
-        (phone, date.today()),
-    )
-
-    row = cur.fetchone()
-
-    if row:
-        cur.close()
-        conn.close()
-        return Submission(**row)
-
-    cur.execute(
-        """
-        INSERT INTO submissions (phone)
-        VALUES (%s)
-        RETURNING *
-        """,
-        (phone,),
-    )
-
-    submission = Submission(**cur.fetchone())
-    conn.commit()
-    cur.close()
-    conn.close()
-    return submission
+        return _row_to_submission(cur.fetchone())
 
 
-def _update(phone: str, fields: dict):
-    conn = get_db()
-    cur = conn.cursor()
-
-    set_clause = ", ".join(f"{k} = %s" for k in fields)
-    values = list(fields.values()) + [phone]
-
-    cur.execute(
-        f"""
-        UPDATE submissions
-        SET {set_clause}, updated_at = NOW()
-        WHERE phone = %s
-        """,
-        values,
-    )
-
-    conn.commit()
-    cur.close()
-    conn.close()
+# ─────────────────────────────────────────────
+# INTERNAL MAPPER
+# ─────────────────────────────────────────────
+def _row_to_submission(row):
+    return {
+        "id": row[0],
+        "distance": row[1],
+        "seconds": row[2],
+        "confirmed": row[3],
+        "tt_code_verified": row[4],
+        "created_at": row[5],
+    }
 
 
-def mark_code_verified(submission: Submission, code: str):
-    _update(submission.phone, {
-        "tt_code_verified": True,
-        "tt_code": code,
-    })
+# ─────────────────────────────────────────────
+# SAVE DISTANCE
+# ─────────────────────────────────────────────
+def save_distance(submission, distance_km):
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE submissions
+            SET distance_text = %s,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (f"{distance_km}km", submission["id"]),
+        )
 
 
-def save_distance(submission: Submission, distance: str):
-    _update(submission.phone, {"distance": distance})
+# ─────────────────────────────────────────────
+# SAVE TIME (SECONDS)
+# ─────────────────────────────────────────────
+def save_time(submission, seconds):
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE submissions
+            SET seconds = %s,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (seconds, submission["id"]),
+        )
 
 
-def save_time(submission: Submission, time: str):
-    seconds = time_to_seconds(time)
-    _update(submission.phone, {
-        "time": time,
-        "seconds": seconds,
-    })
+# ─────────────────────────────────────────────
+# TT CODE VERIFICATION
+# ─────────────────────────────────────────────
+def mark_code_verified(submission):
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE submissions
+            SET tt_code_verified = TRUE,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (submission["id"],),
+        )
 
 
-def confirm_submission(submission: Submission):
-    _update(submission.phone, {"confirmed": True})
+# ─────────────────────────────────────────────
+# CONFIRM SUBMISSION
+# ─────────────────────────────────────────────
+def confirm_submission(submission):
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE submissions
+            SET confirmed = TRUE,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (submission["id"],),
+        )
 
 
-def is_edit_window_open(submission: Submission) -> bool:
-    return not submission.confirmed
+# ─────────────────────────────────────────────
+# EDIT WINDOW (15 MINUTES)
+# ─────────────────────────────────────────────
+def is_edit_window_open(submission):
+    return datetime.utcnow() - submission["created_at"] <= timedelta(minutes=15)
