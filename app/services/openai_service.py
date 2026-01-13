@@ -53,4 +53,4 @@ def fallback(prompt: str) -> str:
         return "⏱ Please send your time (mm:ss or hh:mm:ss)."
     if "congratulate" in prompt.lower():
         return "🔥 Well done! Your TT is recorded."
-    return "✅ Got it!"
+    return ""
