@@ -1,69 +1,50 @@
-from datetime import date, datetime, timedelta
+from datetime import date
 from app.db import get_cursor
+from app.models.submission import Submission
 
 
-# ─────────────────────────────────────────────
-# GET OR CREATE SUBMISSION (ONE PER DAY)
-# ─────────────────────────────────────────────
-def get_or_create_submission(member):
-    today = date.today()
+def get_or_create_submission(member: dict) -> Submission:
+    """
+    Returns today's submission for a member.
+    Creates one if it does not exist.
+    """
 
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT id,
-                   distance_text,
-                   seconds,
-                   confirmed,
-                   tt_code_verified,
-                   created_at
+            SELECT *
             FROM submissions
             WHERE member_id = %s
               AND created_at::date = %s
+            LIMIT 1
             """,
-            (member["id"], today),
+            (member["id"], date.today()),
         )
 
         row = cur.fetchone()
-
         if row:
-            return _row_to_submission(row)
+            return Submission(**row)
 
+        # Create a NEW submission with REQUIRED defaults
         cur.execute(
             """
-            INSERT INTO submissions (member_id, created_at, confirmed)
-            VALUES (%s, NOW(), FALSE)
-            RETURNING id,
-                      distance_text,
-                      seconds,
-                      confirmed,
-                      tt_code_verified,
-                      created_at
+            INSERT INTO submissions (
+                member_id,
+                activity,
+                mode,
+                confirmed,
+                tt_code_verified
+            )
+            VALUES (%s, 'TT', 'RUN', FALSE, FALSE)
+            RETURNING *
             """,
             (member["id"],),
         )
 
-        return _row_to_submission(cur.fetchone())
+        return Submission(**cur.fetchone())
 
 
-# ─────────────────────────────────────────────
-# INTERNAL MAPPER
-# ─────────────────────────────────────────────
-def _row_to_submission(row):
-    return {
-        "id": row[0],
-        "distance": row[1],
-        "seconds": row[2],
-        "confirmed": row[3],
-        "tt_code_verified": row[4],
-        "created_at": row[5],
-    }
-
-
-# ─────────────────────────────────────────────
-# SAVE DISTANCE
-# ─────────────────────────────────────────────
-def save_distance(submission, distance_km):
+def save_distance(submission: Submission, distance: str):
     with get_cursor() as cur:
         cur.execute(
             """
@@ -72,46 +53,39 @@ def save_distance(submission, distance_km):
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (f"{distance_km}km", submission["id"]),
+            (distance, submission.id),
         )
 
 
-# ─────────────────────────────────────────────
-# SAVE TIME (SECONDS)
-# ─────────────────────────────────────────────
-def save_time(submission, seconds):
+def save_time(submission: Submission, time_text: str, seconds: int):
     with get_cursor() as cur:
         cur.execute(
             """
             UPDATE submissions
-            SET seconds = %s,
+            SET time_text = %s,
+                seconds = %s,
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (seconds, submission["id"]),
+            (time_text, seconds, submission.id),
         )
 
 
-# ─────────────────────────────────────────────
-# TT CODE VERIFICATION
-# ─────────────────────────────────────────────
-def mark_code_verified(submission):
+def mark_code_verified(submission: Submission, code: str):
     with get_cursor() as cur:
         cur.execute(
             """
             UPDATE submissions
             SET tt_code_verified = TRUE,
+                code_used = %s,
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (submission["id"],),
+            (code, submission.id),
         )
 
 
-# ─────────────────────────────────────────────
-# CONFIRM SUBMISSION
-# ─────────────────────────────────────────────
-def confirm_submission(submission):
+def confirm_submission(submission: Submission):
     with get_cursor() as cur:
         cur.execute(
             """
@@ -120,12 +94,9 @@ def confirm_submission(submission):
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (submission["id"],),
+            (submission.id,),
         )
 
 
-# ─────────────────────────────────────────────
-# EDIT WINDOW (15 MINUTES)
-# ─────────────────────────────────────────────
-def is_edit_window_open(submission):
-    return datetime.utcnow() - submission["created_at"] <= timedelta(minutes=15)
+def is_edit_window_open(submission: Submission) -> bool:
+    return not submission.confirmed
