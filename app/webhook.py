@@ -1,29 +1,25 @@
-# app/webhook.py
-
 from fastapi import APIRouter, Request
 
 from app.whatsapp import (
     send_text,
     send_distance_buttons,
     send_confirm_buttons,
+    send_participation_buttons,
 )
 
 from app.services.member_service import (
     get_member,
     create_member,
     save_member_name,
-    has_name,
-    acknowledge_popia,
-    opt_out_leaderboard,
+    save_participation_type,
 )
 
 from app.services.submission_service import (
     get_or_create_submission,
+    verify_tt_code,
     save_distance,
     save_time,
     confirm_submission,
-    is_edit_window_open,
-    mark_code_verified,
 )
 
 from app.services.validation import (
@@ -35,6 +31,7 @@ from app.services.submission_gate import ensure_tt_open
 from app.services.openai_service import coach_reply
 
 router = APIRouter()
+
 
 # ─────────────────────────────────────────────
 # WhatsApp payload extractor (SAFE)
@@ -76,7 +73,7 @@ async def webhook(request: Request):
         return {"status": "ignored"}
 
     # ─────────────────────────────────────────────
-    # 🔒 TT DAY + TIME GATE (GLOBAL)
+    # 🔒 GLOBAL TT GATE
     # ─────────────────────────────────────────────
     allowed, reason = ensure_tt_open()
     if not allowed:
@@ -91,67 +88,66 @@ async def webhook(request: Request):
         member = create_member(sender)
 
     # ─────────────────────────────────────────────
-    # 🛑 POPIA (LEADERBOARD OPT-OUT ONLY)
+    # 🧾 NAME CAPTURE (ONCE)
     # ─────────────────────────────────────────────
-    if text and text.upper() in {"STOP", "OPT OUT"}:
-        opt_out_leaderboard(sender)
-        send_text(
-            sender,
-            "✅ You’ve opted out of leaderboards.\n\n"
-            "Your attendance will still be recorded for safety and admin."
-        )
-        return {"status": "leaderboard_opt_out"}
-
-    if not member["popia_acknowledged"]:
-        send_text(
-            sender,
-            "ℹ️ *POPIA Notice*\n\n"
-            "• Attendance is recorded for safety & admin\n"
-            "• Results may appear on leaderboards\n\n"
-            "Reply *OK* to continue or *STOP* to opt out of leaderboards."
-        )
-        if text and text.upper() == "OK":
-            acknowledge_popia(sender)
-        return {"status": "popia_notice"}
-
-    # ─────────────────────────────────────────────
-    # 🧾 NAME CAPTURE (ONCE ONLY)
-    # ─────────────────────────────────────────────
-    if not has_name(member):
-
+    if not member.get("first_name") or not member.get("last_name"):
         if not text or len(text.split()) < 2:
             send_text(
                 sender,
-                "👋 Before we continue, please send your *first name and surname*.\n\n"
+                "👋 Welcome!\n\n"
+                "Please send your *first name and surname*.\n"
                 "_Example: Sipho Dlamini_"
             )
             return {"status": "await_name"}
 
         parts = text.split()
-        first_name = parts[0]
-        last_name = " ".join(parts[1:])
-
-        save_member_name(sender, first_name, last_name)
+        save_member_name(
+            member["id"],
+            parts[0],
+            " ".join(parts[1:])
+        )
 
         send_text(
             sender,
             coach_reply(
-                "Thank the runner for confirming their name and ask them "
-                "to send the TT code to continue."
+                "Thank the member and ask how they usually participate."
             )
         )
+        send_participation_buttons(sender)
         return {"status": "name_saved"}
 
     # ─────────────────────────────────────────────
-    # 📋 SUBMISSION SESSION (DAILY)
+    # 🏃 PARTICIPATION TYPE (BACKFILL SAFE)
     # ─────────────────────────────────────────────
-    submission = get_or_create_submission(member)
+    if not member.get("participation_type"):
+        if not button:
+            send_participation_buttons(sender)
+            return {"status": "await_participation"}
+
+        ptype = button.get("id")
+        if ptype not in {"RUNNER", "WALKER", "BOTH"}:
+            send_participation_buttons(sender)
+            return {"status": "bad_participation"}
+
+        save_participation_type(member["id"], ptype)
+
+        send_text(
+            sender,
+            coach_reply(
+                "Acknowledge their choice and ask for tonight’s TT code."
+            )
+        )
+        return {"status": "participation_saved"}
 
     # ─────────────────────────────────────────────
-    # 0️⃣ TT CODE — MUST COME FIRST
+    # 📋 DAILY SUBMISSION
+    # ─────────────────────────────────────────────
+    submission = get_or_create_submission(member["id"])
+
+    # ─────────────────────────────────────────────
+    # 0️⃣ TT CODE
     # ─────────────────────────────────────────────
     if not submission["tt_code_verified"]:
-
         if not text:
             send_text(
                 sender,
@@ -165,99 +161,83 @@ async def webhook(request: Request):
             send_text(
                 sender,
                 coach_reply(
-                    "Politely explain that the TT code is invalid "
-                    "and they should check with the run leader."
+                    "Politely explain that the TT code is invalid."
                 )
             )
             return {"status": "bad_code"}
 
-        mark_code_verified(sender, text.upper())
+        verify_tt_code(submission["id"], text.upper())
 
         send_text(
             sender,
             coach_reply(
-                "Acknowledge the runner warmly and ask them to select a distance."
+                "Code verified — ask them to select a distance."
             )
         )
         send_distance_buttons(sender)
         return {"status": "code_verified"}
 
     # ─────────────────────────────────────────────
-    # 1️⃣ BUTTON HANDLING
+    # 1️⃣ DISTANCE BUTTONS
     # ─────────────────────────────────────────────
-    if button:
-        btn_id = button.get("id")
-
-        if btn_id in {"4km", "6km", "8km"}:
-            save_distance(sender, btn_id.replace("km", ""))
-            send_text(
-                sender,
-                coach_reply(
-                    "Ask the runner to send their time in mm:ss or hh:mm:ss."
-                )
+    if button and button.get("id") in {"4km", "6km", "8km"}:
+        save_distance(submission["id"], button["id"].replace("km", ""))
+        send_text(
+            sender,
+            coach_reply(
+                "Ask the runner to send their time."
             )
-            return {"status": "ask_time"}
-
-        if btn_id == "confirm":
-            confirm_submission(sender)
-            send_text(
-                sender,
-                coach_reply(
-                    f"Congratulate the runner for completing "
-                    f"{submission['distance']} in {submission['time']}."
-                )
-            )
-            return {"status": "confirmed"}
-
-        if btn_id == "edit":
-            if not is_edit_window_open(submission):
-                send_text(
-                    sender,
-                    coach_reply(
-                        "Explain politely that editing is closed for tonight."
-                    )
-                )
-                return {"status": "edit_closed"}
-
-            send_distance_buttons(sender)
-            return {"status": "edit"}
+        )
+        return {"status": "distance_saved"}
 
     # ─────────────────────────────────────────────
-    # 2️⃣ DISTANCE HARD GATE
+    # 2️⃣ TIME CAPTURE
     # ─────────────────────────────────────────────
-    if not submission["distance"]:
-        send_distance_buttons(sender)
-        return {"status": "need_distance"}
-
-    # ─────────────────────────────────────────────
-    # 3️⃣ TIME CAPTURE
-    # ─────────────────────────────────────────────
-    if not submission["time"]:
+    if submission["distance_text"] and not submission["time_text"]:
         if not text or not is_valid_time(text):
             send_text(
                 sender,
-                "⏱ Please send *time only*:\n"
+                "⏱ Please send time only:\n"
                 "• 27:41\n"
                 "• 01:27:41"
             )
             return {"status": "bad_time"}
 
-        save_time(sender, text)
+        # Convert to seconds safely
+        parts = list(map(int, text.split(":")))
+        seconds = parts[-1] + parts[-2] * 60
+        if len(parts) == 3:
+            seconds += parts[0] * 3600
+
+        save_time(submission["id"], text, seconds)
+
         send_confirm_buttons(
             sender,
-            submission["distance"],
+            submission["distance_text"],
             text,
         )
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # 4️⃣ FALLBACK (ALREADY SUBMITTED)
+    # 3️⃣ CONFIRM / COMPLETE
+    # ─────────────────────────────────────────────
+    if button and button.get("id") == "confirm":
+        confirm_submission(submission["id"])
+        send_text(
+            sender,
+            coach_reply(
+                "Congratulate the runner for completing their TT."
+            )
+        )
+        return {"status": "complete"}
+
+    # ─────────────────────────────────────────────
+    # FALLBACK
     # ─────────────────────────────────────────────
     send_text(
         sender,
         coach_reply(
-            "Let the runner know their time trial is already submitted "
-            "and they can send Edit if needed."
+            "Let them know their TT is already submitted."
         )
     )
     return {"status": "done"}

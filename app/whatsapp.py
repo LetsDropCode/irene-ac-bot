@@ -61,6 +61,28 @@ def send_text(to: str, text: str) -> None:
 
 
 # ─────────────────────────────────────────────
+# PARTICIPATION BUTTONS (RUNNER / WALKER / BOTH)
+# ─────────────────────────────────────────────
+def send_participation_buttons(to: str):
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": "How do you usually participate?"},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "RUNNER", "title": "🏃 Runner"}},
+                    {"type": "reply", "reply": {"id": "WALKER", "title": "🚶 Walker"}},
+                    {"type": "reply", "reply": {"id": "BOTH", "title": "🔄 Both"}},
+                ]
+            },
+        },
+    }
+    _send(payload)
+
+# ─────────────────────────────────────────────
 # DISTANCE BUTTONS (4 / 6 / 8 km)
 # ─────────────────────────────────────────────
 def send_distance_buttons(to: str) -> None:
