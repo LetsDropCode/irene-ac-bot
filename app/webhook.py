@@ -38,7 +38,7 @@ from app.services.openai_service import coach_reply
 router = APIRouter()
 
 ADMIN_NUMBERS = {
-    "27722125094", #Lindsay
+    "27722135094", #Lindsay
     "27738870757", #Jacqueline
     "27829370733", #Wynand
     "27818513864", #Johan
