@@ -17,45 +17,70 @@ def create_member(phone: str):
         return cur.fetchone()
 
 
-def save_member_name(member_id: int, first: str, last: str):
-    with get_cursor() as cur:
-        cur.execute("""
-            UPDATE members
-            SET first_name=%s, last_name=%s
-            WHERE id=%s
-        """, (first, last, member_id))
+def save_member_name(member_id: int, first_name: str, last_name: str):
+    conn = get_db()
+    cur = conn.cursor()
 
+    cur.execute(
+        """
+        UPDATE members
+        SET first_name = %s,
+            last_name = %s
+        WHERE id = %s
+        """,
+        (first_name, last_name, member_id)
+    )
 
-def save_participation_type(member_id: int, ptype: str):
-    with get_cursor() as cur:
-        cur.execute("""
-            UPDATE members
-            SET participation_type=%s
-            WHERE id=%s
-        """, (ptype, member_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+def save_participation_type(member_id: int, participation_type: str):
+    conn = get_db()
+    cur = conn.cursor()
 
+    cur.execute(
+        """
+        UPDATE members
+        SET participation_type = %s
+        WHERE id = %s
+        """,
+        (participation_type, member_id)
+    )
 
-def acknowledge_popia(phone_number: str):
-    db = get_db()
-    db.execute(
+    conn.commit()
+    cur.close()
+    conn.close()
+def acknowledge_popia(sender: str):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
         """
         UPDATE members
         SET popia_acknowledged = TRUE
-        WHERE phone_number = ?
+        WHERE phone = %s
         """,
-        (phone_number,),
+        (sender,)
     )
-    db.commit()
 
+    conn.commit()
+    cur.close()
+    conn.close()
 
-def opt_out_leaderboard(phone_number: str):
-    db = get_db()
-    db.execute(
+def opt_out_leaderboard(sender: str):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
         """
         UPDATE members
         SET leaderboard_opt_out = TRUE
-        WHERE phone_number = ?
+        WHERE phone = %s
         """,
-        (phone_number,),
+        (sender,)
     )
-    db.commit()
+
+    conn.commit()
+    cur.close()
+    conn.close()
