@@ -1,5 +1,5 @@
 from app.db import get_cursor
-
+from app.db import get_db
 
 def get_member(phone: str):
     with get_cursor() as cur:
@@ -33,3 +33,16 @@ def save_participation_type(member_id: int, ptype: str):
             SET participation_type=%s
             WHERE id=%s
         """, (ptype, member_id))
+
+
+def acknowledge_popia(phone_number: str):
+    db = get_db()
+    db.execute(
+        """
+        UPDATE members
+        SET popia_acknowledged = TRUE
+        WHERE phone_number = ?
+        """,
+        (phone_number,),
+    )
+    db.commit()
