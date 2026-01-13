@@ -46,3 +46,16 @@ def acknowledge_popia(phone_number: str):
         (phone_number,),
     )
     db.commit()
+
+
+def opt_out_leaderboard(phone_number: str):
+    db = get_db()
+    db.execute(
+        """
+        UPDATE members
+        SET leaderboard_opt_out = TRUE
+        WHERE phone_number = ?
+        """,
+        (phone_number,),
+    )
+    db.commit()
