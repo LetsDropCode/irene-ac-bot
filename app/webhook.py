@@ -34,19 +34,6 @@ router = APIRouter()
 
 
 # ─────────────────────────────────────────────
-# SAFE AI SEND (NO EMPTY / NO GHOST MESSAGES)
-# ─────────────────────────────────────────────
-def send_ai(sender: str, prompt: str) -> None:
-    try:
-        reply = coach_reply(prompt)
-        if reply and reply.strip():
-            send_text(sender, reply)
-    except Exception:
-        # Never allow AI to break the webhook
-        pass
-
-
-# ─────────────────────────────────────────────
 # WhatsApp payload extractor (SAFE)
 # ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
@@ -77,22 +64,19 @@ def extract_whatsapp_message(payload: dict):
         return None, None, None
 
 
-# ─────────────────────────────────────────────
-# MAIN WEBHOOK
-# ─────────────────────────────────────────────
 @router.post("/webhook")
 async def webhook(request: Request):
     payload = await request.json()
     sender, text, button = extract_whatsapp_message(payload)
 
     # ─────────────────────────────────────────────
-    # IGNORE NON-USER EVENTS (Meta retries, receipts)
+    # Ignore delivery / status / echo events
     # ─────────────────────────────────────────────
     if not sender or (not text and not button):
         return {"status": "ignored_event"}
 
     # ─────────────────────────────────────────────
-    # GLOBAL TT GATE
+    # 🔒 GLOBAL TT GATE
     # ─────────────────────────────────────────────
     allowed, reason = ensure_tt_open()
     if not allowed:
@@ -100,25 +84,26 @@ async def webhook(request: Request):
         return {"status": "tt_closed"}
 
     # ─────────────────────────────────────────────
-    # MEMBER LOOKUP / CREATE
+    # 👤 MEMBER LOOKUP / CREATE
     # ─────────────────────────────────────────────
     member = get_member(sender)
     if not member:
         member = create_member(sender)
 
-# ─────────────────────────────────────────────
-# FRIENDLY GREETING (SAFE, NON-DESTRUCTIVE)
-# ─────────────────────────────────────────────
+    # ─────────────────────────────────────────────
+    # 👋 FRIENDLY GREETING (NO STATE CHANGE)
+    # ─────────────────────────────────────────────
     if text and text.lower() in {"hi", "hello", "hey"}:
         send_text(
             sender,
-            "👋 Hi! If you're submitting a Time Trial, please send tonight’s *TT code*.\n\n"
-            "If you’re all done, you’re good to go 👍"
+            "👋 Hi!\n\n"
+            "If you're submitting a Time Trial, please send tonight’s *TT code*.\n"
+            "If you're already done, you're all set 👍"
         )
         return {"status": "greeted"}
 
     # ─────────────────────────────────────────────
-    # NAME CAPTURE (ONCE)
+    # 🧾 NAME CAPTURE
     # ─────────────────────────────────────────────
     if not member.get("first_name") or not member.get("last_name"):
         if not text or len(text.split()) < 2:
@@ -137,15 +122,16 @@ async def webhook(request: Request):
             " ".join(parts[1:])
         )
 
-        send_ai(
-            sender,
+        reply = coach_reply(
             "Thank the member and ask how they usually participate."
-        )
+        ) or "Thanks! How do you usually participate?"
+
+        send_text(sender, reply)
         send_participation_buttons(sender)
         return {"status": "name_saved"}
 
     # ─────────────────────────────────────────────
-    # PARTICIPATION TYPE (RUNNER / WALKER / BOTH)
+    # 🏃 PARTICIPATION TYPE (BACKFILL SAFE)
     # ─────────────────────────────────────────────
     if not member.get("participation_type"):
         if not button:
@@ -159,27 +145,28 @@ async def webhook(request: Request):
 
         save_participation_type(member["id"], ptype)
 
-        send_ai(
-            sender,
-            "Great! Please send tonight’s TT code."
-        )
+        reply = coach_reply(
+            "Acknowledge their choice and ask for tonight’s TT code."
+        ) or "Great! Please send tonight’s TT code."
+
+        send_text(sender, reply)
         return {"status": "participation_saved"}
 
     # ─────────────────────────────────────────────
-    # DAILY SUBMISSION
+    # 📋 DAILY SUBMISSION (ONE PER DAY)
     # ─────────────────────────────────────────────
     submission = get_or_create_submission(member["id"])
 
     # ─────────────────────────────────────────────
-    # TT CODE
+    # 0️⃣ TT CODE
     # ─────────────────────────────────────────────
     if not submission["tt_code_verified"]:
         if not text:
-            send_ai(sender, "Please send tonight’s TT code.")
+            send_text(sender, "Please send tonight’s *TT code*.")
             return {"status": "await_code"}
 
         if not is_valid_tt_code(text):
-            send_ai(sender, "That TT code is not valid.")
+            send_text(sender, "❌ That TT code is not valid.")
             return {"status": "bad_code"}
 
         verify_tt_code(submission["id"], text.upper())
@@ -187,18 +174,18 @@ async def webhook(request: Request):
         return {"status": "code_verified"}
 
     # ─────────────────────────────────────────────
-    # DISTANCE
+    # 1️⃣ DISTANCE
     # ─────────────────────────────────────────────
     if button and button.get("id") in {"4km", "6km", "8km"}:
         save_distance(
             submission["id"],
             button["id"].replace("km", "")
         )
-        send_ai(sender, "Please send your time.")
+        send_text(sender, "⏱ Please send your time.")
         return {"status": "distance_saved"}
 
     # ─────────────────────────────────────────────
-    # TIME
+    # 2️⃣ TIME
     # ─────────────────────────────────────────────
     if submission["distance_text"] and not submission["time_text"]:
         if not text or not is_valid_time(text):
@@ -219,22 +206,19 @@ async def webhook(request: Request):
         send_confirm_buttons(
             sender,
             submission["distance_text"],
-            text
+            text,
         )
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
-    # CONFIRM
+    # 3️⃣ CONFIRM
     # ─────────────────────────────────────────────
     if button and button.get("id") == "confirm":
         confirm_submission(submission["id"])
-        send_ai(
-            sender,
-            "🔥 Well done! Your TT has been recorded."
-        )
+        send_text(sender, "🔥 Well done! Your TT has been recorded.")
         return {"status": "complete"}
 
     # ─────────────────────────────────────────────
-    # SILENT FALLBACK (NO SPAM)
+    # SILENT FALLBACK (EXPECTED STATE)
     # ─────────────────────────────────────────────
     return {"status": "noop"}
