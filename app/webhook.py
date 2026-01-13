@@ -7,11 +7,16 @@ from app.whatsapp import (
     send_participation_buttons,
 )
 
+from app.config import ADMIN_NUMBERS
+from app.services.admin_code_service import create_today_tt_code
+
 from app.services.member_service import (
     get_member,
     create_member,
     save_member_name,
     save_participation_type,
+    acknowledge_popia,
+    opt_out_leaderboard,
 )
 
 from app.services.submission_service import (
@@ -70,10 +75,25 @@ async def webhook(request: Request):
     sender, text, button = extract_whatsapp_message(payload)
 
     # ─────────────────────────────────────────────
-    # Ignore delivery / status / echo events
+    # IGNORE NON-USER EVENTS
     # ─────────────────────────────────────────────
     if not sender or (not text and not button):
         return {"status": "ignored_event"}
+
+    # ─────────────────────────────────────────────
+    # 🔐 ADMIN: REQUEST TONIGHT'S TT CODE
+    # ─────────────────────────────────────────────
+    if text and sender in ADMIN_NUMBERS:
+        cmd = text.strip().upper()
+        if cmd in {"TT CODE", "GET TT CODE", "CODE"}:
+            code = create_today_tt_code()
+            send_text(
+                sender,
+                "🔐 *Tonight’s TT Code*\n\n"
+                f"*{code}*\n\n"
+                "_Valid for today only_"
+            )
+            return {"status": "admin_tt_code"}
 
     # ─────────────────────────────────────────────
     # 🔒 GLOBAL TT GATE
@@ -91,16 +111,28 @@ async def webhook(request: Request):
         member = create_member(sender)
 
     # ─────────────────────────────────────────────
-    # 👋 FRIENDLY GREETING (NO STATE CHANGE)
+    # 🛑 POPIA (LEADERBOARD OPT-OUT ONLY)
     # ─────────────────────────────────────────────
-    if text and text.lower() in {"hi", "hello", "hey"}:
+    if text and text.upper() in {"STOP", "OPT OUT"}:
+        opt_out_leaderboard(sender)
         send_text(
             sender,
-            "👋 Hi!\n\n"
-            "If you're submitting a Time Trial, please send tonight’s *TT code*.\n"
-            "If you're already done, you're all set 👍"
+            "✅ You’ve opted out of leaderboards.\n\n"
+            "Your attendance will still be recorded for safety and admin."
         )
-        return {"status": "greeted"}
+        return {"status": "leaderboard_opt_out"}
+
+    if not member.get("popia_acknowledged"):
+        send_text(
+            sender,
+            "ℹ️ *POPIA Notice*\n\n"
+            "• Attendance is recorded for safety & admin\n"
+            "• Results may appear on leaderboards\n\n"
+            "Reply *OK* to continue or *STOP* to opt out of leaderboards."
+        )
+        if text and text.upper() == "OK":
+            acknowledge_popia(sender)
+        return {"status": "popia_notice"}
 
     # ─────────────────────────────────────────────
     # 🧾 NAME CAPTURE
@@ -116,17 +148,12 @@ async def webhook(request: Request):
             return {"status": "await_name"}
 
         parts = text.split()
-        save_member_name(
-            member["id"],
-            parts[0],
-            " ".join(parts[1:])
-        )
+        save_member_name(member["id"], parts[0], " ".join(parts[1:]))
 
-        reply = coach_reply(
+        msg = coach_reply(
             "Thank the member and ask how they usually participate."
         ) or "Thanks! How do you usually participate?"
-
-        send_text(sender, reply)
+        send_text(sender, msg)
         send_participation_buttons(sender)
         return {"status": "name_saved"}
 
@@ -145,15 +172,14 @@ async def webhook(request: Request):
 
         save_participation_type(member["id"], ptype)
 
-        reply = coach_reply(
+        msg = coach_reply(
             "Acknowledge their choice and ask for tonight’s TT code."
         ) or "Great! Please send tonight’s TT code."
-
-        send_text(sender, reply)
+        send_text(sender, msg)
         return {"status": "participation_saved"}
 
     # ─────────────────────────────────────────────
-    # 📋 DAILY SUBMISSION (ONE PER DAY)
+    # 📋 DAILY SUBMISSION
     # ─────────────────────────────────────────────
     submission = get_or_create_submission(member["id"])
 
@@ -162,7 +188,7 @@ async def webhook(request: Request):
     # ─────────────────────────────────────────────
     if not submission["tt_code_verified"]:
         if not text:
-            send_text(sender, "Please send tonight’s *TT code*.")
+            send_text(sender, "Please send tonight’s TT code.")
             return {"status": "await_code"}
 
         if not is_valid_tt_code(text):
@@ -177,10 +203,7 @@ async def webhook(request: Request):
     # 1️⃣ DISTANCE
     # ─────────────────────────────────────────────
     if button and button.get("id") in {"4km", "6km", "8km"}:
-        save_distance(
-            submission["id"],
-            button["id"].replace("km", "")
-        )
+        save_distance(submission["id"], button["id"].replace("km", ""))
         send_text(sender, "⏱ Please send your time.")
         return {"status": "distance_saved"}
 
@@ -203,11 +226,7 @@ async def webhook(request: Request):
             seconds += parts[0] * 3600
 
         save_time(submission["id"], text, seconds)
-        send_confirm_buttons(
-            sender,
-            submission["distance_text"],
-            text,
-        )
+        send_confirm_buttons(sender, submission["distance_text"], text)
         return {"status": "confirm"}
 
     # ─────────────────────────────────────────────
@@ -219,6 +238,6 @@ async def webhook(request: Request):
         return {"status": "complete"}
 
     # ─────────────────────────────────────────────
-    # SILENT FALLBACK (EXPECTED STATE)
+    # SILENT FALLBACK (NO LOOPING)
     # ─────────────────────────────────────────────
     return {"status": "noop"}
