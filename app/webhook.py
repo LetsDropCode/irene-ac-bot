@@ -91,10 +91,11 @@ async def webhook(request: Request):
         return {"status": "ignored_event"}
 
     # ─────────────────────────────────────────────
-    # 🔐 ADMIN: REQUEST TONIGHT'S TT CODE
+    # 🔐 ADMIN: REQUEST TONIGHT'S TT CODE (HARD EXIT)
     # ─────────────────────────────────────────────
-    if text and sender in ADMIN_NUMBERS:
+    if text and is_admin(sender):
         cmd = text.strip().upper()
+
         if cmd in {"TT CODE", "GET TT CODE", "CODE"}:
             code = generate_tt_code("TT")
             send_text(
@@ -103,8 +104,9 @@ async def webhook(request: Request):
                 f"*{code}*\n\n"
                 "_Valid for today only_"
             )
+            # 🔴 CRITICAL: STOP HERE
             return {"status": "admin_tt_code"}
-
+    
     # ─────────────────────────────────────────────
     # 🔒 GLOBAL TT GATE
     # ─────────────────────────────────────────────
