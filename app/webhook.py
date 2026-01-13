@@ -8,7 +8,7 @@ from app.whatsapp import (
 )
 
 from app.config import ADMIN_NUMBERS
-from app.services.event_code_service import create_today_tt_code
+from app.services.event_code_service import generate_tt_code
 
 from app.services.member_service import (
     get_member,
@@ -96,7 +96,7 @@ async def webhook(request: Request):
     if text and sender in ADMIN_NUMBERS:
         cmd = text.strip().upper()
         if cmd in {"TT CODE", "GET TT CODE", "CODE"}:
-            code = create_today_tt_code()
+            code = generate_tt_code("TT")
             send_text(
                 sender,
                 "🔐 *Tonight’s TT Code*\n\n"
