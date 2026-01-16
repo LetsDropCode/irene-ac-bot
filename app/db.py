@@ -23,28 +23,38 @@ def get_db():
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
-    )
+        )
 
 
 @contextmanager
-def get_cursor():
+def get_cursor(commit: bool = True):
     """
-    Context-managed cursor with auto commit / rollback.
-    This is what service layers (submission_service, member_service)
-    should use.
+    Context-managed cursor with safe commit/rollback.
+
+    Use:
+        with get_cursor() as cur:
+            ... reads/writes ...
+    or:
+        with get_cursor(commit=True) as cur:
+            ... writes ...
+    or:
+        with get_cursor(commit=False) as cur:
+            ... read only ...
     """
     conn = get_db()
     cur = conn.cursor()
+
     try:
         yield cur
-        conn.commit()
+        if commit:
+            conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         cur.close()
         conn.close()
-
+        
 
 # --------------------------------------------------
 # Database initialisation & migrations
