@@ -54,31 +54,37 @@ def is_admin(sender: str) -> bool:
 # ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
     try:
-        entry = payload["entry"][0]
-        change = entry["changes"][0]
-        value = change["value"]
+        entry = payload.get("entry", [{}])[0]
+        change = entry.get("changes", [{}])[0]
+        value = change.get("value", {})
 
         messages = value.get("messages")
         if not messages:
             return None, None, None
 
         msg = messages[0]
-        sender = msg["from"]
-        print("📲 Incoming message from:", sender, "| text:", text, "| button:", button)
+        sender = msg.get("from")
+
+        # ✅ Always define these first
         text = None
         button = None
 
-        if msg["type"] == "text":
-            text = msg["text"]["body"].strip()
+        msg_type = msg.get("type")
 
-        if msg["type"] == "interactive":
-            button = msg["interactive"]["button_reply"]
+        if msg_type == "text":
+            text = msg.get("text", {}).get("body", "").strip()
+
+        elif msg_type == "interactive":
+            button = msg.get("interactive", {}).get("button_reply")
+
+        # ✅ Safe debug logging
+        print("📲 Incoming message from:", sender, "| text:", text, "| button:", button)
 
         return sender, text, button
 
-    except (KeyError, IndexError, TypeError):
+    except Exception as e:
+        print("❌ extract_whatsapp_message failed:", str(e))
         return None, None, None
-
 
 @router.post("/webhook")
 async def webhook(request: Request):
