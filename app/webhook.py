@@ -64,7 +64,7 @@ def extract_whatsapp_message(payload: dict):
 
         msg = messages[0]
         sender = msg["from"]
-
+        print("📲 Incoming message from:", sender, "| text:", text, "| button:", button)
         text = None
         button = None
 
