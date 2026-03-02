@@ -37,11 +37,11 @@ from app.services.openai_service import coach_reply
 router = APIRouter()
 
 ADMIN_NUMBERS = {
-    "27722135094",  # Lindsay
-    "27738870757",  # Jacqueline
-    "27829370733",  # Wynand
-    "27818513864",  # Johan
-    "27828827067",  # Janine
+    "27722135094",
+    "27738870757",
+    "27829370733",
+    "27818513864",
+    "27828827067",
 }
 
 
@@ -50,7 +50,7 @@ def is_admin(sender: str) -> bool:
 
 
 # ─────────────────────────────────────────────
-# WhatsApp payload extractor (SAFE)
+# SAFE PAYLOAD EXTRACTOR
 # ─────────────────────────────────────────────
 def extract_whatsapp_message(payload: dict):
     try:
@@ -65,128 +65,90 @@ def extract_whatsapp_message(payload: dict):
         msg = messages[0]
         sender = msg.get("from")
 
-        # ✅ Always define these first
         text = None
         button = None
 
-        msg_type = msg.get("type")
-
-        if msg_type == "text":
+        if msg.get("type") == "text":
             text = msg.get("text", {}).get("body", "").strip()
 
-        elif msg_type == "interactive":
+        elif msg.get("type") == "interactive":
             button = msg.get("interactive", {}).get("button_reply")
 
-        # ✅ Safe debug logging
-        print("📲 Incoming message from:", sender, "| text:", text, "| button:", button)
-
+        print("📲 Incoming:", sender, "|", text, "|", button)
         return sender, text, button
 
     except Exception as e:
-        print("❌ extract_whatsapp_message failed:", str(e))
+        print("❌ extractor error:", str(e))
         return None, None, None
+
 
 @router.post("/webhook")
 async def webhook(request: Request):
     payload = await request.json()
     sender, text, button = extract_whatsapp_message(payload)
 
-    # ─────────────────────────────────────────────
-    # 0) IGNORE NON-USER EVENTS
-    # ─────────────────────────────────────────────
     if not sender or (not text and not button):
-        return {"status": "ignored_event"}
+        return {"status": "ignored"}
 
-    # ─────────────────────────────────────────────
-    # 1) ADMIN: REQUEST TONIGHT'S TT CODE (HARD EXIT)
-    # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────
+    # ADMIN COMMANDS
+    # ─────────────────────────────────────────
     if text and is_admin(sender):
-        cmd = text.strip().upper()
+        cmd = text.upper().strip()
         if cmd in {"TT CODE", "GET TT CODE", "CODE"}:
             code = generate_tt_code("TT")
-            send_text(
-                sender,
-                "🔐 *Tonight’s TT Code*\n\n"
-                f"*{code}*\n\n"
-                "_Valid for today only_"
-            )
-            return {"status": "admin_tt_code"}
+            send_text(sender, f"🔐 Tonight’s TT Code:\n\n*{code}*")
+            return {"status": "admin_code"}
 
-    # ─────────────────────────────────────────────
-    # 2) GLOBAL TT GATE
-    # ─────────────────────────────────────────────
-    allowed, reason = ensure_tt_open()
-    if not allowed:
-        send_text(sender, reason)
-        return {"status": "tt_closed"}
-
-    # ─────────────────────────────────────────────
-    # 3) MEMBER LOOKUP / CREATE
-    # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────
+    # MEMBER LOOKUP / CREATE
+    # ─────────────────────────────────────────
     member = get_member(sender)
     if not member:
         member = create_member(sender)
 
-    # ─────────────────────────────────────────────
-    # 4) POPIA / OPT OUT (HIGHEST PRIORITY USER COMMAND)
-    # ─────────────────────────────────────────────
-    if text and text.strip().upper() in {"STOP", "OPT OUT"}:
+    # ─────────────────────────────────────────
+    # POPIA OPT OUT
+    # ─────────────────────────────────────────
+    if text and text.upper() in {"STOP", "OPT OUT"}:
         opt_out_leaderboard(sender)
-        send_text(
-            sender,
-            "✅ You’ve opted out of leaderboards.\n\n"
-            "Your attendance will still be recorded for safety and admin."
-        )
-        return {"status": "leaderboard_opt_out"}
+        send_text(sender, "✅ You’ve opted out of leaderboards.")
+        return {"status": "opt_out"}
 
-    # ─────────────────────────────────────────────
-    # 5) POPIA ACKNOWLEDGEMENT (PRIVACY-FIRST)
-    # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────
+    # POPIA ACKNOWLEDGEMENT
+    # ─────────────────────────────────────────
     if not member.get("popia_acknowledged"):
 
-        # If they replied OK → store it then continue
-        if text and text.strip().upper() == "OK":
+        if text and text.upper() == "OK":
             acknowledge_popia(sender)
-            send_text(
-                sender,
-                "✅ Thanks!\n\n"
-                "👋 Please send your *first name and surname*.\n"
-                "_Example: Sipho Dlamini_"
-            )
-            return {"status": "popia_acknowledged"}
+            send_text(sender, "✅ Thanks! Please send your *first and last name*.")
+            return {"status": "popia_ack"}
 
-        # Otherwise show POPIA notice and stop
         send_text(
             sender,
-            "ℹ️ *POPIA Notice*\n\n"
-            "• Attendance is recorded for safety & admin\n"
-            "• Results may appear on leaderboards\n\n"
-            "Reply *OK* to continue or *STOP* to opt out of leaderboards."
+            "ℹ️ POPIA Notice\n\nReply OK to continue or STOP to opt out."
         )
         return {"status": "popia_notice"}
 
-    # ─────────────────────────────────────────────
-    # 6) NAME CAPTURE / RECOVERY FLOW (ONE CLEAN BLOCK)
-    # ─────────────────────────────────────────────
-    if not member.get("first_name") or not member.get("last_name"):
+    # ─────────────────────────────────────────
+    # PROFILE COMPLETION (CAMPAIGN + NORMAL)
+    # Works ANY day (before TT gate)
+    # ─────────────────────────────────────────
+    if (
+        not member.get("first_name")
+        or not member.get("last_name")
+        or member.get("first_name") == "Unknown"
+        or member.get("last_name") == "Unknown"
+    ):
 
         if not text:
-            send_text(
-                sender,
-                "👋 Welcome!\n\n"
-                "Please send your *first name and surname*.\n"
-                "_Example: Sipho Dlamini_"
-            )
+            send_text(sender, "👋 Please reply with your *first and last name*.")
             return {"status": "await_name"}
 
         if len(text.split()) < 2:
-            send_text(
-                sender,
-                "🙂 Almost there!\n\n"
-                "Please send your *first name and surname*.\n"
-                "_Example: Sipho Dlamini_"
-            )
-            return {"status": "await_name"}
+            send_text(sender, "🙂 Please send both first and last name.")
+            return {"status": "await_name_retry"}
 
         parts = text.split()
         first_name = parts[0]
@@ -194,17 +156,27 @@ async def webhook(request: Request):
 
         save_member_name(member["id"], first_name, last_name)
 
+        send_text(sender, "✅ Thank you! Your profile has been updated.")
+
         msg = coach_reply(
-            "Thank the member and ask how they usually participate."
-        ) or "✅ Thanks! How do you usually participate?"
+            "Thank them warmly and ask how they usually participate."
+        ) or "How do you usually participate?"
         send_text(sender, msg)
 
         send_participation_buttons(sender)
-        return {"status": "name_saved"}
+        return {"status": "profile_completed"}
 
-    # ─────────────────────────────────────────────
-    # 7) PARTICIPATION TYPE
-    # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────
+    # TT GATE (after profile completion)
+    # ─────────────────────────────────────────
+    allowed, reason = ensure_tt_open()
+    if not allowed:
+        send_text(sender, reason)
+        return {"status": "tt_closed"}
+
+    # ─────────────────────────────────────────
+    # PARTICIPATION TYPE
+    # ─────────────────────────────────────────
     if not member.get("participation_type"):
 
         if not button:
@@ -219,57 +191,39 @@ async def webhook(request: Request):
         save_participation_type(member["id"], ptype)
 
         msg = coach_reply(
-            "Acknowledge their choice and ask for tonight’s TT code."
-        ) or "✅ Great! Please send *tonight’s TT code only*.\nExample: *7460*"
+            "Acknowledge their choice and ask for TT code."
+        ) or "Great! Please send tonight’s TT code."
         send_text(sender, msg)
-        return {"status": "participation_saved"}
+        return {"status": "ptype_saved"}
 
-    # ─────────────────────────────────────────────
-    # 8) DAILY SUBMISSION
-    # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────
+    # SUBMISSION FLOW
+    # ─────────────────────────────────────────
     submission = get_or_create_submission(member["id"])
 
-    # ─────────────────────────────────────────────
-    # 8.1) TT CODE
-    # ─────────────────────────────────────────────
     if not submission["tt_code_verified"]:
 
         if not text:
-            send_text(
-                sender,
-                "🔑 Please send *tonight’s TT code only*.\n"
-                "Example: *7460*"
-            )
+            send_text(sender, "🔑 Please send tonight’s TT code.")
             return {"status": "await_code"}
 
         if not is_valid_tt_code(text):
-            send_text(sender, "❌ That TT code is not valid.")
+            send_text(sender, "❌ Invalid TT code.")
             return {"status": "bad_code"}
 
         verify_tt_code(submission["id"], text.upper())
         send_distance_buttons(sender)
         return {"status": "code_verified"}
 
-    # ─────────────────────────────────────────────
-    # 8.2) DISTANCE (BUTTON)
-    # ─────────────────────────────────────────────
     if button and button.get("id") in {"4km", "6km", "8km"}:
         save_distance(submission["id"], button["id"].replace("km", ""))
         send_text(sender, "⏱ Please send your time.")
         return {"status": "distance_saved"}
 
-    # ─────────────────────────────────────────────
-    # 8.3) TIME (TEXT)
-    # ─────────────────────────────────────────────
     if submission["distance_text"] and not submission["time_text"]:
 
         if not text or not is_valid_time(text):
-            send_text(
-                sender,
-                "⏱ Please send time only:\n"
-                "• 27:41\n"
-                "• 01:27:41"
-            )
+            send_text(sender, "⏱ Send time like 27:41 or 01:27:41")
             return {"status": "bad_time"}
 
         parts = list(map(int, text.split(":")))
@@ -281,22 +235,14 @@ async def webhook(request: Request):
         send_confirm_buttons(sender, submission["distance_text"], text)
         return {"status": "confirm"}
 
-    # ─────────────────────────────────────────────
-    # 8.4) CONFIRM OR EDIT
-    # ─────────────────────────────────────────────
     if button and button.get("id") == "confirm":
         confirm_submission(submission["id"])
         send_text(sender, "🔥 Well done! Your TT has been recorded.")
         return {"status": "complete"}
 
     if button and button.get("id") == "edit":
-        # Simple edit behaviour: re-ask distance.
-        # (Optional improvement: clear previous time/distance in DB here.)
-        send_text(sender, "✏️ No stress — let’s update it.\nSelect your TT distance again:")
+        send_text(sender, "✏️ Let’s update it — choose distance again.")
         send_distance_buttons(sender)
         return {"status": "edit_restart"}
 
-    # ─────────────────────────────────────────────
-    # 9) SILENT FALLBACK
-    # ─────────────────────────────────────────────
     return {"status": "noop"}

@@ -1,35 +1,44 @@
 from app.db import get_cursor
 
 
+# ─────────────────────────────────────────────
+# FETCH MEMBER
+# ─────────────────────────────────────────────
 def get_member(phone: str):
     with get_cursor() as cur:
-        cur.execute("SELECT * FROM members WHERE phone=%s", (phone,))
+        cur.execute(
+            "SELECT * FROM members WHERE phone = %s",
+            (phone,)
+        )
         return cur.fetchone()
 
 
+# ─────────────────────────────────────────────
+# CREATE MEMBER (SAFE DEFAULTS)
+# ─────────────────────────────────────────────
 def create_member(phone: str):
     """
-    Creates a new member record safely.
-
-    IMPORTANT:
-    If your DB schema enforces NOT NULL on first_name / last_name,
-    we insert placeholders so the insert never fails.
+    Creates a new member with safe placeholders.
+    Prevents NOT NULL constraint failures.
     """
 
-    with get_cursor(commit=True) as cur:
+    with get_cursor() as cur:
         cur.execute(
             """
             INSERT INTO members (phone, first_name, last_name)
             VALUES (%s, %s, %s)
             RETURNING *
             """,
-            (phone, "", "")
+            (phone, "Unknown", "Member")
         )
         return cur.fetchone()
 
 
+# ─────────────────────────────────────────────
+# SAVE MEMBER NAME
+# ─────────────────────────────────────────────
 def save_member_name(member_id: int, first_name: str, last_name: str):
-    with get_cursor(commit=True) as cur:
+    with get_cursor() as cur:
         cur.execute(
             """
             UPDATE members
@@ -37,12 +46,15 @@ def save_member_name(member_id: int, first_name: str, last_name: str):
                 last_name = %s
             WHERE id = %s
             """,
-            (first_name, last_name, member_id)
+            (first_name.strip(), last_name.strip(), member_id)
         )
 
 
+# ─────────────────────────────────────────────
+# PARTICIPATION TYPE
+# ─────────────────────────────────────────────
 def save_participation_type(member_id: int, participation_type: str):
-    with get_cursor(commit=True) as cur:
+    with get_cursor() as cur:
         cur.execute(
             """
             UPDATE members
@@ -53,8 +65,11 @@ def save_participation_type(member_id: int, participation_type: str):
         )
 
 
+# ─────────────────────────────────────────────
+# POPIA ACKNOWLEDGEMENT
+# ─────────────────────────────────────────────
 def acknowledge_popia(sender: str):
-    with get_cursor(commit=True) as cur:
+    with get_cursor() as cur:
         cur.execute(
             """
             UPDATE members
@@ -65,8 +80,11 @@ def acknowledge_popia(sender: str):
         )
 
 
+# ─────────────────────────────────────────────
+# LEADERBOARD OPT OUT
+# ─────────────────────────────────────────────
 def opt_out_leaderboard(sender: str):
-    with get_cursor(commit=True) as cur:
+    with get_cursor() as cur:
         cur.execute(
             """
             UPDATE members
@@ -75,3 +93,45 @@ def opt_out_leaderboard(sender: str):
             """,
             (sender,)
         )
+
+
+# ─────────────────────────────────────────────
+# PROFILE COMPLETION CHECK (NEW)
+# ─────────────────────────────────────────────
+def is_profile_incomplete(member: dict) -> bool:
+    """
+    Central logic so webhook + campaigns use same rule.
+    """
+
+    if not member:
+        return True
+
+    first = member.get("first_name")
+    last = member.get("last_name")
+
+    if not first or not last:
+        return True
+
+    if first.lower() == "unknown" or last.lower() in {"unknown", "member"}:
+        return True
+
+    return False
+
+
+# ─────────────────────────────────────────────
+# GET MEMBERS NEEDING PROFILE COMPLETION (NEW)
+# ─────────────────────────────────────────────
+def get_members_needing_profile_update():
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, phone, first_name, last_name
+            FROM members
+            WHERE
+                first_name IS NULL
+                OR last_name IS NULL
+                OR first_name = 'Unknown'
+                OR last_name IN ('Unknown', 'Member')
+            """
+        )
+        return cur.fetchall()
