@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Request
 
 from app.whatsapp import (
@@ -212,10 +213,27 @@ async def webhook(request: Request):
             return {"status": "bad_code"}
 
         verify_tt_code(submission["id"], text.upper())
+
+    # WALKERS log workouts instead of distances
+        if member["participation_type"] == "WALKER":
+            send_text(sender, "🚶 Tell us about your workout today!")
+            return {"status": "await_walk"}
+
+    # RUNNERS continue normally
         send_distance_buttons(sender)
         return {"status": "code_verified"}
+    
+    # WALKER WORKOUT INPUT
+    if member["participation_type"] == "WALKER" and submission["tt_code_verified"] and text:
 
-    if button and button.get("id") in {"4km", "6km", "8km"}:
+        if not submission["time_text"]:
+            save_time(submission["id"], text, 0)
+            confirm_submission(submission["id"])
+
+            send_text(sender, "🚶 Workout logged! Well done.")
+            return {"status": "walker_logged"}    
+
+    if member["participation_type"] != "WALKER" and button and button.get("id") in {"4km", "6km", "8km"}:
         save_distance(submission["id"], button["id"].replace("km", ""))
         send_text(sender, "⏱ Please send your time.")
         return {"status": "distance_saved"}
