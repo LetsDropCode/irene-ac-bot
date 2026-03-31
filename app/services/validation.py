@@ -1,3 +1,4 @@
+# app/services/validation.py
 import re
 from datetime import date
 from app.db import get_db
@@ -14,18 +15,22 @@ def is_valid_tt_code(code: str) -> bool:
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT 1
-        FROM event_codes
-        WHERE UPPER(code) = UPPER(%s)
-          AND event_date = %s
-        LIMIT 1
-        """,
-        (code.strip(), date.today())
-    )
+def is_valid_tt_code(code: str) -> bool:
 
-    valid = cur.fetchone() is not None
+    if not code:
+        return False
+
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT 1
+            FROM event_codes
+            WHERE UPPER(code) = UPPER(%s)
+              AND event_date = CURRENT_DATE
+            LIMIT 1
+        """, (code.strip(),))
+
+        return cur.fetchone() is not None    
+    
     cur.close()
     conn.close()
     return valid

@@ -1,3 +1,4 @@
+# app/services/member_service.py
 from app.db import get_cursor
 
 
