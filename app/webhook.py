@@ -188,14 +188,21 @@ async def webhook(request: Request):
             send_text(sender, "🔑 Please send tonight's TT code.")
             return {"status": "await_code"}
 
+        # First validate format ONLY (optional)
         if not is_valid_tt_code(text):
+            send_text(sender, "❌ Invalid format.")
+            return {"status": "bad_format"}
+
+        # Now verify against actual stored code
+        submission = verify_tt_code(submission["id"], text)
+
+        if not submission or not submission.get("tt_code_verified"):
             send_text(sender, "❌ Invalid TT code.")
             return {"status": "bad_code"}
 
+        # Only now proceed
         release_pending_submissions(member["id"])
         submission = get_or_create_submission(member["id"])
-
-        submission = verify_tt_code(submission["id"], text)
 
         mark_attendance(member["id"])
         send_text(sender, "✅ Checked in!")

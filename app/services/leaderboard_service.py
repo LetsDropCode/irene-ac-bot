@@ -4,6 +4,7 @@ def get_tonight_leaderboard():
 
         cur.execute("""
         SELECT
+            m.id as member_id,
             m.first_name,
             m.last_name,
             s.distance_text,
