@@ -24,7 +24,7 @@ def get_tonight_leaderboard():
             AND s.seconds IS NOT NULL
             AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
         ORDER BY
-            CAST(NULLIF(s.distance_text, '') AS INT) DESC,
+            CAST(NULLIF(s.distance_text, '') AS INTEGER) DESC,
             position ASC
         """)
         return cur.fetchall()

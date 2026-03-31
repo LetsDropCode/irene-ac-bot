@@ -1,5 +1,3 @@
-from email.mime import text
-
 from fastapi import APIRouter, Request
 
 from app.whatsapp import (
@@ -35,6 +33,8 @@ from app.services.pb_service import is_personal_best
 from app.services.leaderboard_service import get_tonight_leaderboard
 from app.services.leaderboard_formatter import format_leaderboard
 from app.services.tt_status_service import get_tt_status
+from app.services.openai_service import coach_reply
+from app.services.profile_service import get_user_profile
 
 router = APIRouter()
 
@@ -93,9 +93,7 @@ async def webhook(request: Request):
     if text:
         text = text.strip().upper()
 
-    # ─────────────────────────────────────
-    # GLOBAL ADMIN COMMANDS (OVERRIDE ALL)
-    # ─────────────────────────────────────
+    # ───────── ADMIN ─────────
     if text and is_admin(sender):
 
         if text in {"TT CODE", "GET TT CODE", "CODE"}:
@@ -111,6 +109,7 @@ async def webhook(request: Request):
         if text == "TT STATUS":
             send_text(sender, get_tt_status())
             return {"status": "status"}
+
     # ───────── MEMBER ─────────
     member = get_member(sender)
     if not member:
@@ -135,19 +134,16 @@ async def webhook(request: Request):
 
     # ───────── PROFILE ─────────
     if text == "PROFILE":
-        from app.services.profile_service import get_user_profile
         from app.services.profile_formatter import format_profile
-
         data = get_user_profile(member["id"])
         send_text(sender, format_profile(member, data))
         return {"status": "profile"}
-    
+
     if (
         not member.get("first_name")
         or not member.get("last_name")
         or member["first_name"] == "Unknown"
     ):
-
         if not text or len(text.split()) < 2:
             send_text(sender, "👋 Send *first and last name*.")
             return {"status": "await_name"}
@@ -196,19 +192,16 @@ async def webhook(request: Request):
             send_text(sender, "🔑 Please send tonight's TT code.")
             return {"status": "await_code"}
 
-        # First validate format ONLY (optional)
         if not is_valid_tt_code(text):
             send_text(sender, "❌ Invalid format.")
             return {"status": "bad_format"}
 
-        # Now verify against actual stored code
         submission = verify_tt_code(submission["id"], text)
 
         if not submission or not submission.get("tt_code_verified"):
             send_text(sender, "❌ Invalid TT code.")
             return {"status": "bad_code"}
 
-        # Only now proceed
         release_pending_submissions(member["id"])
         submission = get_or_create_submission(member["id"])
 
@@ -265,6 +258,45 @@ async def webhook(request: Request):
             if is_pb:
                 send_text(sender, "🚀 NEW PERSONAL BEST! Massive run! 🔥")
 
+            # ───────── ELITE INSIGHTS ─────────
+            try:
+                if submission.get("seconds"):
+
+                    from app.services.insight_service import (
+                        seconds_to_pace,
+                        detect_trend,
+                        detect_fatigue,
+                    )
+
+                    profile = get_user_profile(member["id"])
+
+                    pace = seconds_to_pace(
+                        submission["seconds"],
+                        submission["distance_text"]
+                    )
+
+                    trend = detect_trend(profile["recent"])
+                    fatigue = detect_fatigue(profile["recent"])
+
+                    prompt = (
+                        f"{member['first_name']} ran {submission['distance_text']}km in {submission['time_text']} "
+                        f"(pace {pace}). Trend: {trend}. "
+                    )
+
+                    if fatigue:
+                        prompt += f"{fatigue}. "
+
+                    prompt += "Give short coaching feedback."
+
+                    insight = coach_reply(prompt)
+
+                    if insight:
+                        send_text(sender, f"🧠 Coach:\n{insight}")
+
+            except Exception as e:
+                print("⚠️ Insight engine failed:", str(e))
+
+            # ───────── LEADERBOARD ─────────
             rows = get_tonight_leaderboard()
             send_text(sender, format_leaderboard(rows))
 

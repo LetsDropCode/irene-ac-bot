@@ -1,15 +1,11 @@
 # app/services/openai_service.py
 import os
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 # ─────────────────────────────────────────────
-# Optional typing import (removes Pylance warning)
+# Safe OpenAI import
 # ─────────────────────────────────────────────
-if TYPE_CHECKING:
-    from openai import OpenAI
-else:
-    OpenAI = None  # type: ignore  
 try:
     from openai import OpenAI
 except ImportError:  # pragma: no cover
@@ -19,7 +15,6 @@ except ImportError:  # pragma: no cover
 # Config
 # ─────────────────────────────────────────────
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT", "8"))
 MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "120"))
 
 SYSTEM_PROMPT = """
@@ -43,12 +38,17 @@ def _client_safe() -> Optional[object]:
         return _client
 
     key = os.getenv("OPENAI_API_KEY")
-    if not key or OpenAI is None:
+
+    if not key or not OpenAI:
         logger.warning("OpenAI client unavailable (missing key or package)")
         return None
 
-    _client = OpenAI(api_key=key)
-    return _client
+    try:
+        _client = OpenAI(api_key=key)
+        return _client
+    except Exception as e:
+        logger.exception("Failed to initialize OpenAI client: %s", e)
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -56,6 +56,7 @@ def _client_safe() -> Optional[object]:
 # ─────────────────────────────────────────────
 def coach_reply(prompt: str) -> str:
     client = _client_safe()
+
     if client is None:
         logger.warning("OpenAI client not initialized, using fallback")
         return fallback(prompt)
@@ -71,19 +72,19 @@ def coach_reply(prompt: str) -> str:
             max_tokens=MAX_TOKENS,
         )
 
-        # Safe extraction
         if not res or not res.choices:
             logger.warning("OpenAI empty response")
             return fallback(prompt)
 
         content = res.choices[0].message.content
+
         if not content:
             logger.warning("OpenAI blank message")
             return fallback(prompt)
 
         return content.strip()
 
-    except Exception as e:  # never crash webhook
+    except Exception as e:
         logger.exception("OpenAI call failed: %s", e)
         return fallback(prompt)
 
@@ -97,16 +98,16 @@ def fallback(prompt: str) -> str:
     if "welcome" in p:
         return "👋 Welcome! Please send tonight’s TT code to continue."
 
-    if "participate" in p or "how do you usually" in p:
+    if "participate" in p:
         return "👍 How do you usually participate?"
 
     if "distance" in p:
-        return "👍 Select your TT distance."
+        return "📏 Choose your TT distance."
 
     if "time" in p:
-        return "⏱ Please send your time (mm:ss or hh:mm:ss)."
+        return "⏱ Send your time (mm:ss or hh:mm:ss)."
 
-    if "confirm" in p or "recorded" in p or "congratulate" in p:
-        return "🔥 Well done! Your TT is recorded."
+    if "confirm" in p or "recorded" in p:
+        return "🔥 Strong run! Keep building consistency."
 
     return ""
