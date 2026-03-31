@@ -134,6 +134,14 @@ async def webhook(request: Request):
         return {"status": "popia"}
 
     # ───────── PROFILE ─────────
+    if text == "PROFILE":
+        from app.services.profile_service import get_user_profile
+        from app.services.profile_formatter import format_profile
+
+        data = get_user_profile(member["id"])
+        send_text(sender, format_profile(member, data))
+        return {"status": "profile"}
+    
     if (
         not member.get("first_name")
         or not member.get("last_name")
