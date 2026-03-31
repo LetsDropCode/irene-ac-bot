@@ -18,10 +18,9 @@ def get_tonight_leaderboard():
         WHERE
             s.status = 'COMPLETE'
             AND s.seconds IS NOT NULL
-            AND DATE(s.created_at) = CURRENT_DATE
+            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
         ORDER BY
-            s.distance_text::int DESC,
+            CAST(NULLIF(s.distance_text, '') AS INT) DESC,
             position ASC
         """)
-
         return cur.fetchall()
