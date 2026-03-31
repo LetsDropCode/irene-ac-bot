@@ -1,4 +1,7 @@
 # app/services/leaderboard_service.py
+
+from app.db import get_cursor
+
 def get_tonight_leaderboard():
     with get_cursor() as cur:
 

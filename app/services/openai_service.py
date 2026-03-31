@@ -8,7 +8,8 @@ from typing import Optional, TYPE_CHECKING
 # ─────────────────────────────────────────────
 if TYPE_CHECKING:
     from openai import OpenAI
-
+else:
+    OpenAI = None  # type: ignore  
 try:
     from openai import OpenAI
 except ImportError:  # pragma: no cover
@@ -29,13 +30,13 @@ Never invent data. Keep replies under 4 lines.
 
 logger = logging.getLogger("openai_service")
 
-_client: Optional["OpenAI"] = None
+_client: Optional[object] = None
 
 
 # ─────────────────────────────────────────────
 # Client factory (cached)
 # ─────────────────────────────────────────────
-def _client_safe() -> Optional["OpenAI"]:
+def _client_safe() -> Optional[object]:
     global _client
 
     if _client:
@@ -46,7 +47,7 @@ def _client_safe() -> Optional["OpenAI"]:
         logger.warning("OpenAI client unavailable (missing key or package)")
         return None
 
-    _client = OpenAI(api_key=key, timeout=TIMEOUT_SECONDS)
+    _client = OpenAI(api_key=key)
     return _client
 
 
@@ -55,7 +56,8 @@ def _client_safe() -> Optional["OpenAI"]:
 # ─────────────────────────────────────────────
 def coach_reply(prompt: str) -> str:
     client = _client_safe()
-    if not client:
+    if client is None:
+        logger.warning("OpenAI client not initialized, using fallback")
         return fallback(prompt)
 
     try:
