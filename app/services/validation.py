@@ -2,6 +2,7 @@
 import re
 from datetime import date
 from app.db import get_db
+from app.db import get_cursor
 
 TIME_PATTERN = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
