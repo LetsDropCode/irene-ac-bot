@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover
 # ─────────────────────────────────────────────
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "120"))
+TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "6"))
 
 SYSTEM_PROMPT = """
 You are a friendly but focused athletics club coach.
@@ -44,7 +45,7 @@ def _client_safe() -> Optional[object]:
         return None
 
     try:
-        _client = OpenAI(api_key=key)
+        _client = OpenAI(api_key=key, timeout=TIMEOUT)
         return _client
     except Exception as e:
         logger.exception("Failed to initialize OpenAI client: %s", e)

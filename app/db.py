@@ -114,6 +114,19 @@ def init_db():
         );
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id SERIAL PRIMARY KEY,
+            member_id INTEGER NOT NULL REFERENCES members(id),
+            event TEXT NOT NULL,
+            event_date DATE NOT NULL,
+            source TEXT NOT NULL DEFAULT 'whatsapp',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT attendance_member_event_date_unique
+                UNIQUE (member_id, event, event_date)
+        );
+    """)
+
     # ----------------------------
     # SAFE migrations
     # ----------------------------
@@ -123,8 +136,63 @@ def init_db():
     """)
 
     cur.execute("""
+        ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS profile_state TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS popia_acknowledged BOOLEAN DEFAULT FALSE;
+    """)
+
+    cur.execute("""
+        ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS leaderboard_opt_out BOOLEAN DEFAULT FALSE;
+    """)
+
+    cur.execute("""
         ALTER TABLE submissions
         ADD COLUMN IF NOT EXISTS mode TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'PENDING';
+    """)
+
+    cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS tt_code TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS tt_code_verified BOOLEAN DEFAULT FALSE;
+    """)
+
+    cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS confirmed BOOLEAN DEFAULT FALSE;
+    """)
+
+    cur.execute("""
+        ALTER TABLE attendance
+        ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'whatsapp';
+    """)
+
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'attendance_member_event_date_unique'
+            ) THEN
+                ALTER TABLE attendance
+                ADD CONSTRAINT attendance_member_event_date_unique
+                UNIQUE (member_id, event, event_date);
+            END IF;
+        END $$;
     """)
 
     # Backfills (idempotent)
@@ -138,6 +206,12 @@ def init_db():
         UPDATE submissions
         SET mode = 'RUN'
         WHERE mode IS NULL;
+    """)
+
+    cur.execute("""
+        UPDATE submissions
+        SET status = 'PENDING'
+        WHERE status IS NULL;
     """)
 
     # ----------------------------

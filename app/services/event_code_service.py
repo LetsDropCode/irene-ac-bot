@@ -1,7 +1,10 @@
 # app/services/event_code_service.py
 import random
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.db import get_db
+
+SA_TZ = ZoneInfo("Africa/Johannesburg")
 
 
 def generate_tt_code(event: str = "TT") -> str:
@@ -12,7 +15,7 @@ def generate_tt_code(event: str = "TT") -> str:
     conn = get_db()
     cur = conn.cursor()
 
-    today = date.today()
+    today = datetime.now(SA_TZ).date()
 
     cur.execute(
         """
