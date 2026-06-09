@@ -215,6 +215,33 @@ def init_db():
     """)
 
     # ----------------------------
+    # Performance indexes
+    # ----------------------------
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_submissions_member_created_at
+        ON submissions (member_id, created_at DESC);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_submissions_status_created_at
+        ON submissions (status, created_at DESC);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_submissions_distance_seconds_complete
+        ON submissions (distance_text, seconds)
+        WHERE status = 'COMPLETE'
+          AND seconds IS NOT NULL
+          AND distance_text IS NOT NULL
+          AND distance_text <> '';
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_event_codes_event_date_code
+        ON event_codes (event_date, code);
+    """)
+
+    # ----------------------------
     # Seed events (safe)
     # ----------------------------
     cur.execute("SELECT COUNT(*) AS count FROM event_config;")

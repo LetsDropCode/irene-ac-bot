@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 
 from app.whatsapp import (
     send_text,
@@ -74,6 +74,113 @@ def send_submission_prompt(sender: str, participation_type: str):
     return "distance"
 
 
+def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
+    participation_type = member.get("participation_type") or "RUNNER"
+
+    if participation_type == "WALKER" and not submission.get("time_text"):
+        send_text(sender, "🚶 Describe your workout.")
+        return "awaiting_workout"
+
+    if (
+        participation_type == "BOTH"
+        and not submission.get("distance_text")
+        and not submission.get("time_text")
+    ):
+        send_both_submission_buttons(sender)
+        return "awaiting_both_choice"
+
+    if not submission.get("distance_text"):
+        send_distance_buttons(sender)
+        return "awaiting_distance"
+
+    if not submission.get("time_text"):
+        send_text(sender, "⏱ Send your time, for example 27:41 or 01:27:41.")
+        return "awaiting_time"
+
+    send_confirm_buttons(
+        sender,
+        submission["distance_text"],
+        submission["time_text"]
+    )
+    return "awaiting_confirm"
+
+
+def _format_improvement(seconds: int) -> str:
+    mins = seconds // 60
+    secs = seconds % 60
+    return f"{mins}:{secs:02d}"
+
+
+def _find_runner_position(rows, member_id: int, distance: str):
+    for row in rows:
+        if row.get("member_id") == member_id and row.get("distance_text") == distance:
+            return row.get("position")
+
+    return None
+
+
+def send_post_confirm_messages(sender: str, member: dict, submission: dict, previous_best):
+    lines = [
+        "🔥 *TT Summary*",
+        "",
+        f"{submission['distance_text']}km — {submission['time_text']}",
+    ]
+
+    if previous_best is None:
+        lines.append(f"🚀 First {submission['distance_text']}km PB")
+    elif submission["seconds"] < previous_best:
+        diff = previous_best - submission["seconds"]
+        lines.append(f"🚀 PB by {_format_improvement(diff)}")
+
+    rows = get_runner_leaderboard()
+    position = _find_runner_position(
+        rows,
+        member["id"],
+        submission["distance_text"],
+    )
+    if position:
+        lines.append(f"🏆 Position: {position}")
+
+    try:
+        if submission.get("seconds"):
+
+            from app.services.insight_services import (
+                seconds_to_pace,
+                detect_trend,
+                detect_fatigue,
+            )
+
+            profile = get_user_profile(member["id"])
+
+            pace = seconds_to_pace(
+                submission["seconds"],
+                submission["distance_text"]
+            )
+
+            trend = detect_trend(profile["recent"])
+            fatigue = detect_fatigue(profile["recent"])
+
+            prompt = (
+                f"{member['first_name']} ran {submission['distance_text']}km in {submission['time_text']} "
+                f"(pace {pace}). Trend: {trend}. "
+            )
+
+            if fatigue:
+                prompt += f"{fatigue}. "
+
+            prompt += "Give short coaching feedback."
+
+            insight = coach_reply(prompt)
+
+            if insight:
+                lines.extend(["", f"🧠 Coach: {insight}"])
+
+    except Exception as e:
+        print("⚠️ Insight engine failed:", str(e))
+
+    send_text(sender, "\n".join(lines))
+
+
 def extract_whatsapp_message(payload: dict):
     try:
         entry = payload.get("entry", [{}])[0]
@@ -105,7 +212,7 @@ def extract_whatsapp_message(payload: dict):
 
 
 @router.post("/webhook")
-async def webhook(request: Request):
+async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     payload = await request.json()
     sender, text, button = extract_whatsapp_message(payload)
@@ -429,14 +536,12 @@ async def webhook(request: Request):
                 return {"status" : "already confirmed"}
 
             previous_best = None
-            is_pb = False
             if submission.get("seconds"):
                 previous_best = get_previous_best(
                     member["id"],
                     submission["distance_text"],
                     submission["id"],
                 )
-                is_pb = previous_best is None or submission["seconds"] < previous_best
 
             submission = confirm_submission(submission["id"])
             if not submission:
@@ -444,69 +549,13 @@ async def webhook(request: Request):
                 return {"status": "already_confirmed"}
 
             send_text(sender, "🔥 TT recorded!")
-
-            if is_pb:
-                if previous_best:
-                    diff = previous_best - submission["seconds"]
-                    mins = diff // 60
-                    secs = diff % 60
-                    send_text(sender, f"🚀 {submission['distance_text']}km PB! (-{mins}:{secs:02d}) 🔥")
-                else:
-                    send_text(sender, f"🚀 First {submission['distance_text']}km PB! 🔥")
-
-            # ───────── ELITE INSIGHTS ─────────
-            try:
-                if submission.get("seconds"):
-
-                    from app.services.insight_services import (
-                        seconds_to_pace,
-                        detect_trend,
-                        detect_fatigue,
-                    )
-
-                    profile = get_user_profile(member["id"])
-
-                    pace = seconds_to_pace(
-                        submission["seconds"],
-                        submission["distance_text"]
-                    )
-
-                    trend = detect_trend(profile["recent"])
-                    fatigue = detect_fatigue(profile["recent"])
-
-                    prompt = (
-                        f"{member['first_name']} ran {submission['distance_text']}km in {submission['time_text']} "
-                        f"(pace {pace}). Trend: {trend}. "
-                    )
-
-                    if fatigue:
-                        prompt += f"{fatigue}. "
-
-                    prompt += "Give short coaching feedback."
-
-                    insight = coach_reply(prompt)
-
-                    if insight:
-                        send_text(sender, f"🧠 Coach:\n{insight}")
-
-            except Exception as e:
-                print("⚠️ Insight engine failed:", str(e))
-
-            # ───────── LEADERBOARD ─────────
-            rows = get_runner_leaderboard()
-            walkers = get_walker_feed()
-            send_text(sender, format_full_leaderboard(rows, walkers))
-
-            for r in rows:
-                if (
-                    r.get("member_id") == member["id"]
-                    and r["distance_text"] == submission["distance_text"]
-                ):
-                    send_text(
-                        sender,
-                        f"🏆 You are position {r['position']} in the {r['distance_text']}!"
-                    )
-                    break
+            background_tasks.add_task(
+                send_post_confirm_messages,
+                sender,
+                dict(member),
+                dict(submission),
+                previous_best,
+            )
 
             return {"status": "done"}
 
@@ -514,6 +563,10 @@ async def webhook(request: Request):
         if btn == "edit":
             send_distance_buttons(sender)
             return {"status": "edit"}
+
+        if submission["status"] == "PENDING":
+            prompt_status = prompt_for_pending_submission(sender, member, submission)
+            return {"status": f"unknown_button_{prompt_status}"}
 
     # ───────── TIME ─────────
     if (
@@ -541,4 +594,9 @@ async def webhook(request: Request):
 
         return {"status": "confirm"}
 
-    return {"status": "noop"}
+    if submission["status"] == "PENDING" and submission.get("tt_code_verified"):
+        prompt_status = prompt_for_pending_submission(sender, member, submission)
+        return {"status": f"recover_{prompt_status}"}
+
+    send_text(sender, "I’m not sure what to do with that yet. Send PROFILE, TT CODE, or use the buttons above.")
+    return {"status": "fallback_help"}

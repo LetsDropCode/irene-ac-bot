@@ -96,6 +96,18 @@ def coach_reply(prompt: str) -> str:
 def fallback(prompt: str) -> str:
     p = prompt.lower()
 
+    if "give short coaching feedback" in p or "pace" in p or "trend" in p:
+        if "fatigue" in p or "slowing down" in p:
+            return "Solid effort. Recover well tonight, keep the next run easy, and build back steadily."
+
+        if "improving" in p:
+            return "Great work. Your trend is moving the right way, so keep the pacing controlled and consistent."
+
+        if "consistent" in p:
+            return "Nice steady effort. Keep stacking consistent runs and look for small gains week by week."
+
+        return "Good TT effort. Log it, recover well, and keep building one session at a time."
+
     if "welcome" in p:
         return "👋 Welcome! Please send tonight’s TT code to continue."
 
