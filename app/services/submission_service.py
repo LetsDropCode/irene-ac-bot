@@ -145,3 +145,29 @@ def get_pending_members():
         """)
 
         return cur.fetchall()
+
+
+def get_tonight_unprompted_checked_in_members():
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+        SELECT
+            m.id AS member_id,
+            m.phone,
+            m.participation_type,
+            m.profile_state,
+            s.id AS submission_id,
+            s.distance_text,
+            s.time_text
+        FROM submissions s
+        JOIN members m ON m.id = s.member_id
+        WHERE
+            s.status = 'PENDING'
+            AND s.tt_code_verified = TRUE
+            AND COALESCE(s.distance_text, '') = ''
+            AND COALESCE(s.time_text, '') = ''
+            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
+                = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+        ORDER BY s.created_at ASC
+        """)
+
+        return cur.fetchall()

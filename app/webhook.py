@@ -24,6 +24,7 @@ from app.services.member_service import (
 from app.services.submission_service import (
     get_or_create_submission,
     get_pending_members,
+    get_tonight_unprompted_checked_in_members,
     verify_tt_code,
     save_distance,
     save_time,
@@ -58,6 +59,19 @@ ADMIN_NUMBERS = {
 
 def is_admin(sender: str) -> bool:
     return sender in ADMIN_NUMBERS
+
+
+def send_submission_prompt(sender: str, participation_type: str):
+    if participation_type == "WALKER":
+        send_text(sender, "🚶 Describe your workout.")
+        return "walk"
+
+    if participation_type == "BOTH":
+        send_both_submission_buttons(sender)
+        return "both_choice"
+
+    send_distance_buttons(sender)
+    return "distance"
 
 
 def extract_whatsapp_message(payload: dict):
@@ -141,6 +155,30 @@ async def webhook(request: Request):
 
             send_text(sender, msg)
             return {"status": "pending_list"}
+
+        if text in {"RECOVER TONIGHT", "RESEND TONIGHT", "FIX TONIGHT"}:
+            rows = get_tonight_unprompted_checked_in_members()
+
+            if not rows:
+                send_text(sender, "✅ No checked-in users need a prompt resend.")
+                return {"status": "recover_none"}
+
+            counts = {"WALKER": 0, "BOTH": 0, "RUNNER": 0}
+            for row in rows:
+                ptype = row.get("participation_type") or "RUNNER"
+                send_submission_prompt(row["phone"], ptype)
+                counts[ptype if ptype in counts else "RUNNER"] += 1
+
+            send_text(
+                sender,
+                (
+                    "✅ Resent tonight’s submission prompts.\n\n"
+                    f"🏃 Distance: {counts['RUNNER']}\n"
+                    f"🚶 Workout: {counts['WALKER']}\n"
+                    f"🔄 Both choice: {counts['BOTH']}"
+                )
+            )
+            return {"status": "recover_tonight", "count": len(rows)}
 
 
     # ───────── MEMBER ─────────
@@ -305,19 +343,14 @@ async def webhook(request: Request):
         release_pending_submissions(member["id"])
         submission = get_or_create_submission(member["id"])
 
-        mark_attendance(member["id"])
+        try:
+            mark_attendance(member["id"])
+        except Exception as e:
+            print("⚠️ Attendance failed:", str(e))
+
         send_text(sender, "✅ Checked in!")
-
-        if member["participation_type"] == "WALKER":
-            send_text(sender, "🚶 Describe your workout.")
-            return {"status": "walk"}
-
-        if member["participation_type"] == "BOTH":
-            send_both_submission_buttons(sender)
-            return {"status": "both_choice"}
-
-        send_distance_buttons(sender)
-        return {"status": "code_ok"}
+        prompt_status = send_submission_prompt(sender, member["participation_type"])
+        return {"status": f"code_ok_{prompt_status}"}
 
     # ───────── WALKER ─────────
     if member["participation_type"] == "BOTH" and profile_state == "BOTH_WORKOUT":
