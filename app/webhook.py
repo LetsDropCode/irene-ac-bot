@@ -193,6 +193,7 @@ async def webhook(request: Request):
 
         parts = raw_text.split()
         save_member_name(member["id"], parts[0], " ".join(parts[1:]))
+        clear_profile_state(member["id"]) 
         send_text(sender, "✅ Name updated.")
         return {"status": "profile_name_updated"}
 
@@ -207,6 +208,7 @@ async def webhook(request: Request):
             return {"status": "profile_bad_type"}
 
         save_participation_type(member["id"], ptype)
+        clear_profile_state(member["id"])
         send_text(sender, f"✅ Participation updated to {ptype.title()}.")
         return {"status": "profile_type_updated"}
 
