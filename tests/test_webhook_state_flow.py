@@ -123,6 +123,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "get_previous_best",
                     "get_runner_leaderboard",
                     "get_walker_feed",
+                    "get_user_profile",
                 ]
             }
 
@@ -160,6 +161,26 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
         mocks["send_text"].assert_not_called()
 
+    async def test_help_menu_for_member(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="\\Help"))
+
+        self.assertEqual(result, {"status": "help"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Irene AC Bot Menu", sent)
+        self.assertIn("1 - Submit TT result", sent)
+        self.assertNotIn("Admin commands", sent)
+
+    async def test_help_menu_for_admin_includes_admin_commands(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="menu"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "help"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Admin commands", sent)
+        self.assertIn("TT CODE", sent)
+
     async def test_unknown_button_during_pending_submission_recovers_prompt(self):
         result, mocks, _ = await self.call_webhook(
             button_payload(button_id="not_expected", title="Old button"),
@@ -194,6 +215,34 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "code_ok_distance"})
         mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in!")
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_menu_submit_shortcut_asks_for_code_when_not_checked_in(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="1"),
+            submission_data=submission(tt_code_verified=False),
+        )
+
+        self.assertEqual(result, {"status": "menu_submit_await_code"})
+        mocks["send_text"].assert_called_once_with("27999999999", "🔑 Send tonight's TT code to check in.")
+
+    async def test_menu_profile_shortcut_opens_profile(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="2"),
+            get_user_profile={"total_runs": 0, "pbs": [], "recent": []},
+        )
+
+        self.assertEqual(result, {"status": "profile"})
+        mocks["send_profile_buttons"].assert_called_once()
+
+    async def test_menu_leaderboard_shortcut_sends_leaderboard(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="3"),
+            get_runner_leaderboard=[],
+            get_walker_feed=[],
+        )
+
+        self.assertEqual(result, {"status": "leaderboard"})
+        mocks["send_text"].assert_called_once()
 
     async def test_runner_distance_then_time_prompts_confirmation(self):
         with self.subTest("distance button"):

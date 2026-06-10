@@ -1,5 +1,18 @@
 from fastapi import APIRouter, BackgroundTasks, Request
 
+from app.flows.help_flow import (
+    format_help_menu,
+    is_help_command,
+    resolve_menu_action,
+)
+from app.flows.submission_state import (
+    AWAITING_BOTH_CHOICE,
+    AWAITING_CONFIRM,
+    AWAITING_DISTANCE,
+    AWAITING_TIME,
+    AWAITING_WORKOUT,
+    resolve_pending_submission_state,
+)
 from app.whatsapp import (
     send_text,
     send_distance_buttons,
@@ -45,6 +58,7 @@ from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.openai_service import coach_reply
 from app.services.profile_service import get_user_profile
+from app.services.profile_formatter import format_profile
 
 router = APIRouter()
 
@@ -61,6 +75,15 @@ def is_admin(sender: str) -> bool:
     return sender in ADMIN_NUMBERS
 
 
+def send_help_menu(sender: str, admin: bool = False):
+    send_text(sender, format_help_menu(admin))
+
+
+def send_user_profile(sender: str, member: dict):
+    data = get_user_profile(member["id"])
+    send_profile_buttons(sender, format_profile(member, data))
+
+
 def send_submission_prompt(sender: str, participation_type: str):
     if participation_type == "WALKER":
         send_text(sender, "🚶 Describe your workout.")
@@ -75,34 +98,39 @@ def send_submission_prompt(sender: str, participation_type: str):
 
 
 def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
-    participation_type = member.get("participation_type") or "RUNNER"
+    state = resolve_pending_submission_state(member, submission)
 
-    if participation_type == "WALKER" and not submission.get("time_text"):
+    if state == AWAITING_WORKOUT:
         send_text(sender, "🚶 Describe your workout.")
-        return "awaiting_workout"
+        return state
 
-    if (
-        participation_type == "BOTH"
-        and not submission.get("distance_text")
-        and not submission.get("time_text")
-    ):
+    if state == AWAITING_BOTH_CHOICE:
         send_both_submission_buttons(sender)
-        return "awaiting_both_choice"
+        return state
 
-    if not submission.get("distance_text"):
+    if state == AWAITING_DISTANCE:
         send_distance_buttons(sender)
-        return "awaiting_distance"
+        return state
 
-    if not submission.get("time_text"):
+    if state == AWAITING_TIME:
         send_text(sender, "⏱ Send your time, for example 27:41 or 01:27:41.")
-        return "awaiting_time"
+        return state
 
+    if state == AWAITING_CONFIRM:
+        send_confirm_buttons(
+            sender,
+            submission["distance_text"],
+            submission["time_text"]
+        )
+        return state
+
+    # Defensive fallback if new states are introduced without a prompt handler.
     send_confirm_buttons(
         sender,
         submission["distance_text"],
         submission["time_text"]
     )
-    return "awaiting_confirm"
+    return AWAITING_CONFIRM
 
 
 def _format_improvement(seconds: int) -> str:
@@ -266,6 +294,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if text:
         text = raw_text.upper()
 
+    if is_help_command(text):
+        send_help_menu(sender, is_admin(sender))
+        return {"status": "help"}
+
+    menu_action = resolve_menu_action(text) if text else None
+
     # ───────── ADMIN ─────────
     if text and is_admin(sender):
 
@@ -336,7 +370,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         member = create_member(sender)
 
     # ───────── OPT OUT ─────────
-    if text in {"STOP", "OPT OUT"}:
+    if text in {"STOP", "OPT OUT"} or menu_action == "OPT_OUT":
         opt_out_leaderboard(sender)
         send_text(sender, "✅ You’ve opted out.")
         return {"status": "opt_out"}
@@ -399,10 +433,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         send_text(sender, f"✅ Participation updated to {ptype.title()}.")
         return {"status": "profile_type_updated"}
 
-    if text in {"PROFILE", "MY PROFILE"}:
-        from app.services.profile_formatter import format_profile
-        data = get_user_profile(member["id"])
-        send_profile_buttons(sender, format_profile(member, data))
+    if menu_action in {"PROFILE", "EDIT_PROFILE"}:
+        send_user_profile(sender, member)
         return {"status": "profile"}
 
     if (
@@ -449,6 +481,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         send_text(sender, "Need to change it? Tap Edit.")
         return {"status": "edit_existing"}
 
+    if menu_action == "LEADERBOARD":
+        runners = get_runner_leaderboard()
+        walkers = get_walker_feed()
+        send_text(sender, format_full_leaderboard(runners, walkers))
+        return {"status": "leaderboard"}
+
     # ───────── TT GATE ─────────
     allowed, reason = ensure_tt_open()
     if not allowed:
@@ -471,6 +509,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
         send_text(sender, "👍 Send tonight’s TT code.")
         return {"status": "ptype"}
+
+    if menu_action == "SUBMIT":
+        if not submission["tt_code_verified"]:
+            send_text(sender, "🔑 Send tonight's TT code to check in.")
+            return {"status": "menu_submit_await_code"}
+
+        prompt_status = prompt_for_pending_submission(sender, member, submission)
+        return {"status": f"menu_submit_{prompt_status}"}
 
     # ───────── TT CODE ─────────
     if not submission["tt_code_verified"]:
