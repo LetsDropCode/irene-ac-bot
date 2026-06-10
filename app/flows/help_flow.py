@@ -10,6 +10,11 @@ MENU_ACTIONS = {
     "PROFILE": "PROFILE",
     "MY PROFILE": "PROFILE",
     "3": "LEADERBOARD",
+    "PROGRESS": "PROGRESS",
+    "MY PROGRESS": "PROGRESS",
+    "STATS": "PROGRESS",
+    "MY STATS": "PROGRESS",
+    "6": "PROGRESS",
     "LEADERBOARD": "LEADERBOARD",
     "4": "EDIT_PROFILE",
     "EDIT": "EDIT_PROFILE",
@@ -37,7 +42,8 @@ def format_help_menu(admin: bool = False) -> str:
         "2 - My profile\n"
         "3 - Tonight's leaderboard\n"
         "4 - Edit my details\n"
-        "5 - Stop leaderboard sharing\n\n"
+        "5 - Stop leaderboard sharing\n"
+        "6 - My progress\n\n"
         "Tip: you can send HELP anytime."
     )
 

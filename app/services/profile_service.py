@@ -21,9 +21,23 @@ def get_user_profile(member_id):
             WHERE member_id = %s
             AND status = 'COMPLETE'
             AND seconds IS NOT NULL
+            AND seconds > 0
+            AND distance_text IS NOT NULL
+            AND distance_text <> ''
             GROUP BY distance_text
         """, (member_id,))
         pbs = cur.fetchall()
+
+        # ───────── LATEST ACTIVITY ─────────
+        cur.execute("""
+            SELECT distance_text, time_text, seconds, created_at
+            FROM submissions
+            WHERE member_id = %s
+            AND status = 'COMPLETE'
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (member_id,))
+        latest = cur.fetchone()
 
         # ───────── RECENT RUNS (LAST 5) ─────────
         cur.execute("""
@@ -32,6 +46,9 @@ def get_user_profile(member_id):
             WHERE member_id = %s
             AND status = 'COMPLETE'
             AND seconds IS NOT NULL
+            AND seconds > 0
+            AND distance_text IS NOT NULL
+            AND distance_text <> ''
             ORDER BY created_at DESC
             LIMIT 5
         """, (member_id,))
@@ -40,5 +57,6 @@ def get_user_profile(member_id):
         return {
             "total_runs": total_runs,
             "pbs": pbs,
+            "latest": latest,
             "recent": recent
         }

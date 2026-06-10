@@ -59,6 +59,7 @@ from app.services.tt_status_service import get_tt_status
 from app.services.openai_service import coach_reply
 from app.services.profile_service import get_user_profile
 from app.services.profile_formatter import format_profile
+from app.services.progress_formatter import format_progress
 
 router = APIRouter()
 
@@ -82,6 +83,11 @@ def send_help_menu(sender: str, admin: bool = False):
 def send_user_profile(sender: str, member: dict):
     data = get_user_profile(member["id"])
     send_profile_buttons(sender, format_profile(member, data))
+
+
+def send_user_progress(sender: str, member: dict):
+    data = get_user_profile(member["id"])
+    send_text(sender, format_progress(member, data))
 
 
 def send_submission_prompt(sender: str, participation_type: str):
@@ -436,6 +442,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if menu_action in {"PROFILE", "EDIT_PROFILE"}:
         send_user_profile(sender, member)
         return {"status": "profile"}
+
+    if menu_action == "PROGRESS":
+        send_user_progress(sender, member)
+        return {"status": "progress"}
 
     if (
         not member.get("first_name")

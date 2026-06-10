@@ -244,6 +244,31 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "leaderboard"})
         mocks["send_text"].assert_called_once()
 
+    async def test_progress_command_sends_personal_progress(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="PROGRESS"),
+            get_user_profile={
+                "total_runs": 6,
+                "latest": {
+                    "distance_text": "4",
+                    "time_text": "27:41",
+                    "seconds": 1661,
+                },
+                "pbs": [
+                    {
+                        "distance_text": "4",
+                        "best_seconds": 1661,
+                    }
+                ],
+                "recent": [],
+            },
+        )
+
+        self.assertEqual(result, {"status": "progress"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Lindsay, your progress", sent)
+        self.assertIn("Latest: 4km — 27:41", sent)
+
     async def test_runner_distance_then_time_prompts_confirmation(self):
         with self.subTest("distance button"):
             updated = submission(distance_text="4", time_text="")
