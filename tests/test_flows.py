@@ -1,6 +1,11 @@
 import unittest
 
-from app.flows.help_flow import format_help_menu, is_help_command, resolve_menu_action
+from app.flows.help_flow import (
+    format_help_menu,
+    is_help_command,
+    resolve_interactive_action,
+    resolve_menu_action,
+)
 from app.flows.submission_state import (
     AWAITING_BOTH_CHOICE,
     AWAITING_CONFIRM,
@@ -17,9 +22,12 @@ class HelpFlowTests(unittest.TestCase):
         self.assertTrue(is_help_command("MENU"))
         self.assertEqual(resolve_menu_action("1"), "SUBMIT")
         self.assertEqual(resolve_menu_action("MY PROFILE"), "PROFILE")
-        self.assertEqual(resolve_menu_action("3"), "LEADERBOARD")
-        self.assertEqual(resolve_menu_action("6"), "PROGRESS")
+        self.assertEqual(resolve_menu_action("3"), "PROGRESS")
+        self.assertEqual(resolve_menu_action("4"), "LEADERBOARD")
+        self.assertEqual(resolve_menu_action("6"), "OPT_OUT")
         self.assertEqual(resolve_menu_action("PROGRESS"), "PROGRESS")
+        self.assertEqual(resolve_interactive_action("menu_progress"), "PROGRESS")
+        self.assertEqual(resolve_interactive_action("admin_tt_code"), "ADMIN_TT_CODE")
 
     def test_admin_menu_includes_admin_commands(self):
         self.assertIn("Admin commands", format_help_menu(admin=True))

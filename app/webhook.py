@@ -3,6 +3,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from app.flows.help_flow import (
     format_help_menu,
     is_help_command,
+    resolve_interactive_action,
     resolve_menu_action,
 )
 from app.flows.submission_state import (
@@ -20,6 +21,7 @@ from app.whatsapp import (
     send_participation_buttons,
     send_profile_buttons,
     send_both_submission_buttons,
+    send_main_menu_list,
 )
 
 from app.services.event_code_service import generate_tt_code
@@ -77,7 +79,8 @@ def is_admin(sender: str) -> bool:
 
 
 def send_help_menu(sender: str, admin: bool = False):
-    send_text(sender, format_help_menu(admin))
+    if not send_main_menu_list(sender, admin):
+        send_text(sender, format_help_menu(admin))
 
 
 def send_user_profile(sender: str, member: dict):
@@ -277,7 +280,8 @@ def extract_whatsapp_message(payload: dict):
             text = msg.get("text", {}).get("body", "").strip()
 
         elif msg.get("type") == "interactive":
-            button = msg.get("interactive", {}).get("button_reply")
+            interactive = msg.get("interactive", {})
+            button = interactive.get("button_reply") or interactive.get("list_reply")
 
         print("📲 Incoming:", sender, "|", text, "|", button)
         return sender, text, button
@@ -305,6 +309,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "help"}
 
     menu_action = resolve_menu_action(text) if text else None
+    if button:
+        menu_action = resolve_interactive_action(button.get("id", "")) or menu_action
 
     # ───────── ADMIN ─────────
     if text and is_admin(sender):
@@ -368,6 +374,30 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 )
             )
             return {"status": "recover_tonight", "count": len(rows)}
+
+    if button and is_admin(sender):
+        if menu_action == "ADMIN_TT_CODE":
+            code = generate_tt_code("TT")
+            send_text(sender, f"🔐 Tonight’s TT Code\n\n*{code}*")
+            return {"status": "admin_code"}
+
+        if menu_action == "ADMIN_TT_STATUS":
+            send_text(sender, get_tt_status())
+            return {"status": "status"}
+
+        if menu_action == "ADMIN_PENDING":
+            rows = get_pending_members()
+
+            if not rows:
+                send_text(sender, "✅ No pending submissions.")
+                return {"status": "no_pending"}
+
+            msg = "⏳ *Pending Submissions*\n\n"
+            for r in rows:
+                msg += f"{r['first_name']} {r['last_name']} ({r['phone']})\n"
+
+            send_text(sender, msg)
+            return {"status": "pending_list"}
 
 
     # ───────── MEMBER ─────────

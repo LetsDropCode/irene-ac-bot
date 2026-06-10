@@ -49,6 +49,28 @@ class ProgressFormatterTests(unittest.TestCase):
         self.assertIn("No TT activities logged yet.", message)
         self.assertIn("Next milestone: 1 activities (1 to go)", message)
 
+    def test_formats_walker_specific_progress(self):
+        message = format_progress(
+            {"first_name": "Lindsay", "participation_type": "WALKER"},
+            {
+                "total_runs": 6,
+                "latest": {
+                    "distance_text": None,
+                    "time_text": "Easy social walk",
+                    "seconds": 0,
+                },
+                "pbs": [],
+                "recent": [],
+            },
+        )
+
+        self.assertIn("Lindsay, your walking progress", message)
+        self.assertIn("Activities logged: 6", message)
+        self.assertIn("Latest: Easy social walk", message)
+        self.assertIn("Next milestone: 10 walks (4 to go)", message)
+        self.assertIn("Great consistency", message)
+        self.assertNotIn("PBs", message)
+
 
 if __name__ == "__main__":
     unittest.main()

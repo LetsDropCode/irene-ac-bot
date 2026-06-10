@@ -71,6 +71,85 @@ def send_text(to: str, text: str) -> bool:
 
 
 # ─────────────────────────────────────────────
+# MAIN MENU LIST
+# ─────────────────────────────────────────────
+def send_main_menu_list(to: str, admin: bool = False) -> bool:
+    rows = [
+        {
+            "id": "menu_submit",
+            "title": "Submit TT result",
+            "description": "Check in and submit tonight's TT.",
+        },
+        {
+            "id": "menu_profile",
+            "title": "My profile",
+            "description": "View or edit your details.",
+        },
+        {
+            "id": "menu_progress",
+            "title": "My progress",
+            "description": "See your latest activity, PBs and milestones.",
+        },
+        {
+            "id": "menu_leaderboard",
+            "title": "Leaderboard",
+            "description": "See tonight's results.",
+        },
+        {
+            "id": "menu_edit_profile",
+            "title": "Edit details",
+            "description": "Change your name or participation type.",
+        },
+        {
+            "id": "menu_opt_out",
+            "title": "Stop sharing",
+            "description": "Opt out of leaderboard sharing.",
+        },
+    ]
+
+    if admin:
+        rows.extend([
+            {
+                "id": "admin_tt_code",
+                "title": "TT code",
+                "description": "Get tonight's TT code.",
+            },
+            {
+                "id": "admin_tt_status",
+                "title": "TT status",
+                "description": "View participants and pending results.",
+            },
+            {
+                "id": "admin_pending",
+                "title": "Pending",
+                "description": "List checked-in members still pending.",
+            },
+        ])
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Irene AC Bot"},
+            "body": {"text": "Choose what you’d like to do."},
+            "footer": {"text": "You can also type HELP anytime."},
+            "action": {
+                "button": "Open menu",
+                "sections": [
+                    {
+                        "title": "Member options",
+                        "rows": rows,
+                    }
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
+# ─────────────────────────────────────────────
 # PARTICIPATION BUTTONS (RUNNER / WALKER / BOTH)
 # ─────────────────────────────────────────────
 def send_participation_buttons(to: str):

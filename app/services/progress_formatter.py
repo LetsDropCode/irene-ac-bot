@@ -29,12 +29,44 @@ def _format_latest(latest):
     return time_text or "Workout logged"
 
 
+def _is_walker(member: dict) -> bool:
+    return member.get("participation_type") == "WALKER"
+
+
+def _format_walker_progress(first_name: str, total: int, latest) -> str:
+    lines = [
+        f"🚶 *{first_name}, your walking progress*",
+        "",
+        f"Activities logged: {total}",
+        f"Latest: {_format_latest(latest)}",
+    ]
+
+    next_milestone = _next_milestone(total)
+    if next_milestone:
+        remaining = next_milestone - total
+        lines.append(f"Next milestone: {next_milestone} walks ({remaining} to go)")
+    else:
+        lines.append("Next milestone: keep showing up strong")
+
+    if total == 0:
+        lines.extend(["", "Log your next walk after TT and I’ll track your consistency here."])
+    elif total < 5:
+        lines.extend(["", "Nice start. Keep stacking those walks."])
+    else:
+        lines.extend(["", "Great consistency. Your walking streak is becoming part of the rhythm."])
+
+    return "\n".join(lines).strip()
+
+
 def format_progress(member: dict, data: dict) -> str:
     first_name = member.get("first_name") or "Runner"
     total = data.get("total_runs") or 0
     latest = data.get("latest")
     recent = data.get("recent") or []
     pbs = data.get("pbs") or []
+
+    if _is_walker(member):
+        return _format_walker_progress(first_name, total, latest)
 
     lines = [
         f"📈 *{first_name}, your progress*",

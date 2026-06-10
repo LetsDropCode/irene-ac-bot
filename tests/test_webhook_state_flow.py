@@ -110,6 +110,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "send_participation_buttons",
                     "send_profile_buttons",
                     "send_both_submission_buttons",
+                    "send_main_menu_list",
                     "save_member_name",
                     "set_profile_state",
                     "clear_profile_state",
@@ -165,10 +166,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(text_payload(body="\\Help"))
 
         self.assertEqual(result, {"status": "help"})
-        sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("Irene AC Bot Menu", sent)
-        self.assertIn("1 - Submit TT result", sent)
-        self.assertNotIn("Admin commands", sent)
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
+        mocks["send_text"].assert_not_called()
 
     async def test_help_menu_for_admin_includes_admin_commands(self):
         result, mocks, _ = await self.call_webhook(
@@ -177,9 +176,18 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "help"})
+        mocks["send_main_menu_list"].assert_called_once_with("27722135094", True)
+
+    async def test_help_menu_falls_back_to_text_if_list_send_fails(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="HELP"),
+            send_main_menu_list=False,
+        )
+
+        self.assertEqual(result, {"status": "help"})
         sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("Admin commands", sent)
-        self.assertIn("TT CODE", sent)
+        self.assertIn("Irene AC Bot Menu", sent)
+        self.assertIn("1 - Submit TT result", sent)
 
     async def test_unknown_button_during_pending_submission_recovers_prompt(self):
         result, mocks, _ = await self.call_webhook(
@@ -236,7 +244,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_menu_leaderboard_shortcut_sends_leaderboard(self):
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="3"),
+            text_payload(body="4"),
             get_runner_leaderboard=[],
             get_walker_feed=[],
         )
@@ -246,7 +254,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_progress_command_sends_personal_progress(self):
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="PROGRESS"),
+            text_payload(body="3"),
             get_user_profile={
                 "total_runs": 6,
                 "latest": {
@@ -268,6 +276,20 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         sent = mocks["send_text"].call_args.args[1]
         self.assertIn("Lindsay, your progress", sent)
         self.assertIn("Latest: 4km — 27:41", sent)
+
+    async def test_list_menu_progress_selection_sends_personal_progress(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="menu_progress", title="My progress"),
+            get_user_profile={
+                "total_runs": 0,
+                "latest": None,
+                "pbs": [],
+                "recent": [],
+            },
+        )
+
+        self.assertEqual(result, {"status": "progress"})
+        mocks["send_text"].assert_called_once()
 
     async def test_runner_distance_then_time_prompts_confirmation(self):
         with self.subTest("distance button"):
