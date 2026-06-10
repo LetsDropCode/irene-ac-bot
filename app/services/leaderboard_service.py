@@ -1,10 +1,24 @@
 # app/services/leaderboard_service.py
 
+from datetime import date
+
 from app.db import get_cursor
 
-def get_runner_leaderboard():
-    with get_cursor() as cur:
 
+def _event_date_filter(event_date):
+    if event_date is None:
+        return "CURRENT_DATE", ()
+
+    if isinstance(event_date, date):
+        return "%s", (event_date,)
+
+    return "%s", (event_date,)
+
+
+def get_runner_leaderboard(event_date=None):
+    date_expr, params = _event_date_filter(event_date)
+
+    with get_cursor(commit=False) as cur:
         cur.execute("""
         SELECT
             m.id as member_id,
@@ -25,16 +39,18 @@ def get_runner_leaderboard():
             AND s.distance_text IS NOT NULL
             AND s.distance_text <> ''
             AND s.activity = 'TT'
-            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = """ + date_expr + """
         ORDER BY
             CAST(s.distance_text AS INTEGER) DESC,
             position ASC
-        """)
+        """, params)
         return cur.fetchall()
 
-def get_walker_feed():
-    with get_cursor() as cur:
 
+def get_walker_feed(event_date=None):
+    date_expr, params = _event_date_filter(event_date)
+
+    with get_cursor(commit=False) as cur:
         cur.execute("""
         SELECT
             m.first_name,
@@ -47,11 +63,26 @@ def get_walker_feed():
             s.status = 'COMPLETE'
             AND (s.distance_text IS NULL OR s.distance_text = '')
             AND m.participation_type = 'WALKER'
-            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = """ + date_expr + """
         ORDER BY s.created_at DESC
         LIMIT 10
-        """)
+        """, params)
         return cur.fetchall()
+
+
+def get_checked_in_tt_member_phones(event_date):
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+        SELECT DISTINCT m.phone
+        FROM attendance a
+        JOIN members m ON m.id = a.member_id
+        WHERE a.event = 'TT'
+          AND a.event_date = %s
+          AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+        ORDER BY m.phone
+        """, (event_date,))
+
+        return [row["phone"] for row in cur.fetchall()]
 
 def get_season_pb_leaderboard():
     with get_cursor() as cur:

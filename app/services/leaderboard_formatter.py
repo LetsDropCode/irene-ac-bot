@@ -1,11 +1,11 @@
 # app/services/leaderboard_formatter.py
-def format_full_leaderboard(runners, walkers):
+def format_full_leaderboard(runners, walkers, title="Tonight's TT Leaderboard"):
 
     msg = ""
 
     # ───────── RUNNERS ─────────
     if runners:
-        msg += "🏁 *Tonight's TT Leaderboard*\n\n"
+        msg += f"🏁 *{title}*\n\n"
 
         current_distance = None
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}

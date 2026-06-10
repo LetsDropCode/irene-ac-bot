@@ -58,7 +58,7 @@ def _send(payload: Dict[str, Any]) -> bool:
 # ─────────────────────────────────────────────
 # BASIC TEXT MESSAGE
 # ─────────────────────────────────────────────
-def send_text(to: str, text: str) -> None:
+def send_text(to: str, text: str) -> bool:
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -67,7 +67,7 @@ def send_text(to: str, text: str) -> None:
             "body": text
         },
     }
-    _send(payload)
+    return _send(payload)
 
 
 # ─────────────────────────────────────────────

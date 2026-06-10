@@ -316,11 +316,26 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     webhook_module,
                     "get_user_profile",
-                    return_value={"recent": [{"seconds": 1600}, {"seconds": 1660}, {"seconds": 1720}]},
+                    return_value={
+                        "total_runs": 5,
+                        "recent": [{"seconds": 1600}, {"seconds": 1660}, {"seconds": 1720}],
+                    },
                 )
             )
             stack.enter_context(patch.object(webhook_module, "coach_reply", return_value="Keep building steadily."))
-            stack.enter_context(patch.object(webhook_module, "get_runner_leaderboard", return_value=[]))
+            stack.enter_context(
+                patch.object(
+                    webhook_module,
+                    "get_runner_leaderboard",
+                    return_value=[
+                        {
+                            "member_id": 42,
+                            "distance_text": "4",
+                            "position": 2,
+                        }
+                    ],
+                )
+            )
             stack.enter_context(patch.object(webhook_module, "get_walker_feed", return_value=[]))
 
             webhook_module.send_post_confirm_messages(
@@ -331,9 +346,14 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(messages), 1)
-        self.assertIn("🔥 *TT Summary*", messages[0])
+        self.assertIn("🔥 *Lindsay, here’s your TT recap*", messages[0])
         self.assertIn("4km — 27:41", messages[0])
+        self.assertIn("Pace: 6:55/km", messages[0])
         self.assertIn("🚀 PB by 2:19", messages[0])
+        self.assertIn("Season TTs: 5", messages[0])
+        self.assertIn("🏆 Position: 2", messages[0])
+        self.assertIn("🎉 Milestone: 5 TTs logged", messages[0])
+        self.assertIn("🥇 Badge: 4km PB", messages[0])
         self.assertIn("🧠 Coach: Keep building steadily.", messages[0])
 
 

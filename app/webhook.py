@@ -119,18 +119,60 @@ def _find_runner_position(rows, member_id: int, distance: str):
     return None
 
 
+def _milestone_lines(total_runs: int, previous_best, submission: dict):
+    lines = []
+
+    if total_runs == 1:
+        lines.append("🎉 Milestone: first TT logged")
+    elif total_runs in {5, 10, 25, 50, 100}:
+        lines.append(f"🎉 Milestone: {total_runs} TTs logged")
+
+    if previous_best is None:
+        lines.append(f"🥇 Badge: first {submission['distance_text']}km result")
+    elif submission["seconds"] < previous_best:
+        lines.append(f"🥇 Badge: {submission['distance_text']}km PB")
+
+    return lines
+
+
 def send_post_confirm_messages(sender: str, member: dict, submission: dict, previous_best):
+    first_name = member.get("first_name") or "Runner"
+    profile = {"total_runs": None, "recent": []}
+    pace = None
+
+    try:
+        from app.services.insight_services import seconds_to_pace
+
+        if submission.get("seconds"):
+            pace = seconds_to_pace(
+                submission["seconds"],
+                submission["distance_text"]
+            )
+    except Exception as e:
+        print("⚠️ Pace calculation failed:", str(e))
+
+    try:
+        profile = get_user_profile(member["id"])
+    except Exception as e:
+        print("⚠️ Profile summary failed:", str(e))
+
     lines = [
-        "🔥 *TT Summary*",
+        f"🔥 *{first_name}, here’s your TT recap*",
         "",
         f"{submission['distance_text']}km — {submission['time_text']}",
     ]
+
+    if pace:
+        lines.append(f"Pace: {pace}")
 
     if previous_best is None:
         lines.append(f"🚀 First {submission['distance_text']}km PB")
     elif submission["seconds"] < previous_best:
         diff = previous_best - submission["seconds"]
         lines.append(f"🚀 PB by {_format_improvement(diff)}")
+
+    if profile.get("total_runs"):
+        lines.append(f"Season TTs: {profile['total_runs']}")
 
     rows = get_runner_leaderboard()
     position = _find_runner_position(
@@ -141,20 +183,20 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
     if position:
         lines.append(f"🏆 Position: {position}")
 
+    lines.extend(
+        _milestone_lines(
+            profile.get("total_runs") or 0,
+            previous_best,
+            submission,
+        )
+    )
+
     try:
         if submission.get("seconds"):
 
             from app.services.insight_services import (
-                seconds_to_pace,
                 detect_trend,
                 detect_fatigue,
-            )
-
-            profile = get_user_profile(member["id"])
-
-            pace = seconds_to_pace(
-                submission["seconds"],
-                submission["distance_text"]
             )
 
             trend = detect_trend(profile["recent"])
