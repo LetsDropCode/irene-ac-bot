@@ -356,6 +356,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mocks["send_text"].call_args_list[0].args, ("27999999999", "✅ Checked in!"))
         whats_new = mocks["send_text"].call_args_list[1].args[1]
         self.assertIn("What’s new", whats_new)
+        self.assertIn("The Irene Shop", whats_new)
         mocks["mark_whats_new_seen"].assert_called_once_with(42, webhook_module.WHATS_NEW_VERSION)
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
@@ -490,6 +491,22 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "progress"})
         mocks["send_text"].assert_called_once()
+
+    async def test_shop_menu_selection_sends_shop_link(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="menu_shop", title="The Irene Shop"),
+        )
+
+        self.assertEqual(result, {"status": "shop"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("The Irene Shop", sent)
+        self.assertIn("https://store126837536.shop.netcash.co.za/products", sent)
+
+    async def test_shop_text_alias_sends_shop_link(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="SHOP"))
+
+        self.assertEqual(result, {"status": "shop"})
+        self.assertIn("store126837536.shop.netcash.co.za/products", mocks["send_text"].call_args.args[1])
 
     async def test_runner_distance_then_time_prompts_confirmation(self):
         with self.subTest("distance button"):

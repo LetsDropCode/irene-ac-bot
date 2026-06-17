@@ -74,6 +74,8 @@ from app.services.progress_formatter import format_progress
 
 router = APIRouter()
 
+IRENE_SHOP_URL = "https://store126837536.shop.netcash.co.za/products"
+
 ADMIN_NUMBERS = {
     "27722135094",
     "27738870757",
@@ -262,6 +264,18 @@ def send_user_profile(sender: str, member: dict):
 def send_user_progress(sender: str, member: dict):
     data = get_user_profile(member["id"])
     send_text(sender, f"{format_progress(member, data)}\n\nType MENU to go back.")
+
+
+def send_irene_shop(sender: str):
+    send_text(
+        sender,
+        (
+            "🛍️ *The Irene Shop*\n\n"
+            "Browse Irene AC gear and products here:\n"
+            f"{IRENE_SHOP_URL}\n\n"
+            "Type MENU to go back."
+        ),
+    )
 
 
 def send_tonight_leaderboard(sender: str):
@@ -668,6 +682,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if menu_action == "MY_RANKING":
         send_my_ranking(sender, member)
         return {"status": "my_ranking"}
+
+    if menu_action == "SHOP":
+        send_irene_shop(sender)
+        return {"status": "shop"}
 
     if text in {"SEASON", "SEASON PB", "SEASON PBS"}:
         send_text(sender, "Season PBs has been replaced by Overall PBs.")

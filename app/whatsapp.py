@@ -96,6 +96,11 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
             "description": "Choose tonight, overall PBs or my ranking.",
         },
         {
+            "id": "menu_shop",
+            "title": "The Irene Shop",
+            "description": "Shop Irene AC gear and products.",
+        },
+        {
             "id": "menu_edit_profile",
             "title": "Edit profile",
             "description": "Change your name or participation type.",

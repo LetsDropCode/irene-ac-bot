@@ -20,6 +20,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertIn("menu_submit", row_ids)
         self.assertIn("menu_progress", row_ids)
         self.assertIn("menu_leaderboard", row_ids)
+        self.assertIn("menu_shop", row_ids)
         self.assertNotIn("menu_overall_leaderboard", row_ids)
         self.assertIn("menu_opt_out", row_ids)
         self.assertNotIn("admin_tt_code", row_ids)

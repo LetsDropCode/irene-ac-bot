@@ -47,7 +47,12 @@ MENU_ACTIONS = {
     "RANKING": "MY_RANKING",
     "MY RANK": "MY_RANKING",
     "MY RANKING": "MY_RANKING",
-    "6": "EDIT_PROFILE",
+    "SHOP": "SHOP",
+    "IRENE SHOP": "SHOP",
+    "THE IRENE SHOP": "SHOP",
+    "CLUB SHOP": "SHOP",
+    "6": "SHOP",
+    "7": "EDIT_PROFILE",
     "EDIT": "EDIT_PROFILE",
     "EDIT PROFILE": "EDIT_PROFILE",
     "EDIT DETAILS": "EDIT_PROFILE",
@@ -61,7 +66,7 @@ MENU_ACTIONS = {
     "WRONG DISTANCE": "FIX_RESULT",
     "EDIT RESULT": "FIX_RESULT",
     "EDIT MY RESULT": "FIX_RESULT",
-    "7": "OPT_OUT",
+    "8": "OPT_OUT",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
     "ADMIN": "ADMIN_MENU",
@@ -86,6 +91,7 @@ INTERACTIVE_ACTIONS = {
     "leaderboard_tonight": "TONIGHT_LEADERBOARD",
     "leaderboard_overall": "OVERALL_LEADERBOARD",
     "leaderboard_my_ranking": "MY_RANKING",
+    "menu_shop": "SHOP",
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
     "admin_menu": "ADMIN_MENU",
@@ -119,8 +125,9 @@ def format_help_menu(admin: bool = False) -> str:
         "3 - My progress\n"
         "4 - Leaderboards\n"
         "5 - Overall PBs\n"
-        "6 - Edit my details\n"
-        "7 - Stop leaderboard sharing\n\n"
+        "6 - The Irene Shop\n"
+        "7 - Edit my details\n"
+        "8 - Stop leaderboard sharing\n\n"
         "Tip: you can send HELP anytime."
     )
 
