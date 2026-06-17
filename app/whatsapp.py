@@ -96,6 +96,11 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
             "description": "See tonight's results.",
         },
         {
+            "id": "menu_overall_leaderboard",
+            "title": "Overall leaderboard",
+            "description": "Fastest 8km, 6km and 4km PBs.",
+        },
+        {
             "id": "menu_edit_profile",
             "title": "Edit details",
             "description": "Change your name or participation type.",

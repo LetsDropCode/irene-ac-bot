@@ -57,8 +57,10 @@ from app.services.submission_gate import ensure_tt_open
 from app.services.pb_service import get_previous_best
 from app.services.leaderboard_service import get_runner_leaderboard
 from app.services.leaderboard_service import get_season_pb_leaderboard
+from app.services.leaderboard_service import get_overall_leaderboard
 from app.services.leaderboard_service import get_walker_feed
 from app.services.leaderboard_formatter import format_season_pb_leaderboard
+from app.services.leaderboard_formatter import format_overall_leaderboard
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.openai_service import coach_reply
@@ -343,10 +345,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             send_text(sender, get_tt_status())
             return {"status": "status"}
 
-        if text == "SEASON":
+        if menu_action == "SEASON_PB":
             rows = get_season_pb_leaderboard()
             send_text(sender, format_season_pb_leaderboard(rows))
             return {"status": "season_pb"}
+
+        if text in {"OVERALL", "OVERALL LEADERBOARD", "PB LEADERBOARD", "FASTEST"}:
+            rows = get_overall_leaderboard()
+            send_text(sender, format_overall_leaderboard(rows))
+            return {"status": "overall_leaderboard"}
 
         if text == "PENDING":
             rows = get_pending_members()
@@ -488,6 +495,16 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if menu_action == "PROGRESS":
         send_user_progress(sender, member)
         return {"status": "progress"}
+
+    if menu_action == "SEASON_PB":
+        rows = get_season_pb_leaderboard()
+        send_text(sender, format_season_pb_leaderboard(rows))
+        return {"status": "season_pb"}
+
+    if menu_action == "OVERALL_LEADERBOARD":
+        rows = get_overall_leaderboard(member["id"])
+        send_text(sender, format_overall_leaderboard(rows, member["id"]))
+        return {"status": "overall_leaderboard"}
 
     if (
         not member.get("first_name")

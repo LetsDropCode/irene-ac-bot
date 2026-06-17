@@ -14,13 +14,23 @@ MENU_ACTIONS = {
     "MY PROGRESS": "PROGRESS",
     "STATS": "PROGRESS",
     "MY STATS": "PROGRESS",
+    "SEASON": "SEASON_PB",
+    "SEASON PB": "SEASON_PB",
+    "SEASON PBS": "SEASON_PB",
+    "SEASON PB LEADERBOARD": "SEASON_PB",
     "4": "LEADERBOARD",
     "LEADERBOARD": "LEADERBOARD",
-    "5": "EDIT_PROFILE",
+    "TONIGHT LEADERBOARD": "LEADERBOARD",
+    "5": "OVERALL_LEADERBOARD",
+    "OVERALL": "OVERALL_LEADERBOARD",
+    "OVERALL LEADERBOARD": "OVERALL_LEADERBOARD",
+    "PB LEADERBOARD": "OVERALL_LEADERBOARD",
+    "FASTEST": "OVERALL_LEADERBOARD",
+    "6": "EDIT_PROFILE",
     "EDIT": "EDIT_PROFILE",
     "EDIT PROFILE": "EDIT_PROFILE",
     "EDIT DETAILS": "EDIT_PROFILE",
-    "6": "OPT_OUT",
+    "7": "OPT_OUT",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
 }
@@ -30,6 +40,7 @@ INTERACTIVE_ACTIONS = {
     "menu_profile": "PROFILE",
     "menu_progress": "PROGRESS",
     "menu_leaderboard": "LEADERBOARD",
+    "menu_overall_leaderboard": "OVERALL_LEADERBOARD",
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
     "admin_tt_code": "ADMIN_TT_CODE",
@@ -58,8 +69,9 @@ def format_help_menu(admin: bool = False) -> str:
         "2 - My profile\n"
         "3 - My progress\n"
         "4 - Tonight's leaderboard\n"
-        "5 - Edit my details\n"
-        "6 - Stop leaderboard sharing\n\n"
+        "5 - Overall leaderboard\n"
+        "6 - Edit my details\n"
+        "7 - Stop leaderboard sharing\n\n"
         "Tip: you can send HELP anytime."
     )
 

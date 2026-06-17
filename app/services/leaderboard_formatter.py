@@ -52,11 +52,46 @@ def format_season_pb_leaderboard(rows):
 
         medal = medals.get(r["position"], f"{r['position']}.")
 
-        mins = int(r["best_seconds"] // 60)
-        secs = int(r["best_seconds"] % 60)
-        time_str = f"{mins}:{secs:02d}"
+        time_str = r.get("time_text")
+        if not time_str:
+            mins = int(r["best_seconds"] // 60)
+            secs = int(r["best_seconds"] % 60)
+            time_str = f"{mins}:{secs:02d}"
 
         msg += f"{medal} {r['first_name']} {r['last_name']} — {time_str}\n"
+
+    return msg.strip()
+
+def format_overall_leaderboard(rows, viewer_member_id=None):
+
+    if not rows:
+        return "🏆 No overall results yet."
+
+    msg = "🏆 *Overall TT Leaderboard*\n"
+    msg += "Fastest PBs for 8km, 6km and 4km.\n"
+
+    current_distance = None
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    for r in rows:
+
+        if r["distance_text"] != current_distance:
+            msg += f"\n📏 *{r['distance_text']}km*\n"
+            current_distance = r["distance_text"]
+
+        medal = medals.get(r["position"], f"{r['position']}.")
+
+        time_str = r.get("time_text")
+        if not time_str:
+            mins = int(r["best_seconds"] // 60)
+            secs = int(r["best_seconds"] % 60)
+            time_str = f"{mins}:{secs:02d}"
+
+        marker = ""
+        if viewer_member_id is not None and r.get("member_id") == viewer_member_id:
+            marker = " ← you"
+
+        msg += f"{medal} {r['first_name']} {r['last_name']} — {time_str}{marker}\n"
 
     return msg.strip()
 

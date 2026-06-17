@@ -124,6 +124,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "confirm_submission",
                     "get_previous_best",
                     "get_runner_leaderboard",
+                    "get_overall_leaderboard",
+                    "get_season_pb_leaderboard",
                     "get_walker_feed",
                     "get_user_profile",
                     "has_seen_whats_new",
@@ -277,6 +279,60 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "leaderboard"})
         mocks["send_text"].assert_called_once()
+
+    async def test_menu_overall_leaderboard_marks_member_rank(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="5"),
+            get_overall_leaderboard=[
+                {
+                    "member_id": 7,
+                    "first_name": "Asha",
+                    "last_name": "Runner",
+                    "distance_text": "8",
+                    "time_text": "35:10",
+                    "best_seconds": 2110,
+                    "position": 1,
+                },
+                {
+                    "member_id": 42,
+                    "first_name": "Lindsay",
+                    "last_name": "Bull",
+                    "distance_text": "8",
+                    "time_text": "42:00",
+                    "best_seconds": 2520,
+                    "position": 11,
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "overall_leaderboard"})
+        mocks["get_overall_leaderboard"].assert_called_once_with(42)
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Overall TT Leaderboard", sent)
+        self.assertIn("Asha Runner", sent)
+        self.assertIn("Lindsay Bull — 42:00 ← you", sent)
+
+    async def test_season_pbs_command_sends_season_leaderboard(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="season pbs"),
+            get_season_pb_leaderboard=[
+                {
+                    "member_id": 42,
+                    "first_name": "Lindsay",
+                    "last_name": "Bull",
+                    "distance_text": "4",
+                    "time_text": "27:41",
+                    "best_seconds": 1661,
+                    "position": 1,
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "season_pb"})
+        mocks["get_season_pb_leaderboard"].assert_called_once()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Season PB Leaderboard", sent)
+        self.assertIn("Lindsay Bull", sent)
 
     async def test_progress_command_sends_personal_progress(self):
         result, mocks, _ = await self.call_webhook(

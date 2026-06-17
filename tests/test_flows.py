@@ -23,10 +23,17 @@ class HelpFlowTests(unittest.TestCase):
         self.assertEqual(resolve_menu_action("1"), "SUBMIT")
         self.assertEqual(resolve_menu_action("MY PROFILE"), "PROFILE")
         self.assertEqual(resolve_menu_action("3"), "PROGRESS")
+        self.assertEqual(resolve_menu_action("SEASON PBS"), "SEASON_PB")
         self.assertEqual(resolve_menu_action("4"), "LEADERBOARD")
-        self.assertEqual(resolve_menu_action("6"), "OPT_OUT")
+        self.assertEqual(resolve_menu_action("5"), "OVERALL_LEADERBOARD")
+        self.assertEqual(resolve_menu_action("6"), "EDIT_PROFILE")
+        self.assertEqual(resolve_menu_action("7"), "OPT_OUT")
         self.assertEqual(resolve_menu_action("PROGRESS"), "PROGRESS")
         self.assertEqual(resolve_interactive_action("menu_progress"), "PROGRESS")
+        self.assertEqual(
+            resolve_interactive_action("menu_overall_leaderboard"),
+            "OVERALL_LEADERBOARD",
+        )
         self.assertEqual(resolve_interactive_action("admin_tt_code"), "ADMIN_TT_CODE")
 
     def test_admin_menu_includes_admin_commands(self):

@@ -87,13 +87,15 @@ def get_checked_in_tt_member_phones(event_date):
 def get_season_pb_leaderboard():
     with get_cursor() as cur:
         cur.execute("""
-            WITH best_times AS (
+            WITH normalized AS (
                 SELECT
                     m.id AS member_id,
                     m.first_name,
                     m.last_name,
-                    s.distance_text,
-                    MIN(s.seconds) AS best_seconds
+                    regexp_replace(LOWER(s.distance_text), '[^0-9]', '', 'g') AS distance_text,
+                    s.time_text,
+                    s.seconds,
+                    s.created_at
 
             FROM submissions s
             JOIN members m ON m.id = s.member_id
@@ -104,10 +106,22 @@ def get_season_pb_leaderboard():
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
-                AND DATE(s.created_at) >= DATE_TRUNC('year', CURRENT_DATE)
+                AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
+                    >= DATE_TRUNC('year', CURRENT_DATE)
+                AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+        ),
 
-            GROUP BY
-                m.id, m.first_name, m.last_name, s.distance_text
+        best_times AS (
+            SELECT DISTINCT ON (member_id, distance_text)
+                member_id,
+                first_name,
+                last_name,
+                distance_text,
+                time_text,
+                seconds AS best_seconds
+            FROM normalized
+            WHERE distance_text IN ('8', '6', '4')
+            ORDER BY member_id, distance_text, seconds ASC, created_at ASC
         ),
 
         ranked AS (
@@ -125,6 +139,73 @@ def get_season_pb_leaderboard():
             CAST(distance_text AS INTEGER) DESC,
             position ASC;
         """)
+
+        return cur.fetchall()
+
+def get_overall_leaderboard(member_id=None, limit_per_distance=10):
+    params = [limit_per_distance]
+
+    viewer_filter = ""
+    if member_id is not None:
+        viewer_filter = "OR member_id = %s"
+        params.append(member_id)
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(f"""
+        WITH normalized AS (
+            SELECT
+                m.id AS member_id,
+                m.first_name,
+                m.last_name,
+                regexp_replace(LOWER(s.distance_text), '[^0-9]', '', 'g') AS distance_text,
+                s.time_text,
+                s.seconds,
+                s.created_at
+            FROM submissions s
+            JOIN members m ON m.id = s.member_id
+            WHERE
+                s.status = 'COMPLETE'
+                AND s.seconds IS NOT NULL
+                AND s.seconds > 0
+                AND s.distance_text IS NOT NULL
+                AND s.distance_text <> ''
+                AND s.activity = 'TT'
+                AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+        ),
+
+        best_times AS (
+            SELECT DISTINCT ON (member_id, distance_text)
+                member_id,
+                first_name,
+                last_name,
+                distance_text,
+                time_text,
+                seconds AS best_seconds
+            FROM normalized
+            WHERE distance_text IN ('8', '6', '4')
+            ORDER BY member_id, distance_text, seconds ASC, created_at ASC
+        ),
+
+        ranked AS (
+            SELECT
+                *,
+                RANK() OVER (
+                    PARTITION BY distance_text
+                    ORDER BY best_seconds ASC
+                ) AS position
+            FROM best_times
+        )
+
+        SELECT *
+        FROM ranked
+        WHERE position <= %s
+           {viewer_filter}
+        ORDER BY
+            CAST(distance_text AS INTEGER) DESC,
+            position ASC,
+            first_name ASC,
+            last_name ASC;
+        """, tuple(params))
 
         return cur.fetchall()
 

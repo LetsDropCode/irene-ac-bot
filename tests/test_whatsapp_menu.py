@@ -19,6 +19,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertEqual(interactive["action"]["button"], "Open menu")
         self.assertIn("menu_submit", row_ids)
         self.assertIn("menu_progress", row_ids)
+        self.assertIn("menu_overall_leaderboard", row_ids)
         self.assertIn("menu_opt_out", row_ids)
         self.assertNotIn("admin_tt_code", row_ids)
 
