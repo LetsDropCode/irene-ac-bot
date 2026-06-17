@@ -151,6 +151,11 @@ def init_db():
     """)
 
     cur.execute("""
+        ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS last_seen_whats_new_version TEXT;
+    """)
+
+    cur.execute("""
         ALTER TABLE submissions
         ADD COLUMN IF NOT EXISTS mode TEXT;
     """)

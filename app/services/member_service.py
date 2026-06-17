@@ -122,6 +122,25 @@ def opt_out_leaderboard(sender: str):
         )
 
 
+def has_seen_whats_new(member: dict, version: str) -> bool:
+    if not version:
+        return True
+
+    return member.get("last_seen_whats_new_version") == version
+
+
+def mark_whats_new_seen(member_id: int, version: str):
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET last_seen_whats_new_version = %s
+            WHERE id = %s
+            """,
+            (version, member_id)
+        )
+
+
 # ─────────────────────────────────────────────
 # PROFILE COMPLETION CHECK (NEW)
 # ─────────────────────────────────────────────

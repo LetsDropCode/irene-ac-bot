@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Request
 
+from app.config import WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
 from app.flows.help_flow import (
     format_help_menu,
     is_help_command,
@@ -34,6 +35,8 @@ from app.services.member_service import (
     clear_profile_state,
     acknowledge_popia,
     opt_out_leaderboard,
+    has_seen_whats_new,
+    mark_whats_new_seen,
 )
 
 from app.services.submission_service import (
@@ -104,6 +107,15 @@ def send_submission_prompt(sender: str, participation_type: str):
 
     send_distance_buttons(sender)
     return "distance"
+
+
+def send_whats_new_once(sender: str, member: dict):
+    if has_seen_whats_new(member, WHATS_NEW_VERSION):
+        return False
+
+    send_text(sender, WHATS_NEW_MESSAGE)
+    mark_whats_new_seen(member["id"], WHATS_NEW_VERSION)
+    return True
 
 
 def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
@@ -584,6 +596,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             print("⚠️ Attendance failed:", str(e))
 
         send_text(sender, "✅ Checked in!")
+        send_whats_new_once(sender, member)
         prompt_status = send_submission_prompt(sender, member["participation_type"])
         return {"status": f"code_ok_{prompt_status}"}
 

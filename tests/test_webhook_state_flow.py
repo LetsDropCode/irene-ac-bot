@@ -76,6 +76,7 @@ def member(**overrides):
         "participation_type": "RUNNER",
         "profile_state": None,
         "popia_acknowledged": True,
+        "last_seen_whats_new_version": None,
     }
     data.update(overrides)
     return data
@@ -125,8 +126,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "get_runner_leaderboard",
                     "get_walker_feed",
                     "get_user_profile",
+                    "has_seen_whats_new",
+                    "mark_whats_new_seen",
                 ]
             }
+            mocks["has_seen_whats_new"].return_value = True
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
@@ -222,6 +226,28 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "code_ok_distance"})
         mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in!")
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_runner_valid_code_sends_whats_new_once_when_unseen(self):
+        unverified = submission(tt_code_verified=False)
+        verified = submission(tt_code_verified=True)
+
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            submission_data=[unverified, verified],
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=verified,
+            release_pending_submissions=lambda _member_id: None,
+            mark_attendance=lambda _member_id: None,
+            has_seen_whats_new=False,
+        )
+
+        self.assertEqual(result, {"status": "code_ok_distance"})
+        self.assertEqual(mocks["send_text"].call_count, 2)
+        self.assertEqual(mocks["send_text"].call_args_list[0].args, ("27999999999", "✅ Checked in!"))
+        whats_new = mocks["send_text"].call_args_list[1].args[1]
+        self.assertIn("What’s new", whats_new)
+        mocks["mark_whats_new_seen"].assert_called_once_with(42, webhook_module.WHATS_NEW_VERSION)
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
     async def test_menu_submit_shortcut_asks_for_code_when_not_checked_in(self):
