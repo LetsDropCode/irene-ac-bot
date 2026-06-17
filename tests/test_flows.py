@@ -21,19 +21,27 @@ class HelpFlowTests(unittest.TestCase):
         self.assertTrue(is_help_command("\\HELP"))
         self.assertTrue(is_help_command("MENU"))
         self.assertEqual(resolve_menu_action("1"), "SUBMIT")
+        self.assertEqual(resolve_menu_action("CODE"), "SUBMIT")
+        self.assertEqual(resolve_menu_action("TIME"), "RESUME")
+        self.assertEqual(resolve_menu_action("CHANGE"), "FIX_RESULT")
         self.assertEqual(resolve_menu_action("MY PROFILE"), "PROFILE")
         self.assertEqual(resolve_menu_action("3"), "PROGRESS")
-        self.assertEqual(resolve_menu_action("SEASON PBS"), "SEASON_PB")
-        self.assertEqual(resolve_menu_action("4"), "LEADERBOARD")
+        self.assertEqual(resolve_menu_action("4"), "LEADERBOARDS")
+        self.assertEqual(resolve_menu_action("TONIGHT"), "TONIGHT_LEADERBOARD")
         self.assertEqual(resolve_menu_action("5"), "OVERALL_LEADERBOARD")
+        self.assertEqual(resolve_menu_action("MY RANKING"), "MY_RANKING")
         self.assertEqual(resolve_menu_action("6"), "EDIT_PROFILE")
         self.assertEqual(resolve_menu_action("7"), "OPT_OUT")
         self.assertEqual(resolve_menu_action("PROGRESS"), "PROGRESS")
         self.assertEqual(resolve_interactive_action("menu_progress"), "PROGRESS")
-        self.assertEqual(
-            resolve_interactive_action("menu_overall_leaderboard"),
-            "OVERALL_LEADERBOARD",
-        )
+        self.assertEqual(resolve_interactive_action("menu_leaderboard"), "LEADERBOARDS")
+        self.assertEqual(resolve_interactive_action("leaderboard_tonight"), "TONIGHT_LEADERBOARD")
+        self.assertEqual(resolve_interactive_action("leaderboard_overall"), "OVERALL_LEADERBOARD")
+        self.assertEqual(resolve_interactive_action("leaderboard_my_ranking"), "MY_RANKING")
+        self.assertEqual(resolve_menu_action("ADMIN"), "ADMIN_MENU")
+        self.assertEqual(resolve_menu_action("STATUS"), "ADMIN_TT_STATUS")
+        self.assertEqual(resolve_menu_action("RECOVER TONIGHT"), "ADMIN_RECOVER_TONIGHT")
+        self.assertEqual(resolve_interactive_action("admin_menu"), "ADMIN_MENU")
         self.assertEqual(resolve_interactive_action("admin_tt_code"), "ADMIN_TT_CODE")
 
     def test_admin_menu_includes_admin_commands(self):

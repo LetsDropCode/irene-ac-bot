@@ -1,4 +1,4 @@
-HELP_COMMANDS = {"HELP", "MENU", "START", "HI", "HELLO", "\\HELP", "/HELP", "?"}
+HELP_COMMANDS = {"HELP", "MENU", "START", "\\HELP", "/HELP", "?"}
 
 MENU_ACTIONS = {
     "1": "SUBMIT",
@@ -6,6 +6,19 @@ MENU_ACTIONS = {
     "SUBMIT TT": "SUBMIT",
     "TT": "SUBMIT",
     "TT RESULT": "SUBMIT",
+    "CODE": "SUBMIT",
+    "TT CODE": "SUBMIT",
+    "TIME": "RESUME",
+    "RESULT": "RESUME",
+    "MY RESULT": "RESUME",
+    "LAST RESULT": "RESUME",
+    "CONTINUE": "RESUME",
+    "RESUME": "RESUME",
+    "CARRY ON": "RESUME",
+    "HELP ME": "RESUME",
+    "HI": "RESUME",
+    "HELLO": "RESUME",
+    "HEY": "RESUME",
     "2": "PROFILE",
     "PROFILE": "PROFILE",
     "MY PROFILE": "PROFILE",
@@ -14,38 +27,74 @@ MENU_ACTIONS = {
     "MY PROGRESS": "PROGRESS",
     "STATS": "PROGRESS",
     "MY STATS": "PROGRESS",
-    "SEASON": "SEASON_PB",
-    "SEASON PB": "SEASON_PB",
-    "SEASON PBS": "SEASON_PB",
-    "SEASON PB LEADERBOARD": "SEASON_PB",
-    "4": "LEADERBOARD",
-    "LEADERBOARD": "LEADERBOARD",
-    "TONIGHT LEADERBOARD": "LEADERBOARD",
+    "4": "LEADERBOARDS",
+    "LEADERBOARD": "LEADERBOARDS",
+    "LEADERBOARDS": "LEADERBOARDS",
+    "RESULTS": "LEADERBOARDS",
+    "RANKINGS": "LEADERBOARDS",
+    "TONIGHT": "TONIGHT_LEADERBOARD",
+    "TONIGHT LEADERBOARD": "TONIGHT_LEADERBOARD",
+    "TONIGHT RESULTS": "TONIGHT_LEADERBOARD",
     "5": "OVERALL_LEADERBOARD",
     "OVERALL": "OVERALL_LEADERBOARD",
     "OVERALL LEADERBOARD": "OVERALL_LEADERBOARD",
+    "OVERALL PBS": "OVERALL_LEADERBOARD",
+    "PB": "OVERALL_LEADERBOARD",
+    "PBS": "OVERALL_LEADERBOARD",
     "PB LEADERBOARD": "OVERALL_LEADERBOARD",
     "FASTEST": "OVERALL_LEADERBOARD",
+    "RANK": "MY_RANKING",
+    "RANKING": "MY_RANKING",
+    "MY RANK": "MY_RANKING",
+    "MY RANKING": "MY_RANKING",
     "6": "EDIT_PROFILE",
     "EDIT": "EDIT_PROFILE",
     "EDIT PROFILE": "EDIT_PROFILE",
     "EDIT DETAILS": "EDIT_PROFILE",
+    "FIX": "FIX_RESULT",
+    "FIX RESULT": "FIX_RESULT",
+    "FIX MY RESULT": "FIX_RESULT",
+    "CHANGE": "FIX_RESULT",
+    "CHANGE RESULT": "FIX_RESULT",
+    "CHANGE MY RESULT": "FIX_RESULT",
+    "WRONG TIME": "FIX_RESULT",
+    "WRONG DISTANCE": "FIX_RESULT",
+    "EDIT RESULT": "FIX_RESULT",
+    "EDIT MY RESULT": "FIX_RESULT",
     "7": "OPT_OUT",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
+    "ADMIN": "ADMIN_MENU",
+    "ADMIN MENU": "ADMIN_MENU",
+    "ADMIN TOOLS": "ADMIN_MENU",
+    "FIND": "ADMIN_FIND",
+    "LOOKUP": "ADMIN_FIND",
+    "SEARCH": "ADMIN_FIND",
+    "STATUS": "ADMIN_TT_STATUS",
+    "TT STATUS": "ADMIN_TT_STATUS",
+    "PENDING": "ADMIN_PENDING",
+    "RECOVER TONIGHT": "ADMIN_RECOVER_TONIGHT",
+    "RESEND TONIGHT": "ADMIN_RECOVER_TONIGHT",
+    "FIX TONIGHT": "ADMIN_RECOVER_TONIGHT",
 }
 
 INTERACTIVE_ACTIONS = {
     "menu_submit": "SUBMIT",
     "menu_profile": "PROFILE",
     "menu_progress": "PROGRESS",
-    "menu_leaderboard": "LEADERBOARD",
-    "menu_overall_leaderboard": "OVERALL_LEADERBOARD",
+    "menu_leaderboard": "LEADERBOARDS",
+    "leaderboard_tonight": "TONIGHT_LEADERBOARD",
+    "leaderboard_overall": "OVERALL_LEADERBOARD",
+    "leaderboard_my_ranking": "MY_RANKING",
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
+    "admin_menu": "ADMIN_MENU",
     "admin_tt_code": "ADMIN_TT_CODE",
     "admin_tt_status": "ADMIN_TT_STATUS",
     "admin_pending": "ADMIN_PENDING",
+    "admin_recover_tonight": "ADMIN_RECOVER_TONIGHT",
+    "admin_tonight_leaderboard": "TONIGHT_LEADERBOARD",
+    "admin_overall_leaderboard": "OVERALL_LEADERBOARD",
 }
 
 
@@ -68,8 +117,8 @@ def format_help_menu(admin: bool = False) -> str:
         "1 - Submit TT result\n"
         "2 - My profile\n"
         "3 - My progress\n"
-        "4 - Tonight's leaderboard\n"
-        "5 - Overall leaderboard\n"
+        "4 - Leaderboards\n"
+        "5 - Overall PBs\n"
         "6 - Edit my details\n"
         "7 - Stop leaderboard sharing\n\n"
         "Tip: you can send HELP anytime."
@@ -84,6 +133,5 @@ def format_help_menu(admin: bool = False) -> str:
         "TT CODE\n"
         "TT STATUS\n"
         "PENDING\n"
-        "RECOVER TONIGHT\n"
-        "SEASON"
+        "RECOVER TONIGHT"
     )

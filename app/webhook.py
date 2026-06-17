@@ -23,6 +23,9 @@ from app.whatsapp import (
     send_profile_buttons,
     send_both_submission_buttons,
     send_main_menu_list,
+    send_leaderboard_menu_list,
+    send_admin_menu_list,
+    send_admin_pending_actions,
 )
 
 from app.services.event_code_service import generate_tt_code
@@ -56,13 +59,14 @@ from app.services.validation import is_valid_time, is_valid_tt_code
 from app.services.submission_gate import ensure_tt_open
 from app.services.pb_service import get_previous_best
 from app.services.leaderboard_service import get_runner_leaderboard
-from app.services.leaderboard_service import get_season_pb_leaderboard
 from app.services.leaderboard_service import get_overall_leaderboard
+from app.services.leaderboard_service import get_member_rankings
 from app.services.leaderboard_service import get_walker_feed
-from app.services.leaderboard_formatter import format_season_pb_leaderboard
 from app.services.leaderboard_formatter import format_overall_leaderboard
+from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
+from app.services.admin_service import get_admin_dashboard, search_members_for_admin
 from app.services.openai_service import coach_reply
 from app.services.profile_service import get_user_profile
 from app.services.profile_formatter import format_profile
@@ -88,6 +92,168 @@ def send_help_menu(sender: str, admin: bool = False):
         send_text(sender, format_help_menu(admin))
 
 
+def send_leaderboards_menu(sender: str):
+    if not send_leaderboard_menu_list(sender):
+        send_text(
+            sender,
+            (
+                "🏆 *Leaderboards*\n\n"
+                "Reply with:\n"
+                "Tonight leaderboard\n"
+                "Overall PBs\n"
+                "My ranking\n\n"
+                "Type MENU to go back."
+            ),
+        )
+
+
+def send_admin_tools_menu(sender: str):
+    if not send_admin_menu_list(sender):
+        send_text(
+            sender,
+            (
+                "🔐 *Admin tools*\n\n"
+                "Reply with:\n"
+                "TT CODE\n"
+                "TT STATUS\n"
+                "PENDING\n"
+                "RECOVER TONIGHT\n"
+                "TONIGHT LEADERBOARD\n"
+                "OVERALL PBs\n\n"
+                "Type MENU to go back."
+            ),
+        )
+
+
+def _format_admin_dashboard(data: dict, code: str) -> str:
+    summary = data.get("summary") or {}
+    pending = data.get("pending") or []
+    last_submission = summary.get("last_submission_at")
+    if last_submission:
+        last_submission = last_submission.strftime("%H:%M")
+    else:
+        last_submission = "none yet"
+
+    pending_names = "None"
+    if pending:
+        pending_names = ", ".join(
+            f"{row['first_name']} {row['last_name']}"
+            for row in pending
+        )
+
+    return (
+        "📋 *Admin Dashboard*\n\n"
+        f"TT code: *{code}*\n"
+        f"Checked in: {summary.get('checked_in') or 0}\n"
+        f"Submitted: {summary.get('submitted') or 0}\n"
+        f"Pending: {summary.get('pending') or 0}\n"
+        f"Runners / Walkers / Both: "
+        f"{summary.get('runners') or 0} / "
+        f"{summary.get('walkers') or 0} / "
+        f"{summary.get('both') or 0}\n"
+        f"Last submission: {last_submission}\n\n"
+        f"Top pending: {pending_names}"
+    )
+
+
+def send_admin_dashboard(sender: str):
+    code = generate_tt_code("TT")
+    data = get_admin_dashboard()
+    send_text(sender, _format_admin_dashboard(data, code))
+
+
+def send_admin_code(sender: str):
+    code = generate_tt_code("TT")
+    send_text(sender, f"🔐 Tonight’s TT Code\n\n*{code}*\n\nType ADMIN for tools.")
+
+
+def send_pending_members(sender: str):
+    rows = get_pending_members()
+
+    if not rows:
+        send_admin_pending_actions(
+            sender,
+            "✅ No pending submissions.\n\nChoose a next step:",
+        )
+        return 0
+
+    msg = "⏳ *Pending Submissions*\n\n"
+
+    for r in rows:
+        msg += f"{r['first_name']} {r['last_name']} ({r['phone']})\n"
+
+    msg += "\nChoose a next step:"
+    if not send_admin_pending_actions(sender, msg):
+        send_text(sender, f"{msg}\n\nType RECOVER TONIGHT to resend prompts, or ADMIN for tools.")
+    return len(rows)
+
+
+def recover_tonight(sender: str):
+    rows = get_tonight_unprompted_checked_in_members()
+
+    if not rows:
+        send_text(sender, "✅ No checked-in users need a prompt resend.\n\nType ADMIN for tools.")
+        return 0
+
+    counts = {"WALKER": 0, "BOTH": 0, "RUNNER": 0}
+    for row in rows:
+        ptype = row.get("participation_type") or "RUNNER"
+        send_submission_prompt(row["phone"], ptype)
+        counts[ptype if ptype in counts else "RUNNER"] += 1
+
+    send_text(
+        sender,
+        (
+            "✅ Resent tonight’s submission prompts.\n\n"
+            f"🏃 Distance: {counts['RUNNER']}\n"
+            f"🚶 Workout: {counts['WALKER']}\n"
+            f"🔄 Both choice: {counts['BOTH']}\n\n"
+            "Type ADMIN for tools."
+        ),
+    )
+    return len(rows)
+
+
+def _format_member_lookup(rows, query: str) -> str:
+    if not rows:
+        return (
+            f"🔎 No member found for “{query}”.\n\n"
+            "Try FIND plus a first name, surname or phone number."
+        )
+
+    msg = f"🔎 *Member lookup: {query}*\n"
+
+    for row in rows:
+        checked_in = "yes" if row.get("tt_code_verified") else "no"
+        status = row.get("today_status") or "none"
+        result = "No result today"
+        if row.get("today_status") == "COMPLETE":
+            distance = row.get("distance_text") or "?"
+            result = f"{distance}km — {row.get('time_text')}"
+        elif row.get("today_status") == "PENDING":
+            result = "Pending result"
+
+        hidden = "yes" if row.get("leaderboard_opt_out") else "no"
+        msg += (
+            "\n"
+            f"{row['first_name']} {row['last_name']}\n"
+            f"Phone: {row['phone']}\n"
+            f"Type: {row.get('participation_type') or 'not set'}\n"
+            f"Checked in: {checked_in}\n"
+            f"Today: {status} · {result}\n"
+            f"Hidden from leaderboard: {hidden}\n"
+        )
+
+    msg += "\nType ADMIN for tools."
+    return msg.strip()
+
+
+def send_member_lookup(sender: str, query: str):
+    rows = search_members_for_admin(query)
+    send_text(sender, _format_member_lookup(rows, query))
+    return len(rows)
+
+
 def send_user_profile(sender: str, member: dict):
     data = get_user_profile(member["id"])
     send_profile_buttons(sender, format_profile(member, data))
@@ -95,7 +261,23 @@ def send_user_profile(sender: str, member: dict):
 
 def send_user_progress(sender: str, member: dict):
     data = get_user_profile(member["id"])
-    send_text(sender, format_progress(member, data))
+    send_text(sender, f"{format_progress(member, data)}\n\nType MENU to go back.")
+
+
+def send_tonight_leaderboard(sender: str):
+    runners = get_runner_leaderboard()
+    walkers = get_walker_feed()
+    send_text(sender, f"{format_full_leaderboard(runners, walkers)}\n\nType MENU to go back.")
+
+
+def send_overall_leaderboard(sender: str, member_id=None):
+    rows = get_overall_leaderboard(member_id)
+    send_text(sender, f"{format_overall_leaderboard(rows, member_id)}\n\nType MENU to go back.")
+
+
+def send_my_ranking(sender: str, member: dict):
+    rows = get_member_rankings(member["id"])
+    send_text(sender, format_member_rankings(member, rows))
 
 
 def send_submission_prompt(sender: str, participation_type: str):
@@ -109,6 +291,36 @@ def send_submission_prompt(sender: str, participation_type: str):
 
     send_distance_buttons(sender)
     return "distance"
+
+
+def resume_submission(sender: str, member: dict, submission: dict):
+    if submission["status"] == "COMPLETE":
+        send_text(
+            sender,
+            (
+                "You’ve already submitted today’s TT.\n\n"
+                f"{submission['distance_text']}km — {submission['time_text']}\n\n"
+                "Type FIX RESULT to change it, or MENU to go back."
+            ),
+        )
+        return "complete"
+
+    if not submission.get("tt_code_verified"):
+        send_text(sender, "🔑 Send tonight's TT code to check in, or type MENU to go back.")
+        return "await_code"
+
+    return prompt_for_pending_submission(sender, member, submission)
+
+
+def start_fix_result(sender: str, submission: dict):
+    if not submission.get("tt_code_verified"):
+        send_text(sender, "I don’t have a result to fix yet. Send tonight’s TT code to start.")
+        return submission
+
+    updated = reopen_submission_for_edit(submission["id"])
+    send_text(sender, "No problem. Let’s fix your result from the start.")
+    send_distance_buttons(sender)
+    return updated
 
 
 def send_whats_new_once(sender: str, member: dict):
@@ -208,7 +420,7 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
         print("⚠️ Profile summary failed:", str(e))
 
     lines = [
-        f"🔥 *{first_name}, here’s your TT recap*",
+        f"*{first_name}, here’s your TT recap*",
         "",
         f"{submission['distance_text']}km — {submission['time_text']}",
     ]
@@ -271,6 +483,7 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
     except Exception as e:
         print("⚠️ Insight engine failed:", str(e))
 
+    lines.extend(["", "Type MENU to go back."])
     send_text(sender, "\n".join(lines))
 
 
@@ -326,97 +539,41 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if button:
         menu_action = resolve_interactive_action(button.get("id", "")) or menu_action
 
+    if button and button.get("id", "").lower().strip() == "back_menu":
+        send_help_menu(sender, is_admin(sender))
+        return {"status": "menu"}
+
     # ───────── ADMIN ─────────
-    if text and is_admin(sender):
+    if is_admin(sender):
+        if text and any(text.startswith(prefix) for prefix in ("FIND ", "LOOKUP ", "SEARCH ")):
+            query = raw_text.split(" ", 1)[1].strip()
+            count = send_member_lookup(sender, query)
+            return {"status": "member_lookup", "count": count}
 
-        if text in {"TT CODE", "GET TT CODE", "CODE"}:
-            code = generate_tt_code("TT")
-            send_text(sender, f"🔐 Tonight’s TT Code\n\n*{code}*")
-            return {"status": "admin_code"}
+        if menu_action == "ADMIN_MENU":
+            send_admin_dashboard(sender)
+            send_admin_tools_menu(sender)
+            return {"status": "admin_menu"}
 
-        if text == "LEADERBOARD":
-            runners = get_runner_leaderboard()
-            walkers = get_walker_feed()
+        if menu_action == "ADMIN_FIND":
+            send_text(sender, "Send FIND plus a name or phone number, e.g. FIND Lindsay.")
+            return {"status": "member_lookup_prompt"}
 
-            send_text(sender, format_full_leaderboard(runners, walkers))
-            return {"status": "leaderboard"}
-
-        if text == "TT STATUS":
-            send_text(sender, get_tt_status())
-            return {"status": "status"}
-
-        if menu_action == "SEASON_PB":
-            rows = get_season_pb_leaderboard()
-            send_text(sender, format_season_pb_leaderboard(rows))
-            return {"status": "season_pb"}
-
-        if text in {"OVERALL", "OVERALL LEADERBOARD", "PB LEADERBOARD", "FASTEST"}:
-            rows = get_overall_leaderboard()
-            send_text(sender, format_overall_leaderboard(rows))
-            return {"status": "overall_leaderboard"}
-
-        if text == "PENDING":
-            rows = get_pending_members()
-
-            if not rows:
-                send_text(sender, "✅ No pending submissions.")
-                return {"status": "no_pending"}
-
-            msg = "⏳ *Pending Submissions*\n\n"
-
-            for r in rows:
-                msg += f"{r['first_name']} {r['last_name']} ({r['phone']})\n"
-
-            send_text(sender, msg)
-            return {"status": "pending_list"}
-
-        if text in {"RECOVER TONIGHT", "RESEND TONIGHT", "FIX TONIGHT"}:
-            rows = get_tonight_unprompted_checked_in_members()
-
-            if not rows:
-                send_text(sender, "✅ No checked-in users need a prompt resend.")
-                return {"status": "recover_none"}
-
-            counts = {"WALKER": 0, "BOTH": 0, "RUNNER": 0}
-            for row in rows:
-                ptype = row.get("participation_type") or "RUNNER"
-                send_submission_prompt(row["phone"], ptype)
-                counts[ptype if ptype in counts else "RUNNER"] += 1
-
-            send_text(
-                sender,
-                (
-                    "✅ Resent tonight’s submission prompts.\n\n"
-                    f"🏃 Distance: {counts['RUNNER']}\n"
-                    f"🚶 Workout: {counts['WALKER']}\n"
-                    f"🔄 Both choice: {counts['BOTH']}"
-                )
-            )
-            return {"status": "recover_tonight", "count": len(rows)}
-
-    if button and is_admin(sender):
         if menu_action == "ADMIN_TT_CODE":
-            code = generate_tt_code("TT")
-            send_text(sender, f"🔐 Tonight’s TT Code\n\n*{code}*")
+            send_admin_code(sender)
             return {"status": "admin_code"}
 
         if menu_action == "ADMIN_TT_STATUS":
-            send_text(sender, get_tt_status())
+            send_text(sender, f"{get_tt_status()}\n\nType ADMIN for tools.")
             return {"status": "status"}
 
         if menu_action == "ADMIN_PENDING":
-            rows = get_pending_members()
+            count = send_pending_members(sender)
+            return {"status": "pending_list" if count else "no_pending"}
 
-            if not rows:
-                send_text(sender, "✅ No pending submissions.")
-                return {"status": "no_pending"}
-
-            msg = "⏳ *Pending Submissions*\n\n"
-            for r in rows:
-                msg += f"{r['first_name']} {r['last_name']} ({r['phone']})\n"
-
-            send_text(sender, msg)
-            return {"status": "pending_list"}
+        if menu_action == "ADMIN_RECOVER_TONIGHT":
+            count = recover_tonight(sender)
+            return {"status": "recover_tonight" if count else "recover_none", "count": count}
 
 
     # ───────── MEMBER ─────────
@@ -496,15 +653,26 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         send_user_progress(sender, member)
         return {"status": "progress"}
 
-    if menu_action == "SEASON_PB":
-        rows = get_season_pb_leaderboard()
-        send_text(sender, format_season_pb_leaderboard(rows))
-        return {"status": "season_pb"}
+    if menu_action == "LEADERBOARDS":
+        send_leaderboards_menu(sender)
+        return {"status": "leaderboards_menu"}
+
+    if menu_action == "TONIGHT_LEADERBOARD":
+        send_tonight_leaderboard(sender)
+        return {"status": "leaderboard"}
 
     if menu_action == "OVERALL_LEADERBOARD":
-        rows = get_overall_leaderboard(member["id"])
-        send_text(sender, format_overall_leaderboard(rows, member["id"]))
+        send_overall_leaderboard(sender, member["id"])
         return {"status": "overall_leaderboard"}
+
+    if menu_action == "MY_RANKING":
+        send_my_ranking(sender, member)
+        return {"status": "my_ranking"}
+
+    if text in {"SEASON", "SEASON PB", "SEASON PBS"}:
+        send_text(sender, "Season PBs has been replaced by Overall PBs.")
+        send_leaderboards_menu(sender)
+        return {"status": "leaderboards_menu"}
 
     if (
         not member.get("first_name")
@@ -529,12 +697,23 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         send_text(sender, "⚠️ Please send TT code again.")
         return {"status": "error"}
 
+    if menu_action == "RESUME":
+        prompt_status = resume_submission(sender, member, submission)
+        return {"status": f"resume_{prompt_status}"}
+
+    if menu_action == "SUBMIT":
+        prompt_status = resume_submission(sender, member, submission)
+        return {"status": f"menu_submit_{prompt_status}"}
+
+    if menu_action == "FIX_RESULT":
+        start_fix_result(sender, submission)
+        return {"status": "fix_result"}
+
     if button and submission["status"] == "COMPLETE":
         btn = button.get("id", "").lower().strip()
 
         if btn == "edit":
-            submission = reopen_submission_for_edit(submission["id"])
-            send_distance_buttons(sender)
+            start_fix_result(sender, submission)
             return {"status": "edit_existing"}
 
         if btn == "confirm":
@@ -542,19 +721,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "already_confirmed"}
 
     if submission["status"] == "COMPLETE":
-        send_confirm_buttons(
+        send_text(
             sender,
-            submission["distance_text"],
-            submission["time_text"]
+            (
+                "You’ve already submitted today’s TT.\n\n"
+                f"{submission['distance_text']}km — {submission['time_text']}\n\n"
+                "Type FIX RESULT to change it, or MENU to go back."
+            ),
         )
-        send_text(sender, "Need to change it? Tap Edit.")
         return {"status": "edit_existing"}
-
-    if menu_action == "LEADERBOARD":
-        runners = get_runner_leaderboard()
-        walkers = get_walker_feed()
-        send_text(sender, format_full_leaderboard(runners, walkers))
-        return {"status": "leaderboard"}
 
     # ───────── TT GATE ─────────
     allowed, reason = ensure_tt_open()
@@ -578,14 +753,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
         send_text(sender, "👍 Send tonight’s TT code.")
         return {"status": "ptype"}
-
-    if menu_action == "SUBMIT":
-        if not submission["tt_code_verified"]:
-            send_text(sender, "🔑 Send tonight's TT code to check in.")
-            return {"status": "menu_submit_await_code"}
-
-        prompt_status = prompt_for_pending_submission(sender, member, submission)
-        return {"status": f"menu_submit_{prompt_status}"}
 
     # ───────── TT CODE ─────────
     if not submission["tt_code_verified"]:
@@ -706,7 +873,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 send_text(sender, "✅ Already confirmed.")
                 return {"status": "already_confirmed"}
 
-            send_text(sender, "🔥 TT recorded!")
+            send_text(sender, "TT recorded.")
             background_tasks.add_task(
                 send_post_confirm_messages,
                 sender,
@@ -756,5 +923,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         prompt_status = prompt_for_pending_submission(sender, member, submission)
         return {"status": f"recover_{prompt_status}"}
 
-    send_text(sender, "I’m not sure what to do with that yet. Send PROFILE, TT CODE, or use the buttons above.")
+    send_text(
+        sender,
+        "I can help with submitting a result, checking progress, or leaderboards.",
+    )
+    send_help_menu(sender, is_admin(sender))
     return {"status": "fallback_help"}

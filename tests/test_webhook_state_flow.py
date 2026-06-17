@@ -112,6 +112,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "send_profile_buttons",
                     "send_both_submission_buttons",
                     "send_main_menu_list",
+                    "send_leaderboard_menu_list",
+                    "send_admin_menu_list",
                     "save_member_name",
                     "set_profile_state",
                     "clear_profile_state",
@@ -125,8 +127,15 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "get_previous_best",
                     "get_runner_leaderboard",
                     "get_overall_leaderboard",
-                    "get_season_pb_leaderboard",
+                    "get_member_rankings",
                     "get_walker_feed",
+                    "get_tt_status",
+                    "get_pending_members",
+                    "get_tonight_unprompted_checked_in_members",
+                    "generate_tt_code",
+                    "get_admin_dashboard",
+                    "search_members_for_admin",
+                    "send_admin_pending_actions",
                     "get_user_profile",
                     "has_seen_whats_new",
                     "mark_whats_new_seen",
@@ -183,6 +192,104 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "help"})
         mocks["send_main_menu_list"].assert_called_once_with("27722135094", True)
+
+    async def test_admin_menu_selection_opens_admin_tools(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_menu", title="Admin tools"),
+            member_data=member(phone="27722135094"),
+            generate_tt_code="1234",
+            get_admin_dashboard={
+                "summary": {
+                    "checked_in": 12,
+                    "submitted": 8,
+                    "pending": 4,
+                    "runners": 9,
+                    "walkers": 2,
+                    "both": 1,
+                    "last_submission_at": None,
+                },
+                "pending": [{"first_name": "Asha", "last_name": "Runner"}],
+            },
+        )
+
+        self.assertEqual(result, {"status": "admin_menu"})
+        dashboard = mocks["send_text"].call_args.args[1]
+        self.assertIn("Admin Dashboard", dashboard)
+        self.assertIn("TT code: *1234*", dashboard)
+        self.assertIn("Top pending: Asha Runner", dashboard)
+        mocks["send_admin_menu_list"].assert_called_once_with("27722135094")
+
+    async def test_admin_status_command_returns_status_with_tools_hint(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="status"),
+            member_data=member(phone="27722135094"),
+            get_tt_status="TT status body",
+        )
+
+        self.assertEqual(result, {"status": "status"})
+        mocks["send_text"].assert_called_once_with(
+            "27722135094",
+            "TT status body\n\nType ADMIN for tools.",
+        )
+
+    async def test_admin_recover_tonight_resends_prompts(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="recover tonight"),
+            member_data=member(phone="27722135094"),
+            get_tonight_unprompted_checked_in_members=[
+                {"phone": "2771", "participation_type": "RUNNER"},
+                {"phone": "2772", "participation_type": "WALKER"},
+            ],
+        )
+
+        self.assertEqual(result, {"status": "recover_tonight", "count": 2})
+        mocks["send_distance_buttons"].assert_called_once_with("2771")
+        self.assertEqual(mocks["send_text"].call_args.args[0], "27722135094")
+        self.assertIn("Resent tonight", mocks["send_text"].call_args.args[1])
+
+    async def test_admin_pending_uses_action_buttons(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="pending"),
+            member_data=member(phone="27722135094"),
+            get_pending_members=[
+                {
+                    "first_name": "Lindsay",
+                    "last_name": "Bull",
+                    "phone": "27999999999",
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "pending_list"})
+        mocks["send_admin_pending_actions"].assert_called_once()
+        body = mocks["send_admin_pending_actions"].call_args.args[1]
+        self.assertIn("Lindsay Bull", body)
+        mocks["send_text"].assert_not_called()
+
+    async def test_admin_find_member_lookup(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="find Lindsay"),
+            member_data=member(phone="27722135094"),
+            search_members_for_admin=[
+                {
+                    "first_name": "Lindsay",
+                    "last_name": "Bull",
+                    "phone": "27999999999",
+                    "participation_type": "RUNNER",
+                    "leaderboard_opt_out": False,
+                    "today_status": "COMPLETE",
+                    "tt_code_verified": True,
+                    "distance_text": "4",
+                    "time_text": "27:41",
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "member_lookup", "count": 1})
+        mocks["search_members_for_admin"].assert_called_once_with("Lindsay")
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Member lookup: Lindsay", sent)
+        self.assertIn("4km — 27:41", sent)
 
     async def test_help_menu_falls_back_to_text_if_list_send_fails(self):
         result, mocks, _ = await self.call_webhook(
@@ -259,7 +366,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "menu_submit_await_code"})
-        mocks["send_text"].assert_called_once_with("27999999999", "🔑 Send tonight's TT code to check in.")
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "🔑 Send tonight's TT code to check in, or type MENU to go back.",
+        )
 
     async def test_menu_profile_shortcut_opens_profile(self):
         result, mocks, _ = await self.call_webhook(
@@ -270,9 +380,17 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "profile"})
         mocks["send_profile_buttons"].assert_called_once()
 
-    async def test_menu_leaderboard_shortcut_sends_leaderboard(self):
+    async def test_menu_leaderboard_shortcut_opens_leaderboard_menu(self):
         result, mocks, _ = await self.call_webhook(
             text_payload(body="4"),
+        )
+
+        self.assertEqual(result, {"status": "leaderboards_menu"})
+        mocks["send_leaderboard_menu_list"].assert_called_once_with("27999999999")
+
+    async def test_tonight_leaderboard_command_sends_tonight_results(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="tonight"),
             get_runner_leaderboard=[],
             get_walker_feed=[],
         )
@@ -312,10 +430,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Asha Runner", sent)
         self.assertIn("Lindsay Bull — 42:00 ← you", sent)
 
-    async def test_season_pbs_command_sends_season_leaderboard(self):
+    async def test_my_ranking_command_sends_private_rankings(self):
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="season pbs"),
-            get_season_pb_leaderboard=[
+            text_payload(body="my ranking"),
+            get_member_rankings=[
                 {
                     "member_id": 42,
                     "first_name": "Lindsay",
@@ -323,16 +441,16 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "distance_text": "4",
                     "time_text": "27:41",
                     "best_seconds": 1661,
-                    "position": 1,
+                    "position": 12,
                 },
             ],
         )
 
-        self.assertEqual(result, {"status": "season_pb"})
-        mocks["get_season_pb_leaderboard"].assert_called_once()
+        self.assertEqual(result, {"status": "my_ranking"})
+        mocks["get_member_rankings"].assert_called_once_with(42)
         sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("Season PB Leaderboard", sent)
-        self.assertIn("Lindsay Bull", sent)
+        self.assertIn("your PB rankings", sent)
+        self.assertIn("4km — #12 · PB 27:41", sent)
 
     async def test_progress_command_sends_personal_progress(self):
         result, mocks, _ = await self.call_webhook(
@@ -463,7 +581,58 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "edit_existing"})
         mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "No problem. Let’s fix your result from the start.",
+        )
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_fix_result_command_reopens_and_prompts_distance(self):
+        reopened = submission(status="PENDING", distance_text=None, time_text="")
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="wrong time"),
+            submission_data=submission(
+                status="COMPLETE",
+                distance_text="4",
+                time_text="27:41",
+                seconds=1661,
+            ),
+            reopen_submission_for_edit=reopened,
+        )
+
+        self.assertEqual(result, {"status": "fix_result"})
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_resume_command_continues_pending_submission(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="hi"),
+            submission_data=submission(distance_text="4", time_text=""),
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_time"})
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "⏱ Send your time, for example 27:41 or 01:27:41.",
+        )
+
+    async def test_unknown_text_opens_menu_recovery(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="banana"),
+            submission_data=submission(
+                status="CANCELLED",
+                tt_code_verified=True,
+                distance_text=None,
+                time_text="",
+            ),
+        )
+
+        self.assertEqual(result, {"status": "fallback_help"})
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "I can help with submitting a result, checking progress, or leaderboards.",
+        )
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
 
     async def test_confirm_replies_fast_and_schedules_followups(self):
         completed = submission(
@@ -481,7 +650,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "done"})
-        mocks["send_text"].assert_called_once_with("27999999999", "🔥 TT recorded!")
+        mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
         mocks["get_runner_leaderboard"].assert_not_called()
         self.assertEqual(len(background_tasks.tasks), 1)
 
@@ -524,7 +693,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(messages), 1)
-        self.assertIn("🔥 *Lindsay, here’s your TT recap*", messages[0])
+        self.assertIn("*Lindsay, here’s your TT recap*", messages[0])
         self.assertIn("4km — 27:41", messages[0])
         self.assertIn("Pace: 6:55/km", messages[0])
         self.assertIn("🚀 PB by 2:19", messages[0])

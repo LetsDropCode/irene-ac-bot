@@ -34,34 +34,6 @@ def format_full_leaderboard(runners, walkers, title="Tonight's TT Leaderboard"):
 
     return msg.strip()
 
-def format_season_pb_leaderboard(rows):
-
-    if not rows:
-        return "🏆 No season results yet."
-
-    msg = "🏆 *Season PB Leaderboard*\n\n"
-
-    current_distance = None
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-
-    for r in rows:
-
-        if r["distance_text"] != current_distance:
-            msg += f"\n📏 *{r['distance_text']} km*\n"
-            current_distance = r["distance_text"]
-
-        medal = medals.get(r["position"], f"{r['position']}.")
-
-        time_str = r.get("time_text")
-        if not time_str:
-            mins = int(r["best_seconds"] // 60)
-            secs = int(r["best_seconds"] % 60)
-            time_str = f"{mins}:{secs:02d}"
-
-        msg += f"{medal} {r['first_name']} {r['last_name']} — {time_str}\n"
-
-    return msg.strip()
-
 def format_overall_leaderboard(rows, viewer_member_id=None):
 
     if not rows:
@@ -93,6 +65,30 @@ def format_overall_leaderboard(rows, viewer_member_id=None):
 
         msg += f"{medal} {r['first_name']} {r['last_name']} — {time_str}{marker}\n"
 
+    return msg.strip()
+
+def format_member_rankings(member, rows):
+    first_name = member.get("first_name") or "Runner"
+    by_distance = {row["distance_text"]: row for row in rows}
+
+    msg = f"🏅 *{first_name}, your PB rankings*\n\n"
+
+    for distance in ["8", "6", "4"]:
+        row = by_distance.get(distance)
+
+        if not row:
+            msg += f"{distance}km — no result yet\n"
+            continue
+
+        time_str = row.get("time_text")
+        if not time_str:
+            mins = int(row["best_seconds"] // 60)
+            secs = int(row["best_seconds"] % 60)
+            time_str = f"{mins}:{secs:02d}"
+
+        msg += f"{distance}km — #{row['position']} · PB {time_str}\n"
+
+    msg += "\nType MENU to go back."
     return msg.strip()
 
 def format_fastest_improver(row):

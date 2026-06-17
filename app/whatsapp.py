@@ -77,7 +77,7 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
     rows = [
         {
             "id": "menu_submit",
-            "title": "Submit TT result",
+            "title": "Submit result",
             "description": "Check in and submit tonight's TT.",
         },
         {
@@ -92,17 +92,12 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
         },
         {
             "id": "menu_leaderboard",
-            "title": "Leaderboard",
-            "description": "See tonight's results.",
-        },
-        {
-            "id": "menu_overall_leaderboard",
-            "title": "Overall leaderboard",
-            "description": "Fastest 8km, 6km and 4km PBs.",
+            "title": "Leaderboards",
+            "description": "Choose tonight, overall PBs or my ranking.",
         },
         {
             "id": "menu_edit_profile",
-            "title": "Edit details",
+            "title": "Edit profile",
             "description": "Change your name or participation type.",
         },
         {
@@ -115,19 +110,9 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
     if admin:
         rows.extend([
             {
-                "id": "admin_tt_code",
-                "title": "TT code",
-                "description": "Get tonight's TT code.",
-            },
-            {
-                "id": "admin_tt_status",
-                "title": "TT status",
-                "description": "View participants and pending results.",
-            },
-            {
-                "id": "admin_pending",
-                "title": "Pending",
-                "description": "List checked-in members still pending.",
+                "id": "admin_menu",
+                "title": "Admin tools",
+                "description": "Code, status, pending and resend tools.",
             },
         ])
 
@@ -146,6 +131,153 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
                     {
                         "title": "Member options",
                         "rows": rows,
+                    }
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
+# ─────────────────────────────────────────────
+# ADMIN MENU LIST
+# ─────────────────────────────────────────────
+def send_admin_menu_list(to: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Admin tools"},
+            "body": {"text": "Choose an admin action."},
+            "footer": {"text": "Type MENU anytime to go back."},
+            "action": {
+                "button": "Open tools",
+                "sections": [
+                    {
+                        "title": "Tonight",
+                        "rows": [
+                            {
+                                "id": "admin_tt_code",
+                                "title": "TT code",
+                                "description": "Generate tonight's TT code.",
+                            },
+                            {
+                                "id": "admin_tt_status",
+                                "title": "TT status",
+                                "description": "Checked in, submitted and pending.",
+                            },
+                            {
+                                "id": "admin_pending",
+                                "title": "Pending",
+                                "description": "Checked-in members still pending.",
+                            },
+                            {
+                                "id": "admin_recover_tonight",
+                                "title": "Resend prompts",
+                                "description": "Prompt checked-in members with no result.",
+                            },
+                        ],
+                    },
+                    {
+                        "title": "Leaderboards",
+                        "rows": [
+                            {
+                                "id": "admin_tonight_leaderboard",
+                                "title": "Tonight leaderboard",
+                                "description": "Show tonight's TT results.",
+                            },
+                            {
+                                "id": "admin_overall_leaderboard",
+                                "title": "Overall PBs",
+                                "description": "Show fastest 8km, 6km and 4km PBs.",
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
+# ─────────────────────────────────────────────
+# ADMIN PENDING ACTION BUTTONS
+# ─────────────────────────────────────────────
+def send_admin_pending_actions(to: str, body: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "admin_recover_tonight",
+                            "title": "Resend prompts",
+                        },
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "admin_tt_status",
+                            "title": "Status",
+                        },
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "admin_menu",
+                            "title": "Admin tools",
+                        },
+                    },
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
+# ─────────────────────────────────────────────
+# LEADERBOARD SUBMENU
+# ─────────────────────────────────────────────
+def send_leaderboard_menu_list(to: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Leaderboards"},
+            "body": {"text": "Choose a leaderboard view."},
+            "footer": {"text": "Type MENU anytime to go back."},
+            "action": {
+                "button": "Choose view",
+                "sections": [
+                    {
+                        "title": "Leaderboard options",
+                        "rows": [
+                            {
+                                "id": "leaderboard_tonight",
+                                "title": "Tonight leaderboard",
+                                "description": "Tonight's TT results.",
+                            },
+                            {
+                                "id": "leaderboard_overall",
+                                "title": "Overall PBs",
+                                "description": "Fastest 8km, 6km and 4km PBs.",
+                            },
+                            {
+                                "id": "leaderboard_my_ranking",
+                                "title": "My ranking",
+                                "description": "Your PB rank for each distance.",
+                            },
+                        ],
                     }
                 ],
             },
@@ -192,6 +324,7 @@ def send_profile_buttons(to: str, body: str):
                 "buttons": [
                     {"type": "reply", "reply": {"id": "edit_name", "title": "Edit name"}},
                     {"type": "reply", "reply": {"id": "edit_type", "title": "Change type"}},
+                    {"type": "reply", "reply": {"id": "back_menu", "title": "Menu"}},
                 ]
             },
         },
