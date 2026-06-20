@@ -246,6 +246,16 @@ def init_db():
         ON event_codes (event_date, code);
     """)
 
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_attendance_event_date
+        ON attendance (event, event_date);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_attendance_member_event_date
+        ON attendance (member_id, event, event_date);
+    """)
+
     # ----------------------------
     # Seed events (safe)
     # ----------------------------

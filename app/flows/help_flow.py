@@ -51,8 +51,14 @@ MENU_ACTIONS = {
     "IRENE SHOP": "SHOP",
     "THE IRENE SHOP": "SHOP",
     "CLUB SHOP": "SHOP",
+    "LEAGUE": "LEAGUE_STANDINGS",
+    "IRENE LEAGUE": "LEAGUE_STANDINGS",
+    "THE IRENE LEAGUE": "LEAGUE_STANDINGS",
+    "LEAGUE STANDINGS": "LEAGUE_STANDINGS",
+    "STANDINGS": "LEAGUE_STANDINGS",
     "6": "SHOP",
-    "7": "EDIT_PROFILE",
+    "7": "LEAGUE_STANDINGS",
+    "8": "EDIT_PROFILE",
     "EDIT": "EDIT_PROFILE",
     "EDIT PROFILE": "EDIT_PROFILE",
     "EDIT DETAILS": "EDIT_PROFILE",
@@ -66,7 +72,7 @@ MENU_ACTIONS = {
     "WRONG DISTANCE": "FIX_RESULT",
     "EDIT RESULT": "FIX_RESULT",
     "EDIT MY RESULT": "FIX_RESULT",
-    "8": "OPT_OUT",
+    "9": "OPT_OUT",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
     "ADMIN": "ADMIN_MENU",
@@ -92,6 +98,7 @@ INTERACTIVE_ACTIONS = {
     "leaderboard_overall": "OVERALL_LEADERBOARD",
     "leaderboard_my_ranking": "MY_RANKING",
     "menu_shop": "SHOP",
+    "menu_league_standings": "LEAGUE_STANDINGS",
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
     "admin_menu": "ADMIN_MENU",
@@ -126,8 +133,9 @@ def format_help_menu(admin: bool = False) -> str:
         "4 - Leaderboards\n"
         "5 - Overall PBs\n"
         "6 - The Irene Shop\n"
-        "7 - Edit my details\n"
-        "8 - Stop leaderboard sharing\n\n"
+        "7 - Irene League Standings\n"
+        "8 - Edit my details\n"
+        "9 - Stop leaderboard sharing\n\n"
         "Tip: you can send HELP anytime."
     )
 

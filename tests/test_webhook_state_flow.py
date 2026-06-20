@@ -357,6 +357,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         whats_new = mocks["send_text"].call_args_list[1].args[1]
         self.assertIn("What’s new", whats_new)
         self.assertIn("The Irene Shop", whats_new)
+        self.assertIn("Irene League Standings", whats_new)
         mocks["mark_whats_new_seen"].assert_called_once_with(42, webhook_module.WHATS_NEW_VERSION)
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
@@ -507,6 +508,22 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "shop"})
         self.assertIn("store126837536.shop.netcash.co.za/products", mocks["send_text"].call_args.args[1])
+
+    async def test_league_standings_menu_selection_sends_link(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="menu_league_standings", title="League standings"),
+        )
+
+        self.assertEqual(result, {"status": "league_standings"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("The Irene League Standings", sent)
+        self.assertIn("https://iac-league-web.onrender.com", sent)
+
+    async def test_league_text_alias_sends_link(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="LEAGUE"))
+
+        self.assertEqual(result, {"status": "league_standings"})
+        self.assertIn("iac-league-web.onrender.com", mocks["send_text"].call_args.args[1])
 
     async def test_runner_distance_then_time_prompts_confirmation(self):
         with self.subTest("distance button"):

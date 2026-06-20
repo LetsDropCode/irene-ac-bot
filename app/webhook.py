@@ -75,6 +75,7 @@ from app.services.progress_formatter import format_progress
 router = APIRouter()
 
 IRENE_SHOP_URL = "https://store126837536.shop.netcash.co.za/products"
+IRENE_LEAGUE_URL = "https://iac-league-web.onrender.com"
 
 ADMIN_NUMBERS = {
     "27722135094",
@@ -273,6 +274,18 @@ def send_irene_shop(sender: str):
             "🛍️ *The Irene Shop*\n\n"
             "Browse Irene AC gear and products here:\n"
             f"{IRENE_SHOP_URL}\n\n"
+            "Type MENU to go back."
+        ),
+    )
+
+
+def send_irene_league_standings(sender: str):
+    send_text(
+        sender,
+        (
+            "🏆 *The Irene League Standings*\n\n"
+            "View the latest Irene League standings here:\n"
+            f"{IRENE_LEAGUE_URL}\n\n"
             "Type MENU to go back."
         ),
     )
@@ -686,6 +699,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if menu_action == "SHOP":
         send_irene_shop(sender)
         return {"status": "shop"}
+
+    if menu_action == "LEAGUE_STANDINGS":
+        send_irene_league_standings(sender)
+        return {"status": "league_standings"}
 
     if text in {"SEASON", "SEASON PB", "SEASON PBS"}:
         send_text(sender, "Season PBs has been replaced by Overall PBs.")
