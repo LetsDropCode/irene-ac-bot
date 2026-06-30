@@ -95,3 +95,72 @@ def search_members_for_admin(query: str):
         """, (like_term, phone_term))
 
         return cur.fetchall()
+
+
+def correct_runner_time(identifier: str, distance: str, time_text: str, seconds: int):
+    lookup = (identifier or "").strip()
+    if not lookup:
+        return None
+
+    digits = "".join(ch for ch in lookup if ch.isdigit())
+    member_id = int(digits) if digits and digits == lookup and len(digits) <= 6 else None
+    phone = digits if digits else lookup
+
+    with get_cursor() as cur:
+        cur.execute("""
+        WITH target AS (
+            SELECT
+                s.id,
+                s.distance_text AS old_distance_text,
+                s.time_text AS old_time_text,
+                s.seconds AS old_seconds
+            FROM submissions s
+            JOIN members m ON m.id = s.member_id
+            WHERE s.status != 'CANCELLED'
+              AND s.tt_code_verified = TRUE
+              AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
+                = CURRENT_DATE
+              AND (
+                    (%s IS NOT NULL AND m.id = %s)
+                    OR (%s <> '' AND m.phone = %s)
+              )
+            ORDER BY s.created_at DESC
+            LIMIT 1
+        ),
+        updated AS (
+            UPDATE submissions s
+            SET distance_text = %s,
+                time_text = %s,
+                seconds = %s,
+                status = 'COMPLETE',
+                confirmed = TRUE
+            FROM target
+            WHERE s.id = target.id
+            RETURNING
+                s.id,
+                s.member_id,
+                s.distance_text,
+                s.time_text,
+                s.seconds,
+                target.old_distance_text,
+                target.old_time_text,
+                target.old_seconds
+        )
+        SELECT
+            updated.*,
+            m.first_name,
+            m.last_name,
+            m.phone
+        FROM updated
+        JOIN members m ON m.id = updated.member_id
+        """, (
+            member_id,
+            member_id,
+            phone,
+            phone,
+            distance,
+            time_text,
+            seconds,
+        ))
+
+        return cur.fetchone()

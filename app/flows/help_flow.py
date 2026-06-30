@@ -84,6 +84,9 @@ MENU_ACTIONS = {
     "STATUS": "ADMIN_TT_STATUS",
     "TT STATUS": "ADMIN_TT_STATUS",
     "PENDING": "ADMIN_PENDING",
+    "CORRECT": "ADMIN_CORRECT",
+    "FIX TIME": "ADMIN_CORRECT",
+    "CORRECT TIME": "ADMIN_CORRECT",
     "RECOVER TONIGHT": "ADMIN_RECOVER_TONIGHT",
     "RESEND TONIGHT": "ADMIN_RECOVER_TONIGHT",
     "FIX TONIGHT": "ADMIN_RECOVER_TONIGHT",
@@ -105,6 +108,7 @@ INTERACTIVE_ACTIONS = {
     "admin_tt_code": "ADMIN_TT_CODE",
     "admin_tt_status": "ADMIN_TT_STATUS",
     "admin_pending": "ADMIN_PENDING",
+    "admin_correct": "ADMIN_CORRECT",
     "admin_recover_tonight": "ADMIN_RECOVER_TONIGHT",
     "admin_tonight_leaderboard": "TONIGHT_LEADERBOARD",
     "admin_overall_leaderboard": "OVERALL_LEADERBOARD",
@@ -148,5 +152,6 @@ def format_help_menu(admin: bool = False) -> str:
         "TT CODE\n"
         "TT STATUS\n"
         "PENDING\n"
+        "CORRECT <member id or phone> <4|6|8> <time>\n"
         "RECOVER TONIGHT"
     )

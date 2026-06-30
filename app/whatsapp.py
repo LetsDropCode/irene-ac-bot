@@ -184,6 +184,11 @@ def send_admin_menu_list(to: str) -> bool:
                                 "description": "Checked-in members still pending.",
                             },
                             {
+                                "id": "admin_correct",
+                                "title": "Correct result",
+                                "description": "Fix a runner's distance or time.",
+                            },
+                            {
                                 "id": "admin_recover_tonight",
                                 "title": "Resend prompts",
                                 "description": "Prompt checked-in members with no result.",

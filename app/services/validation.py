@@ -16,6 +16,14 @@ def is_valid_time(value: str) -> bool:
     return minutes < 60 and seconds < 60
 
 
+def time_to_seconds(value: str) -> int:
+    parts = [int(part) for part in value.strip().split(":")]
+    seconds = parts[-1] + parts[-2] * 60
+    if len(parts) == 3:
+        seconds += parts[0] * 3600
+    return seconds
+
+
 def is_valid_tt_code(code: str) -> bool:
     if not code:
         return False

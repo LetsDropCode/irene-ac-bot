@@ -55,7 +55,7 @@ from app.services.submission_service import (
 )
 
 from app.services.attendance_service import mark_attendance
-from app.services.validation import is_valid_time, is_valid_tt_code
+from app.services.validation import is_valid_time, is_valid_tt_code, time_to_seconds
 from app.services.submission_gate import ensure_tt_open
 from app.services.pb_service import get_previous_best
 from app.services.leaderboard_service import get_runner_leaderboard
@@ -66,7 +66,11 @@ from app.services.leaderboard_formatter import format_overall_leaderboard
 from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
-from app.services.admin_service import get_admin_dashboard, search_members_for_admin
+from app.services.admin_service import (
+    correct_runner_time,
+    get_admin_dashboard,
+    search_members_for_admin,
+)
 from app.services.openai_service import coach_reply
 from app.services.profile_service import get_user_profile
 from app.services.profile_formatter import format_profile
@@ -120,6 +124,7 @@ def send_admin_tools_menu(sender: str):
                 "TT CODE\n"
                 "TT STATUS\n"
                 "PENDING\n"
+                "CORRECT <member id or phone> <4|6|8> <time>\n"
                 "RECOVER TONIGHT\n"
                 "TONIGHT LEADERBOARD\n"
                 "OVERALL PBs\n\n"
@@ -240,6 +245,7 @@ def _format_member_lookup(rows, query: str) -> str:
         msg += (
             "\n"
             f"{row['first_name']} {row['last_name']}\n"
+            f"Member ID: {row['id']}\n"
             f"Phone: {row['phone']}\n"
             f"Type: {row.get('participation_type') or 'not set'}\n"
             f"Checked in: {checked_in}\n"
@@ -255,6 +261,63 @@ def send_member_lookup(sender: str, query: str):
     rows = search_members_for_admin(query)
     send_text(sender, _format_member_lookup(rows, query))
     return len(rows)
+
+
+def _format_correction_result(row: dict) -> str:
+    old_distance = row.get("old_distance_text") or "?"
+    old_time = row.get("old_time_text") or "none"
+    return (
+        "✅ *Result corrected*\n\n"
+        f"{row['first_name']} {row['last_name']}\n"
+        f"Was: {old_distance}km — {old_time}\n"
+        f"Now: {row['distance_text']}km — {row['time_text']}\n\n"
+        "Type ADMIN for tools."
+    )
+
+
+def correct_admin_result(sender: str, raw_text: str):
+    parts = (raw_text or "").split()
+    if len(parts) != 4:
+        send_text(
+            sender,
+            (
+                "Send corrections as:\n"
+                "CORRECT <member id or phone> <4|6|8> <time>\n\n"
+                "Example: CORRECT 42 4 27:41\n"
+                "Use FIND <name> if you need the member ID."
+            ),
+        )
+        return {"status": "admin_correct_prompt"}
+
+    _, identifier, distance, time_text = parts
+    distance = distance.lower().replace("km", "")
+
+    if distance not in {"4", "6", "8"}:
+        send_text(sender, "Distance must be 4, 6 or 8 km.")
+        return {"status": "admin_correct_bad_distance"}
+
+    if not is_valid_time(time_text):
+        send_text(sender, "Time format must be 27:41 or 01:27:41.")
+        return {"status": "admin_correct_bad_time"}
+
+    row = correct_runner_time(
+        identifier,
+        distance,
+        time_text,
+        time_to_seconds(time_text),
+    )
+    if not row:
+        send_text(
+            sender,
+            (
+                "I couldn’t find a checked-in TT submission for that member tonight.\n\n"
+                "Use FIND <name> to confirm the member ID or phone."
+            ),
+        )
+        return {"status": "admin_correct_not_found"}
+
+    send_text(sender, _format_correction_result(row))
+    return {"status": "admin_corrected", "submission_id": row["id"]}
 
 
 def send_user_profile(sender: str, member: dict):
@@ -572,6 +635,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # ───────── ADMIN ─────────
     if is_admin(sender):
+        if text and text.startswith("CORRECT "):
+            return correct_admin_result(sender, raw_text)
+
         if text and any(text.startswith(prefix) for prefix in ("FIND ", "LOOKUP ", "SEARCH ")):
             query = raw_text.split(" ", 1)[1].strip()
             count = send_member_lookup(sender, query)
@@ -597,6 +663,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         if menu_action == "ADMIN_PENDING":
             count = send_pending_members(sender)
             return {"status": "pending_list" if count else "no_pending"}
+
+        if menu_action == "ADMIN_CORRECT":
+            return correct_admin_result(sender, raw_text)
 
         if menu_action == "ADMIN_RECOVER_TONIGHT":
             count = recover_tonight(sender)
@@ -939,10 +1008,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             send_text(sender, "⏱ Format: 27:41 or 01:27:41")
             return {"status": "bad_time"}
 
-        parts = list(map(int, text.split(":")))
-        seconds = parts[-1] + parts[-2] * 60
-        if len(parts) == 3:
-            seconds += parts[0] * 3600
+        seconds = time_to_seconds(text)
 
         submission = save_time(submission["id"], text, seconds)
 
