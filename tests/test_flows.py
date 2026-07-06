@@ -47,6 +47,8 @@ class HelpFlowTests(unittest.TestCase):
         self.assertEqual(resolve_interactive_action("leaderboard_my_ranking"), "MY_RANKING")
         self.assertEqual(resolve_menu_action("ADMIN"), "ADMIN_MENU")
         self.assertEqual(resolve_menu_action("STATUS"), "ADMIN_TT_STATUS")
+        self.assertEqual(resolve_menu_action("HISTORY"), "ADMIN_HISTORY")
+        self.assertEqual(resolve_menu_action("TIMES"), "ADMIN_HISTORY")
         self.assertEqual(resolve_menu_action("CORRECT"), "ADMIN_CORRECT")
         self.assertEqual(resolve_menu_action("RECOVER TONIGHT"), "ADMIN_RECOVER_TONIGHT")
         self.assertEqual(resolve_interactive_action("admin_menu"), "ADMIN_MENU")

@@ -112,6 +112,7 @@ def get_overall_leaderboard(member_id=None, limit_per_distance=10):
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
+                AND m.participation_type IN ('RUNNER', 'BOTH')
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 
@@ -172,6 +173,7 @@ def get_member_rankings(member_id):
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
+                AND m.participation_type IN ('RUNNER', 'BOTH')
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 

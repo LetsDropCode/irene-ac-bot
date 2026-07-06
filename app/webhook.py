@@ -67,8 +67,10 @@ from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.admin_service import (
+    correct_runner_pb,
     correct_runner_time,
     get_admin_dashboard,
+    get_member_submission_history,
     search_members_for_admin,
 )
 from app.services.openai_service import coach_reply
@@ -263,11 +265,44 @@ def send_member_lookup(sender: str, query: str):
     return len(rows)
 
 
-def _format_correction_result(row: dict) -> str:
+def _format_submission_history(rows, identifier: str) -> str:
+    if not rows:
+        return (
+            f"No submissions found for {identifier}.\n\n"
+            "Use FIND <name> to confirm the member ID or phone."
+        )
+
+    first = rows[0]
+    msg = (
+        f"*Submission history: {first['first_name']} {first['last_name']}*\n"
+        f"Member ID: {first['member_id']}\n\n"
+    )
+
+    for row in rows:
+        date_text = row.get("event_date") or "unknown date"
+        if row.get("distance_text"):
+            result = f"{row['distance_text']}km — {row.get('time_text') or 'no time'}"
+        else:
+            result = row.get("time_text") or "Workout logged"
+
+        status = row.get("status") or "UNKNOWN"
+        msg += f"{date_text}: {result} ({status})\n"
+
+    msg += "\nUse CORRECT PB <member id> <distance> <time> to fix their PB."
+    return msg.strip()
+
+
+def send_submission_history(sender: str, identifier: str):
+    rows = get_member_submission_history(identifier)
+    send_text(sender, _format_submission_history(rows, identifier))
+    return len(rows)
+
+
+def _format_correction_result(row: dict, scope: str = "Result") -> str:
     old_distance = row.get("old_distance_text") or "?"
     old_time = row.get("old_time_text") or "none"
     return (
-        "✅ *Result corrected*\n\n"
+        f"✅ *{scope} corrected*\n\n"
         f"{row['first_name']} {row['last_name']}\n"
         f"Was: {old_distance}km — {old_time}\n"
         f"Now: {row['distance_text']}km — {row['time_text']}\n\n"
@@ -277,19 +312,30 @@ def _format_correction_result(row: dict) -> str:
 
 def correct_admin_result(sender: str, raw_text: str):
     parts = (raw_text or "").split()
-    if len(parts) != 4:
+    if len(parts) not in {4, 5}:
         send_text(
             sender,
             (
                 "Send corrections as:\n"
-                "CORRECT <member id or phone> <4|6|8> <time>\n\n"
+                "CORRECT <member id or phone> <4|6|8> <time>\n"
+                "CORRECT PB <member id or phone> <4|6|8> <time>\n\n"
                 "Example: CORRECT 42 4 27:41\n"
+                "Example: CORRECT PB 42 4 27:41\n"
                 "Use FIND <name> if you need the member ID."
             ),
         )
         return {"status": "admin_correct_prompt"}
 
-    _, identifier, distance, time_text = parts
+    pb_scope = len(parts) == 5 and parts[1].upper() in {"PB", "OVERALL", "RANKING"}
+    if len(parts) == 5 and not pb_scope:
+        send_text(sender, "Use CORRECT PB for overall/private ranking corrections.")
+        return {"status": "admin_correct_bad_scope"}
+
+    if pb_scope:
+        _, _scope, identifier, distance, time_text = parts
+    else:
+        _, identifier, distance, time_text = parts
+
     distance = distance.lower().replace("km", "")
 
     if distance not in {"4", "6", "8"}:
@@ -300,13 +346,24 @@ def correct_admin_result(sender: str, raw_text: str):
         send_text(sender, "Time format must be 27:41 or 01:27:41.")
         return {"status": "admin_correct_bad_time"}
 
-    row = correct_runner_time(
+    correction_func = correct_runner_pb if pb_scope else correct_runner_time
+    row = correction_func(
         identifier,
         distance,
         time_text,
         time_to_seconds(time_text),
     )
     if not row:
+        if pb_scope:
+            send_text(
+                sender,
+                (
+                    "I couldn’t find a season PB result for that member and distance.\n\n"
+                    "Use FIND <name> to confirm the member ID or phone."
+                ),
+            )
+            return {"status": "admin_correct_pb_not_found"}
+
         send_text(
             sender,
             (
@@ -316,8 +373,10 @@ def correct_admin_result(sender: str, raw_text: str):
         )
         return {"status": "admin_correct_not_found"}
 
-    send_text(sender, _format_correction_result(row))
-    return {"status": "admin_corrected", "submission_id": row["id"]}
+    scope = "PB" if pb_scope else "Result"
+    send_text(sender, _format_correction_result(row, scope))
+    status = "admin_pb_corrected" if pb_scope else "admin_corrected"
+    return {"status": status, "submission_id": row["id"]}
 
 
 def send_user_profile(sender: str, member: dict):
@@ -643,14 +702,29 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             count = send_member_lookup(sender, query)
             return {"status": "member_lookup", "count": count}
 
+        if text and any(text.startswith(prefix) for prefix in ("HISTORY ", "TIMES ")):
+            identifier = raw_text.split(" ", 1)[1].strip()
+            count = send_submission_history(sender, identifier)
+            return {"status": "submission_history", "count": count}
+
         if menu_action == "ADMIN_MENU":
             send_admin_dashboard(sender)
             send_admin_tools_menu(sender)
             return {"status": "admin_menu"}
 
         if menu_action == "ADMIN_FIND":
-            send_text(sender, "Send FIND plus a name or phone number, e.g. FIND Lindsay.")
+            send_text(
+                sender,
+                (
+                    "Send FIND plus a name or phone number, e.g. FIND Lindsay.\n"
+                    "Then send HISTORY plus the member ID, e.g. HISTORY 42."
+                ),
+            )
             return {"status": "member_lookup_prompt"}
+
+        if menu_action == "ADMIN_HISTORY":
+            send_text(sender, "Send HISTORY plus a member ID or phone number, e.g. HISTORY 42.")
+            return {"status": "submission_history_prompt"}
 
         if menu_action == "ADMIN_TT_CODE":
             send_admin_code(sender)
