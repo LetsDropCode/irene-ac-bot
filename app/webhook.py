@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, BackgroundTasks, Request
 
 from app.config import WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
@@ -26,6 +28,8 @@ from app.whatsapp import (
     send_leaderboard_menu_list,
     send_admin_menu_list,
     send_admin_pending_actions,
+    send_admin_edit_field_buttons,
+    send_admin_confirm_correction_buttons,
 )
 
 from app.services.event_code_service import generate_tt_code
@@ -67,10 +71,13 @@ from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.admin_service import (
+    correct_submission_by_id,
     correct_runner_pb,
     correct_runner_time,
+    correct_runner_time_on_date,
     get_admin_dashboard,
     get_member_submission_history,
+    get_submission_for_admin,
     search_members_for_admin,
 )
 from app.services.openai_service import coach_reply
@@ -278,7 +285,7 @@ def _format_submission_history(rows, identifier: str) -> str:
         f"Member ID: {first['member_id']}\n\n"
     )
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         date_text = row.get("event_date") or "unknown date"
         if row.get("distance_text"):
             result = f"{row['distance_text']}km — {row.get('time_text') or 'no time'}"
@@ -286,9 +293,9 @@ def _format_submission_history(rows, identifier: str) -> str:
             result = row.get("time_text") or "Workout logged"
 
         status = row.get("status") or "UNKNOWN"
-        msg += f"{date_text}: {result} ({status})\n"
+        msg += f"{index}. {date_text}: {result} ({status})\n"
 
-    msg += "\nUse CORRECT PB <member id> <distance> <time> to fix their PB."
+    msg += "\nReply with a number to select a submission to edit."
     return msg.strip()
 
 
@@ -296,6 +303,221 @@ def send_submission_history(sender: str, identifier: str):
     rows = get_member_submission_history(identifier)
     send_text(sender, _format_submission_history(rows, identifier))
     return len(rows)
+
+
+def _admin_state_parts(state: str):
+    return (state or "").split("|")
+
+
+def _format_selected_submission(row: dict) -> str:
+    date_text = row.get("event_date") or "unknown date"
+    distance = row.get("distance_text") or "?"
+    time_text = row.get("time_text") or "none"
+    return (
+        "*Selected submission*\n\n"
+        f"{row['first_name']} {row['last_name']}\n"
+        f"Date: {date_text}\n"
+        f"Distance: {distance}km\n"
+        f"Time: {time_text}\n\n"
+        "Reply TIME, DISTANCE, or BOTH. Reply CANCEL to stop."
+    )
+
+
+def _format_pending_correction(row: dict, distance: str, time_text: str) -> str:
+    date_text = row.get("event_date") or "unknown date"
+    old_distance = row.get("distance_text") or "?"
+    old_time = row.get("time_text") or "none"
+    return (
+        "*Confirm correction*\n\n"
+        f"{row['first_name']} {row['last_name']}\n"
+        f"Date: {date_text}\n"
+        f"Change: {old_distance}km — {old_time}\n"
+        f"To: {distance}km — {time_text}\n\n"
+        "Save this change?"
+    )
+
+
+def _send_admin_edit_field_options(sender: str, row: dict):
+    body = _format_selected_submission(row)
+    if not send_admin_edit_field_buttons(sender, body):
+        send_text(sender, body)
+
+
+def _send_admin_correction_confirmation(sender: str, row: dict, distance: str, time_text: str):
+    body = _format_pending_correction(row, distance, time_text)
+    if not send_admin_confirm_correction_buttons(sender, body):
+        send_text(sender, f"{body}\n\nReply YES or NO.")
+
+
+def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text: str):
+    state = admin_member.get("profile_state") if admin_member else None
+    if not state or not state.startswith("ADMIN_"):
+        return None
+
+    if text in {"CANCEL", "CANCEL EDIT"}:
+        clear_profile_state(admin_member["id"])
+        send_text(sender, "Edit cancelled.")
+        return {"status": "admin_edit_cancelled"}
+
+    parts = _admin_state_parts(state)
+    state_name = parts[0]
+
+    if state_name == "ADMIN_HISTORY":
+        if not text or not text.isdigit():
+            send_text(sender, "Reply with the submission number, e.g. 1, or CANCEL.")
+            return {"status": "admin_history_await_selection"}
+
+        identifier = parts[1]
+        rows = get_member_submission_history(identifier)
+        index = int(text) - 1
+        if index < 0 or index >= len(rows):
+            send_text(sender, "That number is not in the history list. Reply with a listed number.")
+            return {"status": "admin_history_bad_selection"}
+
+        selected = rows[index]
+        submission_id = selected["submission_id"]
+        set_profile_state(admin_member["id"], f"ADMIN_SELECTED|{submission_id}")
+        _send_admin_edit_field_options(sender, selected)
+        return {"status": "admin_history_selected", "submission_id": submission_id}
+
+    if state_name == "ADMIN_SELECTED":
+        submission_id = int(parts[1])
+        row = get_submission_for_admin(submission_id)
+        if not row:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "I could not find that submission anymore. Start again with HISTORY.")
+            return {"status": "admin_selected_missing"}
+
+        if text == "TIME":
+            set_profile_state(admin_member["id"], f"ADMIN_EDIT_TIME|{submission_id}")
+            send_text(sender, "Send the corrected time, e.g. 27:41.")
+            return {"status": "admin_edit_time_prompt"}
+
+        if text == "DISTANCE":
+            set_profile_state(admin_member["id"], f"ADMIN_EDIT_DISTANCE|{submission_id}")
+            send_text(sender, "Send the corrected distance: 4, 6 or 8.")
+            return {"status": "admin_edit_distance_prompt"}
+
+        if text == "BOTH":
+            set_profile_state(admin_member["id"], f"ADMIN_EDIT_BOTH|{submission_id}")
+            send_text(sender, "Send the corrected distance and time, e.g. 6 42:00.")
+            return {"status": "admin_edit_both_prompt"}
+
+        _send_admin_edit_field_options(sender, row)
+        return {"status": "admin_selected_await_field"}
+
+    if state_name == "ADMIN_EDIT_TIME":
+        submission_id = int(parts[1])
+        row = get_submission_for_admin(submission_id)
+        if not row:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "I could not find that submission anymore. Start again with HISTORY.")
+            return {"status": "admin_edit_missing"}
+
+        if not is_valid_time(text):
+            send_text(sender, "Time format must be 27:41 or 01:27:41.")
+            return {"status": "admin_edit_bad_time"}
+
+        distance = row.get("distance_text")
+        if distance not in {"4", "6", "8"}:
+            send_text(sender, "This submission needs a distance first. Reply DISTANCE or BOTH after selecting it again.")
+            set_profile_state(admin_member["id"], f"ADMIN_SELECTED|{submission_id}")
+            return {"status": "admin_edit_missing_distance"}
+
+        set_profile_state(admin_member["id"], f"ADMIN_CONFIRM|{submission_id}|{distance}|{text}")
+        _send_admin_correction_confirmation(sender, row, distance, text)
+        return {"status": "admin_correction_confirmation", "submission_id": submission_id}
+
+    if state_name == "ADMIN_EDIT_DISTANCE":
+        submission_id = int(parts[1])
+        row = get_submission_for_admin(submission_id)
+        if not row:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "I could not find that submission anymore. Start again with HISTORY.")
+            return {"status": "admin_edit_missing"}
+
+        distance = text.lower().replace("km", "")
+        if distance not in {"4", "6", "8"}:
+            send_text(sender, "Distance must be 4, 6 or 8 km.")
+            return {"status": "admin_edit_bad_distance"}
+
+        time_text = row.get("time_text")
+        if not time_text or not is_valid_time(time_text):
+            send_text(sender, "This submission needs a valid time too. Select it again and reply BOTH.")
+            set_profile_state(admin_member["id"], f"ADMIN_SELECTED|{submission_id}")
+            return {"status": "admin_edit_missing_time"}
+
+        set_profile_state(admin_member["id"], f"ADMIN_CONFIRM|{submission_id}|{distance}|{time_text}")
+        _send_admin_correction_confirmation(sender, row, distance, time_text)
+        return {"status": "admin_correction_confirmation", "submission_id": submission_id}
+
+    if state_name == "ADMIN_EDIT_BOTH":
+        submission_id = int(parts[1])
+        parts = (raw_text or "").split()
+        if len(parts) != 2:
+            send_text(sender, "Send distance and time, e.g. 6 42:00.")
+            return {"status": "admin_edit_both_bad_format"}
+
+        distance = parts[0].lower().replace("km", "")
+        time_text = parts[1]
+        if distance not in {"4", "6", "8"}:
+            send_text(sender, "Distance must be 4, 6 or 8 km.")
+            return {"status": "admin_edit_bad_distance"}
+        if not is_valid_time(time_text):
+            send_text(sender, "Time format must be 27:41 or 01:27:41.")
+            return {"status": "admin_edit_bad_time"}
+
+        row = get_submission_for_admin(submission_id)
+        if not row:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "I could not find that submission anymore. Start again with HISTORY.")
+            return {"status": "admin_edit_missing"}
+
+        set_profile_state(admin_member["id"], f"ADMIN_CONFIRM|{submission_id}|{distance}|{time_text}")
+        _send_admin_correction_confirmation(sender, row, distance, time_text)
+        return {"status": "admin_correction_confirmation", "submission_id": submission_id}
+
+    if state_name == "ADMIN_CONFIRM":
+        submission_id = int(parts[1])
+        distance = parts[2]
+        time_text = parts[3]
+
+        if text in {"NO", "N"}:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "Correction cancelled.")
+            return {"status": "admin_correction_cancelled"}
+
+        if text not in {"YES", "Y"}:
+            row = get_submission_for_admin(submission_id)
+            if row:
+                _send_admin_correction_confirmation(sender, row, distance, time_text)
+            else:
+                send_text(sender, "Reply YES to save, or NO to cancel.")
+            return {"status": "admin_correction_await_confirm"}
+
+        updated = correct_submission_by_id(
+            submission_id,
+            distance,
+            time_text,
+            time_to_seconds(time_text),
+            admin_member["id"],
+        )
+        clear_profile_state(admin_member["id"])
+        send_text(sender, _format_correction_result(updated, "Submission"))
+        return {"status": "admin_submission_corrected", "submission_id": submission_id}
+
+    clear_profile_state(admin_member["id"])
+    send_text(sender, "That edit session expired. Start again with HISTORY.")
+    return {"status": "admin_edit_unknown_state"}
+
+
+def clear_admin_edit_state_if_needed(admin_member: dict):
+    state = admin_member.get("profile_state") if admin_member else None
+    if state and state.startswith("ADMIN_"):
+        clear_profile_state(admin_member["id"])
+        return True
+
+    return False
 
 
 def _format_correction_result(row: dict, scope: str = "Result") -> str:
@@ -310,28 +532,42 @@ def _format_correction_result(row: dict, scope: str = "Result") -> str:
     )
 
 
-def correct_admin_result(sender: str, raw_text: str):
+def correct_admin_result(sender: str, raw_text: str, admin_member_id: int = None):
     parts = (raw_text or "").split()
-    if len(parts) not in {4, 5}:
+    if len(parts) not in {4, 5, 6}:
         send_text(
             sender,
             (
                 "Send corrections as:\n"
                 "CORRECT <member id or phone> <4|6|8> <time>\n"
+                "CORRECT DATE <member id or phone> <yyyy-mm-dd> <4|6|8> <time>\n"
                 "CORRECT PB <member id or phone> <4|6|8> <time>\n\n"
                 "Example: CORRECT 42 4 27:41\n"
+                "Example: CORRECT DATE 42 2026-06-09 4 27:41\n"
                 "Example: CORRECT PB 42 4 27:41\n"
                 "Use FIND <name> if you need the member ID."
             ),
         )
         return {"status": "admin_correct_prompt"}
 
+    date_scope = len(parts) == 6 and parts[1].upper() in {"DATE", "ON"}
     pb_scope = len(parts) == 5 and parts[1].upper() in {"PB", "OVERALL", "RANKING"}
+    if len(parts) == 6 and not date_scope:
+        send_text(sender, "Use CORRECT DATE for date-specific corrections.")
+        return {"status": "admin_correct_bad_scope"}
     if len(parts) == 5 and not pb_scope:
-        send_text(sender, "Use CORRECT PB for overall/private ranking corrections.")
+        send_text(sender, "Use CORRECT PB for PB corrections, or CORRECT DATE for a specific date.")
         return {"status": "admin_correct_bad_scope"}
 
-    if pb_scope:
+    event_date = None
+    if date_scope:
+        _, _scope, identifier, event_date, distance, time_text = parts
+        try:
+            date.fromisoformat(event_date)
+        except ValueError:
+            send_text(sender, "Date format must be yyyy-mm-dd, e.g. 2026-06-09.")
+            return {"status": "admin_correct_bad_date"}
+    elif pb_scope:
         _, _scope, identifier, distance, time_text = parts
     else:
         _, identifier, distance, time_text = parts
@@ -346,14 +582,35 @@ def correct_admin_result(sender: str, raw_text: str):
         send_text(sender, "Time format must be 27:41 or 01:27:41.")
         return {"status": "admin_correct_bad_time"}
 
-    correction_func = correct_runner_pb if pb_scope else correct_runner_time
-    row = correction_func(
-        identifier,
-        distance,
-        time_text,
-        time_to_seconds(time_text),
-    )
+    if date_scope:
+        row = correct_runner_time_on_date(
+            identifier,
+            event_date,
+            distance,
+            time_text,
+            time_to_seconds(time_text),
+            admin_member_id,
+        )
+    else:
+        correction_func = correct_runner_pb if pb_scope else correct_runner_time
+        row = correction_func(
+            identifier,
+            distance,
+            time_text,
+            time_to_seconds(time_text),
+            admin_member_id,
+        )
     if not row:
+        if date_scope:
+            send_text(
+                sender,
+                (
+                    "I couldn’t find a submission for that member on that date.\n\n"
+                    "Use HISTORY <member id> to check their submitted dates."
+                ),
+            )
+            return {"status": "admin_correct_date_not_found"}
+
         if pb_scope:
             send_text(
                 sender,
@@ -373,9 +630,9 @@ def correct_admin_result(sender: str, raw_text: str):
         )
         return {"status": "admin_correct_not_found"}
 
-    scope = "PB" if pb_scope else "Result"
+    scope = "Dated result" if date_scope else "PB" if pb_scope else "Result"
     send_text(sender, _format_correction_result(row, scope))
-    status = "admin_pb_corrected" if pb_scope else "admin_corrected"
+    status = "admin_date_corrected" if date_scope else "admin_pb_corrected" if pb_scope else "admin_corrected"
     return {"status": status, "submission_id": row["id"]}
 
 
@@ -680,6 +937,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if text:
         text = raw_text.upper()
 
+    if is_admin(sender) and text == "MENU":
+        admin_member = get_member(sender)
+        clear_admin_edit_state_if_needed(admin_member)
+        send_help_menu(sender, True)
+        return {"status": "help"}
+
     if is_help_command(text):
         send_help_menu(sender, is_admin(sender))
         return {"status": "help"}
@@ -689,13 +952,36 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         menu_action = resolve_interactive_action(button.get("id", "")) or menu_action
 
     if button and button.get("id", "").lower().strip() == "back_menu":
+        if is_admin(sender):
+            clear_admin_edit_state_if_needed(get_member(sender))
         send_help_menu(sender, is_admin(sender))
         return {"status": "menu"}
 
     # ───────── ADMIN ─────────
     if is_admin(sender):
+        admin_member = get_member(sender)
+        admin_state_text = text
+        admin_state_raw_text = raw_text
+
+        if button:
+            admin_button_id = button.get("id", "").lower().strip()
+            admin_button_text = {
+                "admin_edit_time": "TIME",
+                "admin_edit_distance": "DISTANCE",
+                "admin_edit_both": "BOTH",
+                "admin_confirm_correction": "YES",
+                "admin_cancel_correction": "NO",
+            }.get(admin_button_id)
+            if admin_button_text:
+                admin_state_text = admin_button_text
+                admin_state_raw_text = admin_button_text
+
         if text and text.startswith("CORRECT "):
-            return correct_admin_result(sender, raw_text)
+            return correct_admin_result(
+                sender,
+                raw_text,
+                admin_member["id"] if admin_member else None,
+            )
 
         if text and any(text.startswith(prefix) for prefix in ("FIND ", "LOOKUP ", "SEARCH ")):
             query = raw_text.split(" ", 1)[1].strip()
@@ -705,12 +991,24 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         if text and any(text.startswith(prefix) for prefix in ("HISTORY ", "TIMES ")):
             identifier = raw_text.split(" ", 1)[1].strip()
             count = send_submission_history(sender, identifier)
+            if admin_member and count:
+                set_profile_state(admin_member["id"], f"ADMIN_HISTORY|{identifier}")
             return {"status": "submission_history", "count": count}
 
         if menu_action == "ADMIN_MENU":
+            clear_admin_edit_state_if_needed(admin_member)
             send_admin_dashboard(sender)
             send_admin_tools_menu(sender)
             return {"status": "admin_menu"}
+
+        state_result = handle_admin_edit_state(
+            sender,
+            admin_member,
+            admin_state_raw_text,
+            admin_state_text,
+        )
+        if state_result:
+            return state_result
 
         if menu_action == "ADMIN_FIND":
             send_text(
@@ -739,7 +1037,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "pending_list" if count else "no_pending"}
 
         if menu_action == "ADMIN_CORRECT":
-            return correct_admin_result(sender, raw_text)
+            return correct_admin_result(
+                sender,
+                raw_text,
+                admin_member["id"] if admin_member else None,
+            )
 
         if menu_action == "ADMIN_RECOVER_TONIGHT":
             count = recover_tonight(sender)

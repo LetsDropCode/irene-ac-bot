@@ -181,6 +181,23 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_corrections (
+            id SERIAL PRIMARY KEY,
+            admin_member_id INTEGER REFERENCES members(id),
+            submission_id INTEGER NOT NULL REFERENCES submissions(id),
+            member_id INTEGER NOT NULL REFERENCES members(id),
+            old_distance_text TEXT,
+            old_time_text TEXT,
+            old_seconds INTEGER,
+            new_distance_text TEXT,
+            new_time_text TEXT,
+            new_seconds INTEGER,
+            reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    cur.execute("""
         ALTER TABLE attendance
         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'whatsapp';
     """)

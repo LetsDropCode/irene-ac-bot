@@ -258,6 +258,45 @@ def send_admin_pending_actions(to: str, body: str) -> bool:
     return _send(payload)
 
 
+def send_admin_edit_field_buttons(to: str, body: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "admin_edit_time", "title": "Time"}},
+                    {"type": "reply", "reply": {"id": "admin_edit_distance", "title": "Distance"}},
+                    {"type": "reply", "reply": {"id": "admin_edit_both", "title": "Both"}},
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
+def send_admin_confirm_correction_buttons(to: str, body: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "admin_confirm_correction", "title": "Yes"}},
+                    {"type": "reply", "reply": {"id": "admin_cancel_correction", "title": "No"}},
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
 # ─────────────────────────────────────────────
 # LEADERBOARD SUBMENU
 # ─────────────────────────────────────────────

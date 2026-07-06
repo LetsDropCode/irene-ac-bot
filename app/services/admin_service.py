@@ -1,6 +1,38 @@
 from app.db import get_cursor
 
 
+def _record_admin_correction(cur, row: dict, admin_member_id: int = None, reason: str = None):
+    if not row or not admin_member_id:
+        return
+
+    cur.execute("""
+        INSERT INTO admin_corrections (
+            admin_member_id,
+            submission_id,
+            member_id,
+            old_distance_text,
+            old_time_text,
+            old_seconds,
+            new_distance_text,
+            new_time_text,
+            new_seconds,
+            reason
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (
+        admin_member_id,
+        row["id"],
+        row["member_id"],
+        row.get("old_distance_text"),
+        row.get("old_time_text"),
+        row.get("old_seconds"),
+        row.get("distance_text"),
+        row.get("time_text"),
+        row.get("seconds"),
+        reason,
+    ))
+
+
 def get_admin_dashboard():
     with get_cursor(commit=False) as cur:
         cur.execute("""
@@ -137,7 +169,95 @@ def get_member_submission_history(identifier: str, limit: int = 20):
         return cur.fetchall()
 
 
-def correct_runner_time(identifier: str, distance: str, time_text: str, seconds: int):
+def get_submission_for_admin(submission_id: int):
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+        SELECT
+            m.id AS member_id,
+            m.first_name,
+            m.last_name,
+            m.phone,
+            s.id AS submission_id,
+            s.activity,
+            s.distance_text,
+            s.time_text,
+            s.seconds,
+            s.status,
+            s.confirmed,
+            DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date,
+            s.created_at
+        FROM submissions s
+        JOIN members m ON m.id = s.member_id
+        WHERE s.id = %s
+          AND s.status != 'CANCELLED'
+        """, (submission_id,))
+
+        return cur.fetchone()
+
+
+def correct_submission_by_id(
+    submission_id: int,
+    distance: str,
+    time_text: str,
+    seconds: int,
+    admin_member_id: int = None,
+    reason: str = "selected_submission",
+):
+    with get_cursor() as cur:
+        cur.execute("""
+        WITH target AS (
+            SELECT
+                s.id,
+                s.distance_text AS old_distance_text,
+                s.time_text AS old_time_text,
+                s.seconds AS old_seconds,
+                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+            FROM submissions s
+            WHERE s.id = %s
+              AND s.status != 'CANCELLED'
+        ),
+        updated AS (
+            UPDATE submissions s
+            SET distance_text = %s,
+                time_text = %s,
+                seconds = %s,
+                status = 'COMPLETE',
+                confirmed = TRUE
+            FROM target
+            WHERE s.id = target.id
+            RETURNING
+                s.id,
+                s.member_id,
+                s.distance_text,
+                s.time_text,
+                s.seconds,
+                target.event_date,
+                target.old_distance_text,
+                target.old_time_text,
+                target.old_seconds
+        )
+        SELECT
+            updated.*,
+            m.first_name,
+            m.last_name,
+            m.phone
+        FROM updated
+        JOIN members m ON m.id = updated.member_id
+        """, (submission_id, distance, time_text, seconds))
+
+        row = cur.fetchone()
+        _record_admin_correction(cur, row, admin_member_id, reason)
+        return row
+
+
+def correct_runner_time(
+    identifier: str,
+    distance: str,
+    time_text: str,
+    seconds: int,
+    admin_member_id: int = None,
+    reason: str = "today_correction",
+):
     lookup = (identifier or "").strip()
     if not lookup:
         return None
@@ -203,10 +323,99 @@ def correct_runner_time(identifier: str, distance: str, time_text: str, seconds:
             seconds,
         ))
 
-        return cur.fetchone()
+        row = cur.fetchone()
+        _record_admin_correction(cur, row, admin_member_id, reason)
+        return row
 
 
-def correct_runner_pb(identifier: str, distance: str, time_text: str, seconds: int):
+def correct_runner_time_on_date(
+    identifier: str,
+    event_date: str,
+    distance: str,
+    time_text: str,
+    seconds: int,
+    admin_member_id: int = None,
+    reason: str = "date_correction",
+):
+    lookup = (identifier or "").strip()
+    if not lookup:
+        return None
+
+    digits = "".join(ch for ch in lookup if ch.isdigit())
+    member_id = int(digits) if digits and digits == lookup and len(digits) <= 6 else None
+    phone = digits if digits else lookup
+
+    with get_cursor() as cur:
+        cur.execute("""
+        WITH target AS (
+            SELECT
+                s.id,
+                s.distance_text AS old_distance_text,
+                s.time_text AS old_time_text,
+                s.seconds AS old_seconds,
+                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+            FROM submissions s
+            JOIN members m ON m.id = s.member_id
+            WHERE s.status != 'CANCELLED'
+              AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = %s
+              AND (
+                    (%s IS NOT NULL AND m.id = %s)
+                    OR (%s <> '' AND m.phone = %s)
+              )
+            ORDER BY s.created_at DESC
+            LIMIT 1
+        ),
+        updated AS (
+            UPDATE submissions s
+            SET distance_text = %s,
+                time_text = %s,
+                seconds = %s,
+                status = 'COMPLETE',
+                confirmed = TRUE
+            FROM target
+            WHERE s.id = target.id
+            RETURNING
+                s.id,
+                s.member_id,
+                s.distance_text,
+                s.time_text,
+                s.seconds,
+                target.event_date,
+                target.old_distance_text,
+                target.old_time_text,
+                target.old_seconds
+        )
+        SELECT
+            updated.*,
+            m.first_name,
+            m.last_name,
+            m.phone
+        FROM updated
+        JOIN members m ON m.id = updated.member_id
+        """, (
+            event_date,
+            member_id,
+            member_id,
+            phone,
+            phone,
+            distance,
+            time_text,
+            seconds,
+        ))
+
+        row = cur.fetchone()
+        _record_admin_correction(cur, row, admin_member_id, reason)
+        return row
+
+
+def correct_runner_pb(
+    identifier: str,
+    distance: str,
+    time_text: str,
+    seconds: int,
+    admin_member_id: int = None,
+    reason: str = "pb_correction",
+):
     lookup = (identifier or "").strip()
     if not lookup:
         return None
@@ -280,4 +489,6 @@ def correct_runner_pb(identifier: str, distance: str, time_text: str, seconds: i
             seconds,
         ))
 
-        return cur.fetchone()
+        row = cur.fetchone()
+        _record_admin_correction(cur, row, admin_member_id, reason)
+        return row
