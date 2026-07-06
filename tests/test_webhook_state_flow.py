@@ -116,6 +116,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "send_admin_menu_list",
                     "send_admin_edit_field_buttons",
                     "send_admin_confirm_correction_buttons",
+                    "send_admin_member_center_buttons",
                     "save_member_name",
                     "set_profile_state",
                     "clear_profile_state",
@@ -357,6 +358,59 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Member lookup: Lindsay", sent)
         self.assertIn("Member ID: 42", sent)
         self.assertIn("4km — 27:41", sent)
+        self.assertIn("Reply with a number", sent)
+        mocks["set_profile_state"].assert_called_once_with(42, "ADMIN_MEMBER_SEARCH|Lindsay")
+
+    async def test_admin_member_search_selection_opens_command_center(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="1"),
+            member_data=member(id=7, phone="27722135094", profile_state="ADMIN_MEMBER_SEARCH|Lindsay"),
+            search_members_for_admin=[
+                {
+                    "id": 72,
+                    "first_name": "Asha",
+                    "last_name": "Runner",
+                    "phone": "27999999999",
+                    "participation_type": "BOTH",
+                    "leaderboard_opt_out": False,
+                    "today_status": "COMPLETE",
+                    "tt_code_verified": True,
+                    "distance_text": "6",
+                    "time_text": "42:00",
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "admin_member_selected", "member_id": 72})
+        mocks["set_profile_state"].assert_called_once_with(7, "ADMIN_MEMBER|72")
+        body = mocks["send_admin_member_center_buttons"].call_args.args[1]
+        self.assertIn("Member command center", body)
+        self.assertIn("Member ID: 72", body)
+        self.assertIn("Today: COMPLETE · 6km — 42:00", body)
+
+    async def test_admin_member_center_correct_opens_history_selection(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_member_correct", title="Correct result"),
+            member_data=member(id=7, phone="27722135094", profile_state="ADMIN_MEMBER|72"),
+            get_member_submission_history=[
+                {
+                    "submission_id": 101,
+                    "member_id": 72,
+                    "first_name": "Asha",
+                    "last_name": "Runner",
+                    "event_date": "2026-06-09",
+                    "distance_text": "6",
+                    "time_text": "42:00",
+                    "status": "COMPLETE",
+                },
+            ],
+        )
+
+        self.assertEqual(result, {"status": "admin_correct_history", "count": 1})
+        mocks["get_member_submission_history"].assert_called_once_with("72")
+        mocks["set_profile_state"].assert_called_once_with(7, "ADMIN_HISTORY|72")
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Submission history: Asha Runner", sent)
 
     async def test_admin_history_lists_member_submission_dates_and_times(self):
         result, mocks, _ = await self.call_webhook(
@@ -575,56 +629,37 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(
             text_payload(sender="27722135094", body="correct date 42 2026-06-09 6 42:00"),
             member_data=member(phone="27722135094"),
-            correct_runner_time_on_date={
-                "id": 101,
-                "first_name": "Lindsay",
-                "last_name": "Bull",
-                "event_date": "2026-06-09",
-                "old_distance_text": "4",
-                "old_time_text": "27:41",
-                "distance_text": "6",
-                "time_text": "42:00",
-            },
         )
 
-        self.assertEqual(result, {"status": "admin_date_corrected", "submission_id": 101})
-        mocks["correct_runner_time_on_date"].assert_called_once_with(
-            "42",
-            "2026-06-09",
-            "6",
-            "42:00",
-            2520,
+        self.assertEqual(result, {"status": "admin_correct_confirmation"})
+        mocks["set_profile_state"].assert_called_once_with(
             42,
+            "ADMIN_CONFIRM_TYPED|DATE|42|2026-06-09|6|42:00",
         )
+        mocks["correct_runner_time_on_date"].assert_not_called()
         mocks["correct_runner_time"].assert_not_called()
         mocks["correct_runner_pb"].assert_not_called()
-        sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("Dated result corrected", sent)
-        self.assertIn("Was: 4km — 27:41", sent)
-        self.assertIn("Now: 6km — 42:00", sent)
+        sent = mocks["send_admin_confirm_correction_buttons"].call_args.args[1]
+        self.assertIn("Confirm correction", sent)
+        self.assertIn("Result on 2026-06-09", sent)
+        self.assertIn("New value: 6km — 42:00", sent)
 
     async def test_admin_correct_runner_time_updates_tonight_submission(self):
         result, mocks, _ = await self.call_webhook(
             text_payload(sender="27722135094", body="correct 42 4 26:59"),
             member_data=member(phone="27722135094"),
-            correct_runner_time={
-                "id": 101,
-                "first_name": "Lindsay",
-                "last_name": "Bull",
-                "old_distance_text": "4",
-                "old_time_text": "27:41",
-                "distance_text": "4",
-                "time_text": "26:59",
-            },
         )
 
-        self.assertEqual(result, {"status": "admin_corrected", "submission_id": 101})
-        mocks["correct_runner_time"].assert_called_once_with("42", "4", "26:59", 1619, 42)
+        self.assertEqual(result, {"status": "admin_correct_confirmation"})
+        mocks["set_profile_state"].assert_called_once_with(
+            42,
+            "ADMIN_CONFIRM_TYPED|TODAY|42|-|4|26:59",
+        )
+        mocks["correct_runner_time"].assert_not_called()
         mocks["correct_runner_pb"].assert_not_called()
-        sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("Result corrected", sent)
-        self.assertIn("Was: 4km — 27:41", sent)
-        self.assertIn("Now: 4km — 26:59", sent)
+        sent = mocks["send_admin_confirm_correction_buttons"].call_args.args[1]
+        self.assertIn("Tonight's result", sent)
+        self.assertIn("New value: 4km — 26:59", sent)
 
     async def test_admin_correct_runner_time_rejects_bad_time(self):
         result, mocks, _ = await self.call_webhook(
@@ -644,37 +679,80 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(
             text_payload(sender="27722135094", body="correct pb 42 4 26:59"),
             member_data=member(phone="27722135094"),
-            correct_runner_pb={
+        )
+
+        self.assertEqual(result, {"status": "admin_correct_confirmation"})
+        mocks["set_profile_state"].assert_called_once_with(
+            42,
+            "ADMIN_CONFIRM_TYPED|PB|42|-|4|26:59",
+        )
+        mocks["correct_runner_pb"].assert_not_called()
+        mocks["correct_runner_time"].assert_not_called()
+        sent = mocks["send_admin_confirm_correction_buttons"].call_args.args[1]
+        self.assertIn("Overall PB result", sent)
+        self.assertIn("New value: 4km — 26:59", sent)
+
+    async def test_admin_typed_confirmation_yes_saves_date_correction(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_confirm_correction", title="Yes"),
+            member_data=member(
+                id=7,
+                phone="27722135094",
+                profile_state="ADMIN_CONFIRM_TYPED|DATE|42|2026-06-09|6|42:00",
+            ),
+            correct_runner_time_on_date={
                 "id": 101,
                 "first_name": "Lindsay",
                 "last_name": "Bull",
                 "old_distance_text": "4",
                 "old_time_text": "27:41",
-                "distance_text": "4",
-                "time_text": "26:59",
+                "distance_text": "6",
+                "time_text": "42:00",
             },
         )
 
-        self.assertEqual(result, {"status": "admin_pb_corrected", "submission_id": 101})
-        mocks["correct_runner_pb"].assert_called_once_with("42", "4", "26:59", 1619, 42)
-        mocks["correct_runner_time"].assert_not_called()
+        self.assertEqual(result, {"status": "admin_date_corrected", "submission_id": 101})
+        mocks["correct_runner_time_on_date"].assert_called_once_with(
+            "42",
+            "2026-06-09",
+            "6",
+            "42:00",
+            2520,
+            7,
+        )
         sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("PB corrected", sent)
+        self.assertIn("Dated result corrected", sent)
         self.assertIn("Was: 4km — 27:41", sent)
-        self.assertIn("Now: 4km — 26:59", sent)
+        self.assertIn("Now: 6km — 42:00", sent)
 
-    async def test_admin_correct_prompt_shows_command_format(self):
+    async def test_admin_typed_confirmation_no_cancels_without_saving(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_cancel_correction", title="No"),
+            member_data=member(
+                id=7,
+                phone="27722135094",
+                profile_state="ADMIN_CONFIRM_TYPED|TODAY|42|-|4|26:59",
+            ),
+        )
+
+        self.assertEqual(result, {"status": "admin_correction_cancelled"})
+        mocks["correct_runner_time"].assert_not_called()
+        mocks["correct_runner_time_on_date"].assert_not_called()
+        mocks["correct_runner_pb"].assert_not_called()
+        mocks["clear_profile_state"].assert_called_once_with(7)
+
+    async def test_admin_correct_button_starts_guided_flow(self):
         result, mocks, _ = await self.call_webhook(
             button_payload(sender="27722135094", button_id="admin_correct", title="Correct result"),
             member_data=member(phone="27722135094"),
         )
 
-        self.assertEqual(result, {"status": "admin_correct_prompt"})
+        self.assertEqual(result, {"status": "admin_correct_find_prompt"})
+        mocks["set_profile_state"].assert_called_once_with(42, "ADMIN_FIND_FOR_CORRECT")
         mocks["correct_runner_time"].assert_not_called()
         mocks["correct_runner_pb"].assert_not_called()
         sent = mocks["send_text"].call_args.args[1]
-        self.assertIn("CORRECT <member id or phone> <4|6|8> <time>", sent)
-        self.assertIn("CORRECT PB <member id or phone> <4|6|8> <time>", sent)
+        self.assertIn("Send the member name or phone number", sent)
 
     async def test_help_menu_falls_back_to_text_if_list_send_fails(self):
         result, mocks, _ = await self.call_webhook(

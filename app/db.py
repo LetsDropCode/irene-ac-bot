@@ -198,6 +198,29 @@ def init_db():
     """)
 
     cur.execute("""
+        DELETE FROM event_codes a
+        USING event_codes b
+        WHERE a.id > b.id
+          AND a.event = b.event
+          AND a.event_date = b.event_date;
+    """)
+
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'event_codes_event_date_unique'
+            ) THEN
+                ALTER TABLE event_codes
+                ADD CONSTRAINT event_codes_event_date_unique
+                UNIQUE (event, event_date);
+            END IF;
+        END $$;
+    """)
+
+    cur.execute("""
         ALTER TABLE attendance
         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'whatsapp';
     """)

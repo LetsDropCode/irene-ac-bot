@@ -27,6 +27,26 @@ def fake_cursor_context(cursor, commit=False):
 
 
 class LeaderboardServiceTests(unittest.TestCase):
+    def test_tonight_leaderboard_filters_to_runner_members_and_opt_in(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.get_runner_leaderboard()
+
+        self.assertIn("AND m.participation_type IN ('RUNNER', 'BOTH')", cursor.query)
+        self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
+        self.assertEqual(cursor.params, ())
+
+    def test_walker_feed_includes_walker_and_both_workouts_and_opt_in(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.get_walker_feed()
+
+        self.assertIn("AND m.participation_type IN ('WALKER', 'BOTH')", cursor.query)
+        self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
+        self.assertEqual(cursor.params, ())
+
     def test_overall_leaderboard_filters_to_runner_members(self):
         cursor = FakeCursor()
 

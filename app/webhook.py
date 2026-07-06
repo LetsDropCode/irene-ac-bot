@@ -30,6 +30,7 @@ from app.whatsapp import (
     send_admin_pending_actions,
     send_admin_edit_field_buttons,
     send_admin_confirm_correction_buttons,
+    send_admin_member_center_buttons,
 )
 
 from app.services.event_code_service import generate_tt_code
@@ -241,7 +242,7 @@ def _format_member_lookup(rows, query: str) -> str:
 
     msg = f"🔎 *Member lookup: {query}*\n"
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         checked_in = "yes" if row.get("tt_code_verified") else "no"
         status = row.get("today_status") or "none"
         result = "No result today"
@@ -254,7 +255,7 @@ def _format_member_lookup(rows, query: str) -> str:
         hidden = "yes" if row.get("leaderboard_opt_out") else "no"
         msg += (
             "\n"
-            f"{row['first_name']} {row['last_name']}\n"
+            f"{index}. {row['first_name']} {row['last_name']}\n"
             f"Member ID: {row['id']}\n"
             f"Phone: {row['phone']}\n"
             f"Type: {row.get('participation_type') or 'not set'}\n"
@@ -263,13 +264,80 @@ def _format_member_lookup(rows, query: str) -> str:
             f"Hidden from leaderboard: {hidden}\n"
         )
 
-    msg += "\nType ADMIN for tools."
+    msg += "\nReply with a number to open that member, or type ADMIN for tools."
     return msg.strip()
 
 
-def send_member_lookup(sender: str, query: str):
+def send_member_lookup(sender: str, query: str, admin_member: dict = None):
     rows = search_members_for_admin(query)
     send_text(sender, _format_member_lookup(rows, query))
+    if admin_member and rows:
+        set_profile_state(admin_member["id"], f"ADMIN_MEMBER_SEARCH|{query}")
+    return len(rows)
+
+
+def _format_member_center(row: dict) -> str:
+    checked_in = "yes" if row.get("tt_code_verified") else "no"
+    status = row.get("today_status") or "none"
+    if row.get("today_status") == "COMPLETE":
+        result = _format_result_value(row.get("distance_text"), row.get("time_text"))
+    elif row.get("today_status") == "PENDING":
+        result = "Pending result"
+    else:
+        result = "No result today"
+
+    hidden = "yes" if row.get("leaderboard_opt_out") else "no"
+    return (
+        "*Member command center*\n\n"
+        f"{row['first_name']} {row['last_name']}\n"
+        f"Member ID: {row['id']}\n"
+        f"Phone: {row['phone']}\n"
+        f"Type: {row.get('participation_type') or 'not set'}\n"
+        f"Checked in today: {checked_in}\n"
+        f"Today: {status} · {result}\n"
+        f"Hidden from leaderboard: {hidden}\n\n"
+        "Choose the next admin action."
+    )
+
+
+def _send_member_center(sender: str, admin_member: dict, row: dict):
+    set_profile_state(admin_member["id"], f"ADMIN_MEMBER|{row['id']}")
+    body = _format_member_center(row)
+    if not send_admin_member_center_buttons(sender, body):
+        send_text(
+            sender,
+            f"{body}\n\nReply HISTORY, CORRECT, or ADMIN.",
+        )
+
+
+def _select_member_from_search(sender: str, admin_member: dict, query: str, text: str):
+    rows = search_members_for_admin(query)
+    if not text or not text.isdigit():
+        send_text(sender, "Reply with the member number from the list, or CANCEL.")
+        return {"status": "admin_member_search_await_selection"}
+
+    index = int(text) - 1
+    if index < 0 or index >= len(rows):
+        send_text(sender, "That number is not in the member list. Reply with a listed number.")
+        return {"status": "admin_member_search_bad_selection"}
+
+    selected = rows[index]
+    _send_member_center(sender, admin_member, selected)
+    return {"status": "admin_member_selected", "member_id": selected["id"]}
+
+
+def start_admin_correct_flow(sender: str, admin_member: dict):
+    if admin_member:
+        set_profile_state(admin_member["id"], "ADMIN_FIND_FOR_CORRECT")
+    send_text(sender, "Send the member name or phone number to correct, e.g. Lindsay or 2772...")
+    return {"status": "admin_correct_find_prompt"}
+
+
+def send_admin_correct_search(sender: str, admin_member: dict, query: str):
+    rows = search_members_for_admin(query)
+    send_text(sender, _format_member_lookup(rows, query))
+    if admin_member and rows:
+        set_profile_state(admin_member["id"], f"ADMIN_MEMBER_SEARCH_FOR_CORRECT|{query}")
     return len(rows)
 
 
@@ -357,6 +425,90 @@ def _send_admin_correction_confirmation(sender: str, row: dict, distance: str, t
         send_text(sender, f"{body}\n\nReply YES or NO.")
 
 
+def _format_typed_correction_confirmation(scope: str, identifier: str, event_date: str, distance: str, time_text: str) -> str:
+    scope_text = {
+        "TODAY": "Tonight's result",
+        "DATE": f"Result on {event_date}",
+        "PB": "Overall PB result",
+    }.get(scope, "Result")
+
+    date_line = f"\nDate: {event_date}" if scope == "DATE" else ""
+    return (
+        "*Confirm correction*\n\n"
+        f"{scope_text}\n"
+        f"Member: {identifier}{date_line}\n"
+        f"New value: {distance}km — {time_text}\n\n"
+        "Save this change?"
+    )
+
+
+def _send_typed_correction_confirmation(sender: str, scope: str, identifier: str, event_date: str, distance: str, time_text: str):
+    body = _format_typed_correction_confirmation(scope, identifier, event_date, distance, time_text)
+    if not send_admin_confirm_correction_buttons(sender, body):
+        send_text(sender, f"{body}\n\nReply YES or NO.")
+
+
+def _send_typed_correction_not_found(sender: str, scope: str):
+    if scope == "DATE":
+        send_text(
+            sender,
+            (
+                "I couldn’t find a submission for that member on that date.\n\n"
+                "Use HISTORY <member id> to check their submitted dates."
+            ),
+        )
+        return {"status": "admin_correct_date_not_found"}
+
+    if scope == "PB":
+        send_text(
+            sender,
+            (
+                "I couldn’t find a season PB result for that member and distance.\n\n"
+                "Use FIND <name> to confirm the member ID or phone."
+            ),
+        )
+        return {"status": "admin_correct_pb_not_found"}
+
+    send_text(
+        sender,
+        (
+            "I couldn’t find a checked-in TT submission for that member tonight.\n\n"
+            "Use FIND <name> to confirm the member ID or phone."
+        ),
+    )
+    return {"status": "admin_correct_not_found"}
+
+
+def _save_typed_correction(scope: str, identifier: str, event_date: str, distance: str, time_text: str, admin_member_id: int):
+    seconds = time_to_seconds(time_text)
+    if scope == "DATE":
+        return correct_runner_time_on_date(
+            identifier,
+            event_date,
+            distance,
+            time_text,
+            seconds,
+            admin_member_id,
+        )
+
+    if scope == "PB":
+        return correct_runner_pb(
+            identifier,
+            distance,
+            time_text,
+            seconds,
+            admin_member_id,
+        )
+
+    return correct_runner_time(
+        identifier,
+        distance,
+        time_text,
+        seconds,
+        admin_member_id,
+    )
+
+
 def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text: str):
     state = admin_member.get("profile_state") if admin_member else None
     if not state or not state.startswith("ADMIN_"):
@@ -369,6 +521,69 @@ def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text
 
     parts = _admin_state_parts(state)
     state_name = parts[0]
+
+    if state_name in {"ADMIN_MEMBER_SEARCH", "ADMIN_MEMBER_SEARCH_FOR_CORRECT"}:
+        query = parts[1]
+        return _select_member_from_search(sender, admin_member, query, text)
+
+    if state_name == "ADMIN_FIND_FOR_CORRECT":
+        if not raw_text:
+            send_text(sender, "Send a member name or phone number, or CANCEL.")
+            return {"status": "admin_correct_find_await_query"}
+
+        count = send_admin_correct_search(sender, admin_member, raw_text.strip())
+        return {"status": "admin_correct_find_results", "count": count}
+
+    if state_name == "ADMIN_MEMBER":
+        member_id = parts[1]
+        if text == "HISTORY":
+            count = send_submission_history(sender, member_id)
+            if count:
+                set_profile_state(admin_member["id"], f"ADMIN_HISTORY|{member_id}")
+            return {"status": "submission_history", "count": count}
+
+        if text in {"CORRECT", "CORRECT RESULT"}:
+            count = send_submission_history(sender, member_id)
+            if count:
+                set_profile_state(admin_member["id"], f"ADMIN_HISTORY|{member_id}")
+            return {"status": "admin_correct_history", "count": count}
+
+        send_text(sender, "Choose History, Correct result, or Admin tools.")
+        return {"status": "admin_member_await_action"}
+
+    if state_name == "ADMIN_CONFIRM_TYPED":
+        scope = parts[1]
+        identifier = parts[2]
+        event_date = parts[3]
+        distance = parts[4]
+        time_text = parts[5]
+
+        if text in {"NO", "N"}:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "Correction cancelled.")
+            return {"status": "admin_correction_cancelled"}
+
+        if text not in {"YES", "Y"}:
+            _send_typed_correction_confirmation(sender, scope, identifier, event_date, distance, time_text)
+            return {"status": "admin_correction_await_confirm"}
+
+        row = _save_typed_correction(
+            scope,
+            identifier,
+            None if event_date == "-" else event_date,
+            distance,
+            time_text,
+            admin_member["id"],
+        )
+        if not row:
+            clear_profile_state(admin_member["id"])
+            return _send_typed_correction_not_found(sender, scope)
+
+        clear_profile_state(admin_member["id"])
+        scope_label = "Dated result" if scope == "DATE" else "PB" if scope == "PB" else "Result"
+        send_text(sender, _format_correction_result(row, scope_label))
+        status = "admin_date_corrected" if scope == "DATE" else "admin_pb_corrected" if scope == "PB" else "admin_corrected"
+        return {"status": status, "submission_id": row["id"]}
 
     if state_name == "ADMIN_HISTORY":
         if not text or not text.isdigit():
@@ -611,58 +826,15 @@ def correct_admin_result(sender: str, raw_text: str, admin_member_id: int = None
         send_text(sender, "Time format must be 27:41 or 01:27:41.")
         return {"status": "admin_correct_bad_time"}
 
-    if date_scope:
-        row = correct_runner_time_on_date(
-            identifier,
-            event_date,
-            distance,
-            time_text,
-            time_to_seconds(time_text),
+    scope = "DATE" if date_scope else "PB" if pb_scope else "TODAY"
+    state_date = event_date if event_date else "-"
+    if admin_member_id:
+        set_profile_state(
             admin_member_id,
+            f"ADMIN_CONFIRM_TYPED|{scope}|{identifier}|{state_date}|{distance}|{time_text}",
         )
-    else:
-        correction_func = correct_runner_pb if pb_scope else correct_runner_time
-        row = correction_func(
-            identifier,
-            distance,
-            time_text,
-            time_to_seconds(time_text),
-            admin_member_id,
-        )
-    if not row:
-        if date_scope:
-            send_text(
-                sender,
-                (
-                    "I couldn’t find a submission for that member on that date.\n\n"
-                    "Use HISTORY <member id> to check their submitted dates."
-                ),
-            )
-            return {"status": "admin_correct_date_not_found"}
-
-        if pb_scope:
-            send_text(
-                sender,
-                (
-                    "I couldn’t find a season PB result for that member and distance.\n\n"
-                    "Use FIND <name> to confirm the member ID or phone."
-                ),
-            )
-            return {"status": "admin_correct_pb_not_found"}
-
-        send_text(
-            sender,
-            (
-                "I couldn’t find a checked-in TT submission for that member tonight.\n\n"
-                "Use FIND <name> to confirm the member ID or phone."
-            ),
-        )
-        return {"status": "admin_correct_not_found"}
-
-    scope = "Dated result" if date_scope else "PB" if pb_scope else "Result"
-    send_text(sender, _format_correction_result(row, scope))
-    status = "admin_date_corrected" if date_scope else "admin_pb_corrected" if pb_scope else "admin_corrected"
-    return {"status": status, "submission_id": row["id"]}
+    _send_typed_correction_confirmation(sender, scope, identifier, state_date, distance, time_text)
+    return {"status": "admin_correct_confirmation"}
 
 
 def send_user_profile(sender: str, member: dict):
@@ -1000,6 +1172,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 "admin_edit_both": "BOTH",
                 "admin_confirm_correction": "YES",
                 "admin_cancel_correction": "NO",
+                "admin_member_history": "HISTORY",
+                "admin_member_correct": "CORRECT",
             }.get(admin_button_id)
             if admin_button_text:
                 admin_state_text = admin_button_text
@@ -1014,7 +1188,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
         if text and any(text.startswith(prefix) for prefix in ("FIND ", "LOOKUP ", "SEARCH ")):
             query = raw_text.split(" ", 1)[1].strip()
-            count = send_member_lookup(sender, query)
+            count = send_member_lookup(sender, query, admin_member)
             return {"status": "member_lookup", "count": count}
 
         if text and any(text.startswith(prefix) for prefix in ("HISTORY ", "TIMES ")):
@@ -1044,7 +1218,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 sender,
                 (
                     "Send FIND plus a name or phone number, e.g. FIND Lindsay.\n"
-                    "Then send HISTORY plus the member ID, e.g. HISTORY 42."
+                    "Then reply with the number to open that member."
                 ),
             )
             return {"status": "member_lookup_prompt"}
@@ -1066,11 +1240,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "pending_list" if count else "no_pending"}
 
         if menu_action == "ADMIN_CORRECT":
-            return correct_admin_result(
-                sender,
-                raw_text,
-                admin_member["id"] if admin_member else None,
-            )
+            return start_admin_correct_flow(sender, admin_member)
 
         if menu_action == "ADMIN_RECOVER_TONIGHT":
             count = recover_tonight(sender)

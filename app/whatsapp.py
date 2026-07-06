@@ -297,6 +297,26 @@ def send_admin_confirm_correction_buttons(to: str, body: str) -> bool:
     return _send(payload)
 
 
+def send_admin_member_center_buttons(to: str, body: str) -> bool:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "admin_member_history", "title": "History"}},
+                    {"type": "reply", "reply": {"id": "admin_member_correct", "title": "Correct result"}},
+                    {"type": "reply", "reply": {"id": "admin_menu", "title": "Admin tools"}},
+                ],
+            },
+        },
+    }
+    return _send(payload)
+
+
 # ─────────────────────────────────────────────
 # LEADERBOARD SUBMENU
 # ─────────────────────────────────────────────

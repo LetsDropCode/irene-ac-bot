@@ -39,6 +39,8 @@ def get_runner_leaderboard(event_date=None):
             AND s.distance_text IS NOT NULL
             AND s.distance_text <> ''
             AND s.activity = 'TT'
+            AND m.participation_type IN ('RUNNER', 'BOTH')
+            AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = """ + date_expr + """
         ORDER BY
             CAST(s.distance_text AS INTEGER) DESC,
@@ -62,7 +64,8 @@ def get_walker_feed(event_date=None):
         WHERE
             s.status = 'COMPLETE'
             AND (s.distance_text IS NULL OR s.distance_text = '')
-            AND m.participation_type = 'WALKER'
+            AND m.participation_type IN ('WALKER', 'BOTH')
+            AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = """ + date_expr + """
         ORDER BY s.created_at DESC
         LIMIT 10

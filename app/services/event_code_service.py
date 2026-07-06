@@ -40,12 +40,16 @@ def generate_tt_code(event: str = "TT") -> str:
         """
         INSERT INTO event_codes (event, code, event_date)
         VALUES (%s, %s, %s)
+        ON CONFLICT (event, event_date)
+        DO UPDATE SET code = event_codes.code
+        RETURNING code
         """,
         (event, code, today),
     )
+    row = cur.fetchone()
 
     conn.commit()
     cur.close()
     conn.close()
 
-    return code
+    return row["code"]

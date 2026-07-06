@@ -83,6 +83,20 @@ class WhatsAppMenuTests(unittest.TestCase):
             "admin_menu",
         ])
 
+    def test_admin_member_center_has_member_action_buttons(self):
+        with patch.object(whatsapp, "_send", return_value=True) as send:
+            result = whatsapp.send_admin_member_center_buttons("27722135094", "Member body")
+
+        self.assertTrue(result)
+        buttons = send.call_args.args[0]["interactive"]["action"]["buttons"]
+        button_ids = [button["reply"]["id"] for button in buttons]
+
+        self.assertEqual(button_ids, [
+            "admin_member_history",
+            "admin_member_correct",
+            "admin_menu",
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()
