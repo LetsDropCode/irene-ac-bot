@@ -140,6 +140,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "get_submission_for_admin",
                     "search_members_for_admin",
                     "correct_submission_by_id",
+                    "correct_submission_time_by_id",
                     "correct_runner_pb",
                     "correct_runner_time",
                     "correct_runner_time_on_date",
@@ -469,12 +470,55 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "admin_correction_confirmation", "submission_id": 101})
-        mocks["set_profile_state"].assert_called_once_with(7, "ADMIN_CONFIRM|101|4|26:59")
+        mocks["set_profile_state"].assert_called_once_with(7, "ADMIN_CONFIRM_TIME|101|26:59")
         mocks["correct_submission_by_id"].assert_not_called()
         sent = mocks["send_admin_confirm_correction_buttons"].call_args.args[1]
         self.assertIn("Confirm correction", sent)
         self.assertIn("Change: 4km — 27:41", sent)
         self.assertIn("To: 4km — 26:59", sent)
+
+    async def test_admin_time_edit_with_missing_distance_still_confirms_time_only(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="26:59"),
+            member_data=member(id=7, phone="27722135094", profile_state="ADMIN_EDIT_TIME|101"),
+            get_submission_for_admin={
+                "submission_id": 101,
+                "first_name": "Runner",
+                "last_name": "MissingDistance",
+                "event_date": "2026-06-09",
+                "distance_text": None,
+                "time_text": "",
+            },
+        )
+
+        self.assertEqual(result, {"status": "admin_correction_confirmation", "submission_id": 101})
+        mocks["set_profile_state"].assert_called_once_with(7, "ADMIN_CONFIRM_TIME|101|26:59")
+        sent = mocks["send_admin_confirm_correction_buttons"].call_args.args[1]
+        self.assertIn("Change: none", sent)
+        self.assertIn("To: 26:59", sent)
+        mocks["correct_submission_by_id"].assert_not_called()
+        mocks["correct_submission_time_by_id"].assert_not_called()
+
+    async def test_admin_time_confirmation_yes_saves_only_time(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_confirm_correction", title="Yes"),
+            member_data=member(id=7, phone="27722135094", profile_state="ADMIN_CONFIRM_TIME|101|26:59"),
+            correct_submission_time_by_id={
+                "id": 101,
+                "first_name": "Runner",
+                "last_name": "MissingDistance",
+                "distance_text": None,
+                "old_distance_text": None,
+                "old_time_text": "",
+                "time_text": "26:59",
+            },
+        )
+
+        self.assertEqual(result, {"status": "admin_submission_corrected", "submission_id": 101})
+        mocks["correct_submission_time_by_id"].assert_called_once_with(101, "26:59", 1619, 7)
+        mocks["correct_submission_by_id"].assert_not_called()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Now: 26:59", sent)
 
     async def test_admin_confirmation_yes_saves_selected_submission(self):
         result, mocks, _ = await self.call_webhook(
@@ -493,6 +537,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "admin_submission_corrected", "submission_id": 101})
         mocks["correct_submission_by_id"].assert_called_once_with(101, "4", "26:59", 1619, 7)
+        mocks["correct_submission_time_by_id"].assert_not_called()
         mocks["clear_profile_state"].assert_called_once_with(7)
         sent = mocks["send_text"].call_args.args[1]
         self.assertIn("Submission corrected", sent)
@@ -505,6 +550,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "admin_correction_cancelled"})
         mocks["correct_submission_by_id"].assert_not_called()
+        mocks["correct_submission_time_by_id"].assert_not_called()
         mocks["clear_profile_state"].assert_called_once_with(7)
 
     async def test_admin_both_edit_asks_for_confirmation(self):

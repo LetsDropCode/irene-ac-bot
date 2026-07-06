@@ -84,6 +84,32 @@ class AdminServiceTests(unittest.TestCase):
             (7, 101, 42, "4", "27:41", 1661, "6", "42:00", 2520, "selected_submission"),
         )
 
+    def test_correct_submission_time_by_id_keeps_distance_unchanged(self):
+        cursor = FakeCursor(row={
+            "id": 101,
+            "member_id": 42,
+            "old_distance_text": None,
+            "old_time_text": "",
+            "old_seconds": 0,
+            "distance_text": None,
+            "time_text": "26:59",
+            "seconds": 1619,
+        })
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.correct_submission_time_by_id(101, "26:59", 1619, admin_member_id=7)
+
+        self.assertEqual(row["time_text"], "26:59")
+        update_query, update_params = cursor.executed[0]
+        self.assertNotIn("SET distance_text", update_query)
+        self.assertEqual(update_params, (101, "26:59", 1619))
+        audit_query, audit_params = cursor.executed[-1]
+        self.assertIn("INSERT INTO admin_corrections", audit_query)
+        self.assertEqual(
+            audit_params,
+            (7, 101, 42, None, "", 0, None, "26:59", 1619, "selected_submission_time"),
+        )
+
     def test_correct_runner_pb_targets_best_runner_or_both_submission(self):
         cursor = FakeCursor(row={"id": 101})
 

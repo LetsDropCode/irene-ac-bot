@@ -250,6 +250,59 @@ def correct_submission_by_id(
         return row
 
 
+def correct_submission_time_by_id(
+    submission_id: int,
+    time_text: str,
+    seconds: int,
+    admin_member_id: int = None,
+    reason: str = "selected_submission_time",
+):
+    with get_cursor() as cur:
+        cur.execute("""
+        WITH target AS (
+            SELECT
+                s.id,
+                s.distance_text AS old_distance_text,
+                s.time_text AS old_time_text,
+                s.seconds AS old_seconds,
+                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+            FROM submissions s
+            WHERE s.id = %s
+              AND s.status != 'CANCELLED'
+        ),
+        updated AS (
+            UPDATE submissions s
+            SET time_text = %s,
+                seconds = %s,
+                status = 'COMPLETE',
+                confirmed = TRUE
+            FROM target
+            WHERE s.id = target.id
+            RETURNING
+                s.id,
+                s.member_id,
+                s.distance_text,
+                s.time_text,
+                s.seconds,
+                target.event_date,
+                target.old_distance_text,
+                target.old_time_text,
+                target.old_seconds
+        )
+        SELECT
+            updated.*,
+            m.first_name,
+            m.last_name,
+            m.phone
+        FROM updated
+        JOIN members m ON m.id = updated.member_id
+        """, (submission_id, time_text, seconds))
+
+        row = cur.fetchone()
+        _record_admin_correction(cur, row, admin_member_id, reason)
+        return row
+
+
 def correct_runner_time(
     identifier: str,
     distance: str,

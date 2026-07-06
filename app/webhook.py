@@ -72,6 +72,7 @@ from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.admin_service import (
     correct_submission_by_id,
+    correct_submission_time_by_id,
     correct_runner_pb,
     correct_runner_time,
     correct_runner_time_on_date,
@@ -323,16 +324,23 @@ def _format_selected_submission(row: dict) -> str:
     )
 
 
+def _format_result_value(distance, time_text) -> str:
+    if distance:
+        return f"{distance}km — {time_text}"
+
+    return time_text or "none"
+
+
 def _format_pending_correction(row: dict, distance: str, time_text: str) -> str:
     date_text = row.get("event_date") or "unknown date"
-    old_distance = row.get("distance_text") or "?"
-    old_time = row.get("time_text") or "none"
+    old_value = _format_result_value(row.get("distance_text"), row.get("time_text"))
+    new_value = _format_result_value(distance, time_text)
     return (
         "*Confirm correction*\n\n"
         f"{row['first_name']} {row['last_name']}\n"
         f"Date: {date_text}\n"
-        f"Change: {old_distance}km — {old_time}\n"
-        f"To: {distance}km — {time_text}\n\n"
+        f"Change: {old_value}\n"
+        f"To: {new_value}\n\n"
         "Save this change?"
     )
 
@@ -418,15 +426,36 @@ def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text
             send_text(sender, "Time format must be 27:41 or 01:27:41.")
             return {"status": "admin_edit_bad_time"}
 
-        distance = row.get("distance_text")
-        if distance not in {"4", "6", "8"}:
-            send_text(sender, "This submission needs a distance first. Reply DISTANCE or BOTH after selecting it again.")
-            set_profile_state(admin_member["id"], f"ADMIN_SELECTED|{submission_id}")
-            return {"status": "admin_edit_missing_distance"}
-
-        set_profile_state(admin_member["id"], f"ADMIN_CONFIRM|{submission_id}|{distance}|{text}")
-        _send_admin_correction_confirmation(sender, row, distance, text)
+        set_profile_state(admin_member["id"], f"ADMIN_CONFIRM_TIME|{submission_id}|{text}")
+        _send_admin_correction_confirmation(sender, row, row.get("distance_text"), text)
         return {"status": "admin_correction_confirmation", "submission_id": submission_id}
+
+    if state_name == "ADMIN_CONFIRM_TIME":
+        submission_id = int(parts[1])
+        time_text = parts[2]
+
+        if text in {"NO", "N"}:
+            clear_profile_state(admin_member["id"])
+            send_text(sender, "Correction cancelled.")
+            return {"status": "admin_correction_cancelled"}
+
+        if text not in {"YES", "Y"}:
+            row = get_submission_for_admin(submission_id)
+            if row:
+                _send_admin_correction_confirmation(sender, row, row.get("distance_text"), time_text)
+            else:
+                send_text(sender, "Reply YES to save, or NO to cancel.")
+            return {"status": "admin_correction_await_confirm"}
+
+        updated = correct_submission_time_by_id(
+            submission_id,
+            time_text,
+            time_to_seconds(time_text),
+            admin_member["id"],
+        )
+        clear_profile_state(admin_member["id"])
+        send_text(sender, _format_correction_result(updated, "Submission"))
+        return {"status": "admin_submission_corrected", "submission_id": submission_id}
 
     if state_name == "ADMIN_EDIT_DISTANCE":
         submission_id = int(parts[1])
@@ -521,13 +550,13 @@ def clear_admin_edit_state_if_needed(admin_member: dict):
 
 
 def _format_correction_result(row: dict, scope: str = "Result") -> str:
-    old_distance = row.get("old_distance_text") or "?"
-    old_time = row.get("old_time_text") or "none"
+    old_value = _format_result_value(row.get("old_distance_text"), row.get("old_time_text"))
+    new_value = _format_result_value(row.get("distance_text"), row.get("time_text"))
     return (
         f"✅ *{scope} corrected*\n\n"
         f"{row['first_name']} {row['last_name']}\n"
-        f"Was: {old_distance}km — {old_time}\n"
-        f"Now: {row['distance_text']}km — {row['time_text']}\n\n"
+        f"Was: {old_value}\n"
+        f"Now: {new_value}\n\n"
         "Type ADMIN for tools."
     )
 
