@@ -77,6 +77,9 @@ from app.services.idempotency_service import (
 )
 from app.services.job_queue_service import (
     enqueue_post_confirm_messages,
+    get_failed_jobs,
+    get_queue_health,
+    retry_failed_jobs,
     run_due_jobs,
 )
 from app.services.pb_service import get_previous_best
@@ -208,6 +211,69 @@ def send_admin_dashboard(sender: str):
 def send_admin_code(sender: str):
     code = generate_tt_code("TT")
     send_text(sender, f"🔐 Tonight’s TT Code\n\n*{code}*\n\nType ADMIN for tools.")
+
+
+def _format_queue_status(queue: dict) -> str:
+    return (
+        "🧰 *Job Queue Status*\n\n"
+        f"Pending: {queue.get('pending_jobs') or 0}\n"
+        f"Running: {queue.get('running_jobs') or 0}\n"
+        f"Failed: {queue.get('failed_jobs') or 0}\n"
+        f"Done: {queue.get('done_jobs') or 0}\n"
+        f"Oldest pending: {queue.get('oldest_pending_seconds') or 0}s\n\n"
+        "Commands: JOBS RUN, JOBS FAILED, JOBS RETRY"
+    )
+
+
+def send_jobs_status(sender: str):
+    send_text(sender, _format_queue_status(get_queue_health()))
+
+
+def send_failed_jobs(sender: str):
+    rows = get_failed_jobs()
+
+    if not rows:
+        send_text(sender, "✅ No failed jobs.\n\nType JOBS STATUS for queue health.")
+        return 0
+
+    lines = ["⚠️ *Failed Jobs*"]
+    for row in rows:
+        error = (row.get("last_error") or "No error recorded").splitlines()[0]
+        if len(error) > 80:
+            error = f"{error[:77]}..."
+        lines.append(
+            f"#{row['id']} {row['job_type']} "
+            f"({row['attempts']}/{row['max_attempts']}) - {error}"
+        )
+
+    lines.extend(["", "Type JOBS RETRY to retry failed jobs."])
+    send_text(sender, "\n".join(lines))
+    return len(rows)
+
+
+def run_jobs_from_admin(sender: str):
+    processed = run_due_jobs()
+    queue = get_queue_health()
+    send_text(
+        sender,
+        (
+            f"✅ Job runner processed {processed} job(s).\n\n"
+            f"{_format_queue_status(queue)}"
+        ),
+    )
+    return processed
+
+
+def retry_jobs_from_admin(sender: str):
+    retried = retry_failed_jobs()
+    send_text(
+        sender,
+        (
+            f"🔁 Retried {retried} failed job(s).\n\n"
+            "Type JOBS RUN to process them now, or JOBS STATUS to check the queue."
+        ),
+    )
+    return retried
 
 
 def send_pending_members(sender: str):
@@ -686,6 +752,22 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         if menu_action == "ADMIN_TT_STATUS":
             send_text(sender, f"{get_tt_status()}\n\nType ADMIN for tools.")
             return {"status": "status"}
+
+        if menu_action == "ADMIN_JOBS_STATUS":
+            send_jobs_status(sender)
+            return {"status": "jobs_status"}
+
+        if menu_action == "ADMIN_JOBS_RUN":
+            processed = run_jobs_from_admin(sender)
+            return {"status": "jobs_run", "processed": processed}
+
+        if menu_action == "ADMIN_JOBS_FAILED":
+            count = send_failed_jobs(sender)
+            return {"status": "jobs_failed", "count": count}
+
+        if menu_action == "ADMIN_JOBS_RETRY":
+            retried = retry_jobs_from_admin(sender)
+            return {"status": "jobs_retry", "retried": retried}
 
         if menu_action == "ADMIN_PENDING":
             count = send_pending_members(sender)

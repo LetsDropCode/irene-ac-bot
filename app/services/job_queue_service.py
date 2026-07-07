@@ -97,6 +97,41 @@ def get_queue_health():
     }
 
 
+def get_failed_jobs(limit: int = 5):
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT id, job_type, attempts, max_attempts, last_error, updated_at
+            FROM job_queue
+            WHERE status = 'FAILED'
+            ORDER BY updated_at DESC, id DESC
+            LIMIT %s
+        """, (limit,))
+        return cur.fetchall()
+
+
+def retry_failed_jobs(limit: int = 10):
+    with get_cursor() as cur:
+        cur.execute("""
+            WITH jobs_to_retry AS (
+                SELECT id
+                FROM job_queue
+                WHERE status = 'FAILED'
+                ORDER BY updated_at ASC, id ASC
+                LIMIT %s
+            )
+            UPDATE job_queue q
+            SET status = 'PENDING',
+                run_after = CURRENT_TIMESTAMP,
+                locked_at = NULL,
+                last_error = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            FROM jobs_to_retry
+            WHERE q.id = jobs_to_retry.id
+            RETURNING q.id
+        """, (limit,))
+        return len(cur.fetchall())
+
+
 def _claim_next_job():
     with get_cursor() as cur:
         cur.execute("""

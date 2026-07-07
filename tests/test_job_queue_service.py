@@ -10,8 +10,9 @@ from app.services import job_queue_service as service
 
 
 class FakeCursor:
-    def __init__(self, row=None):
+    def __init__(self, row=None, rows=None):
         self.row = row
+        self.rows = rows
         self.query = None
         self.params = None
 
@@ -21,6 +22,9 @@ class FakeCursor:
 
     def fetchone(self):
         return self.row
+
+    def fetchall(self):
+        return self.rows or []
 
 
 @contextmanager
@@ -81,6 +85,26 @@ class JobQueueServiceTests(unittest.TestCase):
         self.assertEqual(result["failed_jobs"], 3)
         self.assertEqual(result["oldest_pending_seconds"], 90)
         self.assertIn("FROM job_queue", cursor.query)
+
+    def test_get_failed_jobs_returns_recent_failures(self):
+        cursor = FakeCursor(rows=[{"id": 7, "job_type": "whatsapp_send"}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            rows = service.get_failed_jobs(limit=3)
+
+        self.assertEqual(rows, [{"id": 7, "job_type": "whatsapp_send"}])
+        self.assertIn("WHERE status = 'FAILED'", cursor.query)
+        self.assertEqual(cursor.params, (3,))
+
+    def test_retry_failed_jobs_moves_failures_back_to_pending(self):
+        cursor = FakeCursor(rows=[{"id": 7}, {"id": 8}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            retried = service.retry_failed_jobs(limit=2)
+
+        self.assertEqual(retried, 2)
+        self.assertIn("SET status = 'PENDING'", cursor.query)
+        self.assertEqual(cursor.params, (2,))
 
     def test_unknown_job_type_fails_loudly(self):
         with self.assertRaises(ValueError):

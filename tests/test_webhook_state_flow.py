@@ -159,6 +159,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_whats_new_seen",
                 "enqueue_post_confirm_messages",
                 "run_due_jobs",
+                "get_queue_health",
+                "get_failed_jobs",
+                "retry_failed_jobs",
                 "register_inbound_message",
                 "mark_inbound_message_processed",
             ]
@@ -291,6 +294,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_whats_new_seen",
                 "enqueue_post_confirm_messages",
                 "run_due_jobs",
+                "get_queue_health",
+                "get_failed_jobs",
+                "retry_failed_jobs",
                 "register_inbound_message",
                 "mark_inbound_message_processed",
             ]
@@ -450,6 +456,76 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             "27722135094",
             "TT status body\n\nType ADMIN for tools.",
         )
+
+    async def test_admin_jobs_status_returns_queue_summary(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="jobs status"),
+            member_data=member(phone="27722135094"),
+            get_queue_health={
+                "pending_jobs": 2,
+                "running_jobs": 1,
+                "failed_jobs": 0,
+                "done_jobs": 8,
+                "oldest_pending_seconds": 30,
+            },
+        )
+
+        self.assertEqual(result, {"status": "jobs_status"})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Job Queue Status", sent)
+        self.assertIn("Pending: 2", sent)
+        self.assertIn("Failed: 0", sent)
+
+    async def test_admin_jobs_run_processes_queue(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="jobs run"),
+            member_data=member(phone="27722135094"),
+            run_due_jobs=3,
+            get_queue_health={
+                "pending_jobs": 0,
+                "running_jobs": 0,
+                "failed_jobs": 0,
+                "done_jobs": 11,
+                "oldest_pending_seconds": 0,
+            },
+        )
+
+        self.assertEqual(result, {"status": "jobs_run", "processed": 3})
+        mocks["run_due_jobs"].assert_called_once_with()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("processed 3 job", sent)
+
+    async def test_admin_jobs_failed_lists_recent_failures(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="jobs failed"),
+            member_data=member(phone="27722135094"),
+            get_failed_jobs=[
+                {
+                    "id": 7,
+                    "job_type": "whatsapp_send",
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "last_error": "WhatsApp send returned false",
+                }
+            ],
+        )
+
+        self.assertEqual(result, {"status": "jobs_failed", "count": 1})
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Failed Jobs", sent)
+        self.assertIn("#7 whatsapp_send", sent)
+
+    async def test_admin_jobs_retry_requeues_failed_jobs(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="jobs retry"),
+            member_data=member(phone="27722135094"),
+            retry_failed_jobs=2,
+        )
+
+        self.assertEqual(result, {"status": "jobs_retry", "retried": 2})
+        mocks["retry_failed_jobs"].assert_called_once_with()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("Retried 2 failed job", sent)
 
     async def test_admin_recover_tonight_resends_prompts(self):
         result, mocks, _ = await self.call_webhook(
