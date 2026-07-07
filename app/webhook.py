@@ -118,7 +118,7 @@ def _mask_phone(value: str | None) -> str:
 
 def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> bool:
     if not WHATSAPP_APP_SECRET:
-        return ENV == "development"
+        return ENV in {"development", "test"}
 
     if not signature_header or not signature_header.startswith("sha256="):
         return False
