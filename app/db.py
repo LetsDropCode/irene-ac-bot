@@ -89,7 +89,7 @@ def init_db():
             distance_text TEXT,
             time_text TEXT NOT NULL,
             seconds INTEGER NOT NULL,
-            event_date DATE,
+            event_date DATE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -267,10 +267,43 @@ def init_db():
 
     cur.execute("""
         UPDATE submissions
-        SET event_date = (
-            created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg'
-        )::date
+        SET event_date = COALESCE(
+            (
+                created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg'
+            )::date,
+            (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+        )
         WHERE event_date IS NULL;
+    """)
+
+    cur.execute("""
+        ALTER TABLE submissions
+        ALTER COLUMN event_date SET NOT NULL;
+    """)
+
+    cur.execute("""
+        WITH ranked_pending AS (
+            SELECT
+                id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY member_id, event_date
+                    ORDER BY
+                        COALESCE(tt_code_verified, FALSE) DESC,
+                        (
+                            COALESCE(distance_text, '') <> ''
+                            OR COALESCE(time_text, '') <> ''
+                        ) DESC,
+                        created_at DESC,
+                        id DESC
+                ) AS row_number
+            FROM submissions
+            WHERE status = 'PENDING'
+        )
+        UPDATE submissions s
+        SET status = 'CANCELLED'
+        FROM ranked_pending rp
+        WHERE s.id = rp.id
+          AND rp.row_number > 1;
     """)
 
     # ----------------------------
@@ -294,6 +327,12 @@ def init_db():
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_submissions_member_event_date_status
         ON submissions (member_id, event_date, status);
+    """)
+
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_one_pending_per_member_event_date
+        ON submissions (member_id, event_date)
+        WHERE status = 'PENDING';
     """)
 
     cur.execute("""

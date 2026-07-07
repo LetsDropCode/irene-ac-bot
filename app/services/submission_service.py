@@ -31,6 +31,9 @@ def get_or_create_submission(member_id: int):
                 0,
                 (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
             )
+            ON CONFLICT (member_id, event_date)
+            WHERE status = 'PENDING'
+            DO UPDATE SET member_id = EXCLUDED.member_id
             RETURNING *
         """, (member_id,))
 

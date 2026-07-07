@@ -1,8 +1,10 @@
 # app/main.py
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from app.webhook import router as webhook_router
 from app.config import ENV
 from app.db import init_db
+from app.services.health_service import get_system_health
 
 app = FastAPI()
 
@@ -21,4 +23,6 @@ def read_root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    result = get_system_health()
+    status_code = 200 if result["status"] == "ok" else 503
+    return JSONResponse(result, status_code=status_code)
