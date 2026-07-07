@@ -97,6 +97,17 @@ class WhatsAppMenuTests(unittest.TestCase):
             "admin_menu",
         ])
 
+    def test_confirm_buttons_include_pace_and_clear_action_copy(self):
+        with patch.object(whatsapp, "_send", return_value=True) as send:
+            whatsapp.send_confirm_buttons("27999999999", "4", "27:41")
+
+        body = send.call_args.args[0]["interactive"]["body"]["text"]
+        self.assertIn("Ready to save this TT result?", body)
+        self.assertIn("Distance: 4 km", body)
+        self.assertIn("Time: 27:41", body)
+        self.assertIn("Pace: 6:55/km", body)
+        self.assertIn("Confirm to lock it in", body)
+
 
 if __name__ == "__main__":
     unittest.main()

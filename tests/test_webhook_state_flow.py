@@ -1026,7 +1026,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "code_ok_distance"})
-        mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in!")
+        mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in. Let’s capture your TT result.")
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
     async def test_runner_valid_code_sends_whats_new_once_when_unseen(self):
@@ -1045,7 +1045,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "code_ok_distance"})
         self.assertEqual(mocks["send_text"].call_count, 2)
-        self.assertEqual(mocks["send_text"].call_args_list[0].args, ("27999999999", "✅ Checked in!"))
+        self.assertEqual(mocks["send_text"].call_args_list[0].args, ("27999999999", "✅ Checked in. Let’s capture your TT result."))
         whats_new = mocks["send_text"].call_args_list[1].args[1]
         self.assertIn("What’s new", whats_new)
         self.assertIn("The Irene Shop", whats_new)
@@ -1062,7 +1062,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "menu_submit_await_code"})
         mocks["send_text"].assert_called_once_with(
             "27999999999",
-            "🔑 Send tonight's TT code to check in, or type MENU to go back.",
+            "🔑 Send tonight's TT code to check in. You can type MENU anytime.",
         )
 
     async def test_menu_profile_shortcut_opens_profile(self):
@@ -1228,7 +1228,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(result, {"status": "distance"})
             mocks["save_distance"].assert_called_once_with(101, "4")
-            mocks["send_text"].assert_called_once_with("27999999999", "⏱ Send your time.")
+            mocks["send_text"].assert_called_once_with(
+                "27999999999",
+                "⏱ Send your time, e.g. 27:41. I’ll show a confirmation before saving.",
+            )
 
         with self.subTest("time text"):
             saved = submission(distance_text="4", time_text="27:41", seconds=1661)
@@ -1279,7 +1282,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertEqual(result, {"status": "both_workout"})
-            mocks["send_text"].assert_called_once_with("27999999999", "🚶 Describe your workout.")
+            mocks["send_text"].assert_called_once_with(
+                "27999999999",
+                "🚶 Send a short note about your walk or workout, e.g. 45 min walk.",
+            )
 
     async def test_profile_name_edit_clears_state(self):
         result, mocks, _ = await self.call_webhook(
@@ -1339,7 +1345,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "resume_awaiting_time"})
         mocks["send_text"].assert_called_once_with(
             "27999999999",
-            "⏱ Send your time, for example 27:41 or 01:27:41.",
+            "⏱ Send your time, for example 27:41 or 01:27:41. I’ll show a confirmation before saving.",
         )
 
     async def test_unknown_text_opens_menu_recovery(self):
@@ -1420,15 +1426,17 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(messages), 1)
-        self.assertIn("*Lindsay, here’s your TT recap*", messages[0])
-        self.assertIn("4km — 27:41", messages[0])
+        self.assertIn("🏁 *Lindsay, your TT result is saved*", messages[0])
+        self.assertIn("Distance: 4 km", messages[0])
+        self.assertIn("Time: 27:41", messages[0])
         self.assertIn("Pace: 6:55/km", messages[0])
-        self.assertIn("🚀 PB by 2:19", messages[0])
+        self.assertIn("- PB by 2:19", messages[0])
         self.assertIn("Season TTs: 5", messages[0])
-        self.assertIn("🏆 Position: 2", messages[0])
+        self.assertIn("Tonight's 4 km position: #2", messages[0])
         self.assertIn("🎉 Milestone: 5 TTs logged", messages[0])
         self.assertIn("🥇 Badge: 4km PB", messages[0])
-        self.assertIn("🧠 Coach: Keep building steadily.", messages[0])
+        self.assertIn("*Coach note*", messages[0])
+        self.assertIn("Keep building steadily.", messages[0])
 
 
 if __name__ == "__main__":

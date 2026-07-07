@@ -5,6 +5,9 @@ import os
 import requests
 from typing import Dict, Any
 
+from app.services.validation import time_to_seconds
+from app.services.insight_services import seconds_to_pace
+
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 CONNECT_TIMEOUT = float(os.getenv("WHATSAPP_CONNECT_TIMEOUT", "2"))
@@ -24,6 +27,29 @@ def _mask_phone(value: str | None) -> str:
 
 def _graph_url() -> str:
     return f"https://graph.facebook.com/v22.0/{PHONE_NUMBER_ID}/messages"
+
+
+def _format_confirmation_body(distance: str, time: str) -> str:
+    lines = [
+        "Ready to save this TT result?",
+        "",
+        f"Distance: {distance} km",
+        f"Time: {time}",
+    ]
+
+    try:
+        pace = seconds_to_pace(time_to_seconds(time), distance)
+    except (TypeError, ValueError):
+        pace = None
+
+    if pace:
+        lines.append(f"Pace: {pace}")
+
+    lines.extend([
+        "",
+        "Confirm to lock it in, or edit if anything looks off.",
+    ])
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────
@@ -524,11 +550,7 @@ def send_confirm_buttons(
         "interactive": {
             "type": "button",
             "body": {
-                "text": (
-                    "Please confirm your Time Trial:\n\n"
-                    f"📏 Distance: {distance} km\n"
-                    f"⏱ Time: {time}"
-                )
+                "text": _format_confirmation_body(distance, time)
             },
             "action": {
                 "buttons": [

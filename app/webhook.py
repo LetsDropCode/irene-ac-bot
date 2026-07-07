@@ -375,7 +375,7 @@ def send_my_ranking(sender: str, member: dict):
 
 def send_submission_prompt(sender: str, participation_type: str):
     if participation_type == "WALKER":
-        send_text(sender, "🚶 Describe your workout.")
+        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
         return "walk"
 
     if participation_type == "BOTH":
@@ -399,7 +399,7 @@ def resume_submission(sender: str, member: dict, submission: dict):
         return "complete"
 
     if not submission.get("tt_code_verified"):
-        send_text(sender, "🔑 Send tonight's TT code to check in, or type MENU to go back.")
+        send_text(sender, "🔑 Send tonight's TT code to check in. You can type MENU anytime.")
         return "await_code"
 
     return prompt_for_pending_submission(sender, member, submission)
@@ -429,7 +429,7 @@ def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
     state = resolve_pending_submission_state(member, submission)
 
     if state == AWAITING_WORKOUT:
-        send_text(sender, "🚶 Describe your workout.")
+        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
         return state
 
     if state == AWAITING_BOTH_CHOICE:
@@ -441,7 +441,7 @@ def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
         return state
 
     if state == AWAITING_TIME:
-        send_text(sender, "⏱ Send your time, for example 27:41 or 01:27:41.")
+        send_text(sender, "⏱ Send your time, for example 27:41 or 01:27:41. I’ll show a confirmation before saving.")
         return state
 
     if state == AWAITING_CONFIRM:
@@ -513,22 +513,26 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
         logger.exception("Profile summary failed: %s", e)
 
     lines = [
-        f"*{first_name}, here’s your TT recap*",
+        f"🏁 *{first_name}, your TT result is saved*",
         "",
-        f"{submission['distance_text']}km — {submission['time_text']}",
+        "*Result*",
+        f"Distance: {submission['distance_text']} km",
+        f"Time: {submission['time_text']}",
     ]
 
     if pace:
         lines.append(f"Pace: {pace}")
 
+    highlights = []
     if previous_best is None:
-        lines.append(f"🚀 First {submission['distance_text']}km PB")
+        highlights.append(f"First recorded {submission['distance_text']} km result")
     elif submission["seconds"] < previous_best:
         diff = previous_best - submission["seconds"]
-        lines.append(f"🚀 PB by {_format_improvement(diff)}")
+        highlights.append(f"PB by {_format_improvement(diff)}")
 
+    progress = []
     if profile.get("total_runs"):
-        lines.append(f"Season TTs: {profile['total_runs']}")
+        progress.append(f"Season TTs: {profile['total_runs']}")
 
     rows = get_runner_leaderboard()
     position = _find_runner_position(
@@ -537,15 +541,18 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
         submission["distance_text"],
     )
     if position:
-        lines.append(f"🏆 Position: {position}")
+        progress.append(f"Tonight's {submission['distance_text']} km position: #{position}")
 
-    lines.extend(
-        _milestone_lines(
-            profile.get("total_runs") or 0,
-            previous_best,
-            submission,
-        )
+    highlights.extend(
+        _milestone_lines(profile.get("total_runs") or 0, previous_best, submission)
     )
+
+    if progress:
+        lines.extend(["", "*Progress*", *progress])
+
+    if highlights:
+        lines.extend(["", "*Highlights*"])
+        lines.extend(f"- {line}" for line in highlights)
 
     try:
         if submission.get("seconds"):
@@ -571,12 +578,12 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
             insight = coach_reply(prompt)
 
             if insight:
-                lines.extend(["", f"🧠 Coach: {insight}"])
+                lines.extend(["", "*Coach note*", insight])
 
     except Exception as e:
         logger.exception("Insight engine failed: %s", e)
 
-    lines.extend(["", "Type MENU to go back."])
+    lines.extend(["", "Type MENU for more options, or MY PROGRESS to see your history."])
     send_text(sender, "\n".join(lines))
 
 
@@ -797,10 +804,17 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         if text == "OK":
             acknowledge_popia(sender)
-            send_text(sender, "✅ Send your *first and last name*.")
+            send_text(sender, "✅ Thanks. Please send your *first and last name* so I can set up your TT profile.")
             return {"status": "popia_ack"}
 
-        send_text(sender, "ℹ️ Reply OK to continue or STOP to opt out.")
+        send_text(
+            sender,
+            (
+                "Welcome to Irene AC TT.\n\n"
+                "Reply OK to continue and let the bot store your TT profile and results. "
+                "Reply STOP to opt out."
+            ),
+        )
         return {"status": "popia"}
 
     # ───────── PROFILE ─────────
@@ -826,7 +840,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
     if profile_state == "EDIT_NAME":
         if not raw_text or len(raw_text.split()) < 2:
-            send_text(sender, "Please send your first and last name.")
+            send_text(sender, "Please send both your first and last name, e.g. Lindsay Bull.")
             return {"status": "profile_await_name"}
 
         parts = raw_text.split()
@@ -893,13 +907,13 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         or member["first_name"] == "Unknown"
     ):
         if not raw_text or len(raw_text.split()) < 2:
-            send_text(sender, "👋 Send *first and last name*.")
+            send_text(sender, "👋 Welcome. Please send your *first and last name* to set up your TT profile.")
             return {"status": "await_name"}
 
         parts = raw_text.split()
         save_member_name(member["id"], parts[0], " ".join(parts[1:]))
 
-        send_text(sender, "✅ Profile updated.")
+        send_text(sender, "✅ Profile created. Now choose how you usually take part.")
         send_participation_buttons(sender)
         return {"status": "profile_done"}
 
@@ -964,14 +978,14 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         save_participation_type(member["id"], ptype)
 
-        send_text(sender, "👍 Send tonight’s TT code.")
+        send_text(sender, f"👍 Saved as {ptype.title()}. Send tonight’s TT code when you’re ready to check in.")
         return {"status": "ptype"}
 
     # ───────── TT CODE ─────────
     if not submission["tt_code_verified"]:
 
         if not text:
-            send_text(sender, "🔑 Please send tonight's TT code.")
+            send_text(sender, "🔑 Please send tonight's TT code to check in.")
             return {"status": "await_code"}
 
         if not is_valid_tt_code(text):
@@ -992,7 +1006,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         except Exception as e:
             logger.exception("Attendance failed for member_id=%s: %s", member["id"], e)
 
-        send_text(sender, "✅ Checked in!")
+        send_text(sender, "✅ Checked in. Let’s capture your TT result.")
         send_whats_new_once(sender, member)
         prompt_status = send_submission_prompt(sender, member["participation_type"])
         return {"status": f"code_ok_{prompt_status}"}
@@ -1008,7 +1022,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_text(sender, "🚶 Workout logged! Well done.")
             return {"status": "both_workout_done"}
 
-        send_text(sender, "🚶 Describe your workout.")
+        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
         return {"status": "both_await_workout"}
 
     if member["participation_type"] == "WALKER":
@@ -1043,7 +1057,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         ):
             if btn == "submit_workout":
                 set_profile_state(member["id"], "BOTH_WORKOUT")
-                send_text(sender, "🚶 Describe your workout.")
+                send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
                 return {"status": "both_workout"}
 
             if btn == "submit_distance":
@@ -1062,7 +1076,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
                 btn.replace("km", "")
             )
 
-            send_text(sender, "⏱ Send your time.")
+            send_text(sender, "⏱ Send your time, e.g. 27:41. I’ll show a confirmation before saving.")
             return {"status": "distance"}
 
         # CONFIRM
