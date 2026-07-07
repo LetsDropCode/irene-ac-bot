@@ -68,6 +68,14 @@ from app.services.submission_service import (
 from app.services.attendance_service import mark_attendance
 from app.services.validation import is_valid_time, is_valid_tt_code, time_to_seconds
 from app.services.submission_gate import ensure_tt_open
+from app.services.idempotency_service import (
+    mark_inbound_message_processed,
+    register_inbound_message,
+)
+from app.services.job_queue_service import (
+    enqueue_post_confirm_messages,
+    run_due_jobs,
+)
 from app.services.pb_service import get_previous_best
 from app.services.leaderboard_service import get_runner_leaderboard
 from app.services.leaderboard_service import get_overall_leaderboard
@@ -495,9 +503,10 @@ def extract_whatsapp_message(payload: dict):
 
         messages = value.get("messages")
         if not messages:
-            return None, None, None
+            return None, None, None, None
 
         msg = messages[0]
+        message_id = msg.get("id")
         sender = msg.get("from")
 
         text = None
@@ -513,24 +522,51 @@ def extract_whatsapp_message(payload: dict):
         message_kind = "button" if button else "text" if text else "unknown"
         button_id = button.get("id") if button else None
         logger.info(
-            "Incoming WhatsApp message: from=%s kind=%s button_id=%s",
+            "Incoming WhatsApp message: id=%s from=%s kind=%s button_id=%s",
+            message_id or "none",
             _mask_phone(sender),
             message_kind,
             button_id,
         )
-        return sender, text, button
+        return message_id, sender, text, button
 
     except Exception as e:
         logger.exception("WhatsApp extractor error: %s", e)
-        return None, None, None
+        return None, None, None, None
 
 
 def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
-    sender, text, button = extract_whatsapp_message(payload)
+    message_id, sender, text, button = extract_whatsapp_message(payload)
 
     if not sender or (not text and not button):
         return {"status": "ignored"}
 
+    if message_id and not register_inbound_message(message_id, sender):
+        logger.info(
+            "Duplicate WhatsApp message ignored: id=%s from=%s",
+            message_id,
+            _mask_phone(sender),
+        )
+        return {"status": "duplicate"}
+
+    try:
+        result = _process_webhook_message(
+            sender,
+            text,
+            button,
+            background_tasks,
+        )
+    except Exception as exc:
+        if message_id:
+            mark_inbound_message_processed(message_id, "FAILED", str(exc))
+        raise
+
+    if message_id:
+        mark_inbound_message_processed(message_id, "PROCESSED")
+    return result
+
+
+def _process_webhook_message(sender: str, text: str | None, button: dict | None, background_tasks: BackgroundTasks):
     raw_text = text.strip() if text else None
     if text:
         text = raw_text.upper()
@@ -950,13 +986,13 @@ def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
                 return {"status": "already_confirmed"}
 
             send_text(sender, "TT recorded.")
-            background_tasks.add_task(
-                send_post_confirm_messages,
+            enqueue_post_confirm_messages(
                 sender,
                 dict(member),
                 dict(submission),
                 previous_best,
             )
+            background_tasks.add_task(run_due_jobs, 5)
 
             return {"status": "done"}
 

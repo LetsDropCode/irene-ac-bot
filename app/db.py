@@ -204,6 +204,33 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS inbound_whatsapp_messages (
+            message_id TEXT PRIMARY KEY,
+            sender TEXT,
+            status TEXT NOT NULL DEFAULT 'RECEIVED',
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            error TEXT
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS job_queue (
+            id SERIAL PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 3,
+            run_after TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            locked_at TIMESTAMP,
+            last_error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    cur.execute("""
         DELETE FROM event_codes a
         USING event_codes b
         WHERE a.id > b.id
@@ -357,6 +384,11 @@ def init_db():
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_attendance_member_event_date
         ON attendance (member_id, event, event_date);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_job_queue_status_run_after
+        ON job_queue (status, run_after, id);
     """)
 
     # ----------------------------

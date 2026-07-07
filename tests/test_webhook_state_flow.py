@@ -19,7 +19,7 @@ class FakeRequest:
         return self.payload
 
 
-def text_payload(sender="27999999999", body="hello"):
+def text_payload(sender="27999999999", body="hello", message_id=None):
     return {
         "entry": [
             {
@@ -28,6 +28,7 @@ def text_payload(sender="27999999999", body="hello"):
                         "value": {
                             "messages": [
                                 {
+                                    "id": message_id,
                                     "from": sender,
                                     "type": "text",
                                     "text": {"body": body},
@@ -41,7 +42,7 @@ def text_payload(sender="27999999999", body="hello"):
     }
 
 
-def button_payload(sender="27999999999", button_id="confirm", title="Confirm"):
+def button_payload(sender="27999999999", button_id="confirm", title="Confirm", message_id=None):
     return {
         "entry": [
             {
@@ -50,6 +51,7 @@ def button_payload(sender="27999999999", button_id="confirm", title="Confirm"):
                         "value": {
                             "messages": [
                                 {
+                                    "id": message_id,
                                     "from": sender,
                                     "type": "interactive",
                                     "interactive": {
@@ -148,6 +150,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_user_profile",
                 "has_seen_whats_new",
                 "mark_whats_new_seen",
+                "enqueue_post_confirm_messages",
+                "run_due_jobs",
+                "register_inbound_message",
+                "mark_inbound_message_processed",
             ]
             mocks = {}
             for name in patch_names:
@@ -158,6 +164,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     stack.enter_context(patch.object(secondary, name, mock))
                 mocks[name] = mock
             mocks["has_seen_whats_new"].return_value = True
+            mocks["register_inbound_message"].return_value = True
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
@@ -183,6 +190,20 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             result = await webhook_module.webhook(FakeRequest(payload), background_tasks)
 
         return result, mocks, background_tasks
+
+    async def test_duplicate_whatsapp_message_is_ignored(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="help", message_id="wamid.duplicate"),
+            register_inbound_message=False,
+        )
+
+        self.assertEqual(result, {"status": "duplicate"})
+        mocks["register_inbound_message"].assert_called_once_with(
+            "wamid.duplicate",
+            "27999999999",
+        )
+        mocks["send_main_menu_list"].assert_not_called()
+        mocks["mark_inbound_message_processed"].assert_not_called()
 
     async def test_verified_runner_resending_code_prompts_distance(self):
         result, mocks, _ = await self.call_webhook(
@@ -1155,6 +1176,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "done"})
         mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
+        mocks["enqueue_post_confirm_messages"].assert_called_once()
         mocks["get_runner_leaderboard"].assert_not_called()
         self.assertEqual(len(background_tasks.tasks), 1)
 
