@@ -56,6 +56,36 @@ def run_due_jobs(limit: int = 10):
     return processed
 
 
+def get_queue_health():
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'PENDING') AS pending_jobs,
+                COUNT(*) FILTER (WHERE status = 'RUNNING') AS running_jobs,
+                COUNT(*) FILTER (WHERE status = 'FAILED') AS failed_jobs,
+                COUNT(*) FILTER (WHERE status = 'DONE') AS done_jobs,
+                COALESCE(
+                    EXTRACT(
+                        EPOCH FROM (
+                            CURRENT_TIMESTAMP
+                            - MIN(run_after) FILTER (WHERE status = 'PENDING')
+                        )
+                    )::integer,
+                    0
+                ) AS oldest_pending_seconds
+            FROM job_queue
+        """)
+        row = cur.fetchone() or {}
+
+    return {
+        "pending_jobs": row.get("pending_jobs") or 0,
+        "running_jobs": row.get("running_jobs") or 0,
+        "failed_jobs": row.get("failed_jobs") or 0,
+        "done_jobs": row.get("done_jobs") or 0,
+        "oldest_pending_seconds": row.get("oldest_pending_seconds") or 0,
+    }
+
+
 def _claim_next_job():
     with get_cursor() as cur:
         cur.execute("""

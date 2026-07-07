@@ -1,4 +1,5 @@
 from app.db import get_cursor
+from app.services.job_queue_service import get_queue_health
 
 
 def get_system_health():
@@ -14,6 +15,7 @@ def get_system_health():
                     ) AS submissions_missing_event_date
             """)
             row = cur.fetchone()
+            queue = get_queue_health()
     except Exception as exc:
         return {
             "status": "error",
@@ -26,7 +28,8 @@ def get_system_health():
         }
 
     missing_event_dates = row["submissions_missing_event_date"] if row else None
-    status = "ok" if missing_event_dates == 0 else "degraded"
+    queue_status = "degraded" if queue["failed_jobs"] else "ok"
+    status = "ok" if missing_event_dates == 0 and queue_status == "ok" else "degraded"
 
     return {
         "status": status,
@@ -38,6 +41,10 @@ def get_system_health():
             "submissions_event_date": {
                 "status": "ok" if missing_event_dates == 0 else "degraded",
                 "missing_rows": missing_event_dates,
+            },
+            "job_queue": {
+                "status": queue_status,
+                **queue,
             },
         },
     }

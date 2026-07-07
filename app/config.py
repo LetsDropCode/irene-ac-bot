@@ -16,6 +16,8 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 ENV = os.getenv("ENV", "development")
+JOB_RUNNER_TOKEN = os.getenv("JOB_RUNNER_TOKEN")
+JOB_RUNNER_BATCH_SIZE = int(os.getenv("JOB_RUNNER_BATCH_SIZE", "10"))
 ATTENDANCE_REPORT_RECIPIENTS = _env_list(
     "ATTENDANCE_REPORT_RECIPIENTS",
     "bulllindsa@icloud.com,info@irenerunner.co.za",

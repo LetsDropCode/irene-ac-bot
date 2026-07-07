@@ -56,6 +56,23 @@ class JobQueueServiceTests(unittest.TestCase):
         self.assertEqual(processed, 1)
         run_job.assert_called_once()
 
+    def test_get_queue_health_returns_queue_counts(self):
+        cursor = FakeCursor(row={
+            "pending_jobs": 2,
+            "running_jobs": 1,
+            "failed_jobs": 3,
+            "done_jobs": 5,
+            "oldest_pending_seconds": 90,
+        })
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            result = service.get_queue_health()
+
+        self.assertEqual(result["pending_jobs"], 2)
+        self.assertEqual(result["failed_jobs"], 3)
+        self.assertEqual(result["oldest_pending_seconds"], 90)
+        self.assertIn("FROM job_queue", cursor.query)
+
     def test_unknown_job_type_fails_loudly(self):
         with self.assertRaises(ValueError):
             service._dispatch_job("missing", {})

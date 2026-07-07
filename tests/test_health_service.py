@@ -36,12 +36,27 @@ class HealthServiceTests(unittest.TestCase):
             "submissions_missing_event_date": 0,
         })
 
-        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+        with patch.object(
+            service,
+            "get_cursor",
+            return_value=fake_cursor_context(cursor),
+        ), patch.object(
+            service,
+            "get_queue_health",
+            return_value={
+                "pending_jobs": 0,
+                "running_jobs": 0,
+                "failed_jobs": 0,
+                "done_jobs": 3,
+                "oldest_pending_seconds": 0,
+            },
+        ):
             result = service.get_system_health()
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["checks"]["database"]["status"], "ok")
         self.assertEqual(result["checks"]["submissions_event_date"]["missing_rows"], 0)
+        self.assertEqual(result["checks"]["job_queue"]["status"], "ok")
         self.assertIn("WHERE event_date IS NULL", cursor.query)
 
     def test_health_is_degraded_when_event_date_backfill_is_incomplete(self):
@@ -50,11 +65,52 @@ class HealthServiceTests(unittest.TestCase):
             "submissions_missing_event_date": 2,
         })
 
-        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+        with patch.object(
+            service,
+            "get_cursor",
+            return_value=fake_cursor_context(cursor),
+        ), patch.object(
+            service,
+            "get_queue_health",
+            return_value={
+                "pending_jobs": 0,
+                "running_jobs": 0,
+                "failed_jobs": 0,
+                "done_jobs": 3,
+                "oldest_pending_seconds": 0,
+            },
+        ):
             result = service.get_system_health()
 
         self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["checks"]["submissions_event_date"]["status"], "degraded")
+
+    def test_health_is_degraded_when_queue_has_failed_jobs(self):
+        cursor = FakeCursor({
+            "sa_date": date(2026, 7, 7),
+            "submissions_missing_event_date": 0,
+        })
+
+        with patch.object(
+            service,
+            "get_cursor",
+            return_value=fake_cursor_context(cursor),
+        ), patch.object(
+            service,
+            "get_queue_health",
+            return_value={
+                "pending_jobs": 1,
+                "running_jobs": 0,
+                "failed_jobs": 2,
+                "done_jobs": 3,
+                "oldest_pending_seconds": 120,
+            },
+        ):
+            result = service.get_system_health()
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["checks"]["job_queue"]["status"], "degraded")
+        self.assertEqual(result["checks"]["job_queue"]["failed_jobs"], 2)
 
     def test_health_reports_database_errors(self):
         cursor = FakeCursor(error=RuntimeError("db unavailable"))
