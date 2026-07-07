@@ -58,8 +58,7 @@ def get_admin_dashboard():
             MAX(s.created_at) FILTER (WHERE s.status = 'COMPLETE') AS last_submission_at
         FROM submissions s
         JOIN members m ON m.id = s.member_id
-        WHERE DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
-            = CURRENT_DATE
+        WHERE s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         """)
         summary = cur.fetchone()
 
@@ -71,8 +70,7 @@ def get_admin_dashboard():
         JOIN members m ON m.id = s.member_id
         WHERE s.status = 'PENDING'
           AND s.tt_code_verified = TRUE
-          AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
-            = CURRENT_DATE
+          AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         ORDER BY s.created_at ASC
         LIMIT 5
         """)
@@ -113,8 +111,7 @@ def search_members_for_admin(query: str):
             FROM submissions s
             WHERE s.member_id = m.id
               AND s.status != 'CANCELLED'
-              AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
-                = CURRENT_DATE
+              AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
             ORDER BY s.created_at DESC
             LIMIT 1
         ) s ON TRUE
@@ -153,7 +150,7 @@ def get_member_submission_history(identifier: str, limit: int = 20):
             s.seconds,
             s.status,
             s.confirmed,
-            DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date,
+            s.event_date,
             s.created_at
         FROM submissions s
         JOIN members m ON m.id = s.member_id
@@ -184,7 +181,7 @@ def get_submission_for_admin(submission_id: int):
             s.seconds,
             s.status,
             s.confirmed,
-            DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date,
+            s.event_date,
             s.created_at
         FROM submissions s
         JOIN members m ON m.id = s.member_id
@@ -211,7 +208,7 @@ def correct_submission_by_id(
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
-                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+                s.event_date
             FROM submissions s
             WHERE s.id = %s
               AND s.status != 'CANCELLED'
@@ -265,7 +262,7 @@ def correct_submission_time_by_id(
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
-                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+                s.event_date
             FROM submissions s
             WHERE s.id = %s
               AND s.status != 'CANCELLED'
@@ -331,8 +328,7 @@ def correct_runner_time(
             JOIN members m ON m.id = s.member_id
             WHERE s.status != 'CANCELLED'
               AND s.tt_code_verified = TRUE
-              AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
-                = CURRENT_DATE
+              AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
               AND (
                     (%s IS NOT NULL AND m.id = %s)
                     OR (%s <> '' AND m.phone = %s)
@@ -406,11 +402,11 @@ def correct_runner_time_on_date(
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
-                DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') AS event_date
+                s.event_date
             FROM submissions s
             JOIN members m ON m.id = s.member_id
             WHERE s.status != 'CANCELLED'
-              AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = %s
+              AND s.event_date = %s
               AND (
                     (%s IS NOT NULL AND m.id = %s)
                     OR (%s <> '' AND m.phone = %s)

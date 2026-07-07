@@ -142,29 +142,6 @@ def mark_whats_new_seen(member_id: int, version: str):
 
 
 # ─────────────────────────────────────────────
-# PROFILE COMPLETION CHECK (NEW)
-# ─────────────────────────────────────────────
-def is_profile_incomplete(member: dict) -> bool:
-    """
-    Central logic so webhook + campaigns use same rule.
-    """
-
-    if not member:
-        return True
-
-    first = member.get("first_name")
-    last = member.get("last_name")
-
-    if not first or not last:
-        return True
-
-    if first.lower() == "unknown" or last.lower() in {"unknown", "member"}:
-        return True
-
-    return False
-
-
-# ─────────────────────────────────────────────
 # GET MEMBERS NEEDING PROFILE COMPLETION (NEW)
 # ─────────────────────────────────────────────
 def get_members_needing_profile_update():

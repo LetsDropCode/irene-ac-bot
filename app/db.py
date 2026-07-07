@@ -89,6 +89,7 @@ def init_db():
             distance_text TEXT,
             time_text TEXT NOT NULL,
             seconds INTEGER NOT NULL,
+            event_date DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -181,6 +182,11 @@ def init_db():
     """)
 
     cur.execute("""
+        ALTER TABLE submissions
+        ADD COLUMN IF NOT EXISTS event_date DATE;
+    """)
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS admin_corrections (
             id SERIAL PRIMARY KEY,
             admin_member_id INTEGER REFERENCES members(id),
@@ -259,6 +265,14 @@ def init_db():
         WHERE status IS NULL;
     """)
 
+    cur.execute("""
+        UPDATE submissions
+        SET event_date = (
+            created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg'
+        )::date
+        WHERE event_date IS NULL;
+    """)
+
     # ----------------------------
     # Performance indexes
     # ----------------------------
@@ -270,6 +284,16 @@ def init_db():
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_submissions_status_created_at
         ON submissions (status, created_at DESC);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_submissions_event_date_status
+        ON submissions (event_date, status);
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_submissions_member_event_date_status
+        ON submissions (member_id, event_date, status);
     """)
 
     cur.execute("""

@@ -4,17 +4,21 @@ import os
 
 load_dotenv()
 
+
+def _env_list(name: str, default: str = "") -> tuple[str, ...]:
+    return tuple(
+        item.strip()
+        for item in os.getenv(name, default).split(",")
+        if item.strip()
+    )
+
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 ENV = os.getenv("ENV", "development")
-ATTENDANCE_REPORT_RECIPIENTS = tuple(
-    email.strip()
-    for email in os.getenv(
-        "ATTENDANCE_REPORT_RECIPIENTS",
-        "bulllindsa@icloud.com,info@irenerunner.co.za",
-    ).split(",")
-    if email.strip()
+ATTENDANCE_REPORT_RECIPIENTS = _env_list(
+    "ATTENDANCE_REPORT_RECIPIENTS",
+    "bulllindsa@icloud.com,info@irenerunner.co.za",
 )
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -36,10 +40,9 @@ WHATS_NEW_MESSAGE = os.getenv(
     ),
 )
 
-ADMIN_NUMBERS = {
-    "27722135094", #Lindsay
-    "27738870757", #Jacqueline
-    "27829370733", #Wynand
-    "27818513864", #Johan
-    "27828827067", #Janine
-}
+ADMIN_NUMBERS = frozenset(
+    _env_list(
+        "ADMIN_NUMBERS",
+        "27722135094,27738870757,27829370733,27818513864,27828827067",
+    )
+)

@@ -12,7 +12,7 @@ def get_tt_status():
             COUNT(*) FILTER (WHERE status = 'COMPLETE') AS completed,
             COUNT(*) FILTER (WHERE status = 'PENDING') AS pending
         FROM submissions
-        WHERE DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+        WHERE event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         """)
 
         row = cur.fetchone()

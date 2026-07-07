@@ -1,5 +1,6 @@
 # app/whatsapp.py
 
+import logging
 import os
 import requests
 from typing import Dict, Any
@@ -10,6 +11,15 @@ CONNECT_TIMEOUT = float(os.getenv("WHATSAPP_CONNECT_TIMEOUT", "2"))
 READ_TIMEOUT = float(os.getenv("WHATSAPP_READ_TIMEOUT", "5"))
 
 _session = requests.Session()
+logger = logging.getLogger(__name__)
+
+
+def _mask_phone(value: str | None) -> str:
+    if not value:
+        return "unknown"
+    if len(value) <= 4:
+        return "****"
+    return f"***{value[-4:]}"
 
 
 def _graph_url() -> str:
@@ -22,12 +32,18 @@ def _graph_url() -> str:
 def _send(payload: Dict[str, Any]) -> bool:
     message_type = payload.get("type")
     recipient = payload.get("to")
-    print(f"📨 WhatsApp send attempt: type={message_type} to={recipient}")
+    logger.info(
+        "WhatsApp send attempt: type=%s to=%s",
+        message_type,
+        _mask_phone(recipient),
+    )
 
     if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
-        print("❌ WhatsApp ENV VARS MISSING")
-        print("WHATSAPP_TOKEN present:", bool(WHATSAPP_TOKEN))
-        print("PHONE_NUMBER_ID:", PHONE_NUMBER_ID)
+        logger.error(
+            "WhatsApp env vars missing: token_present=%s phone_number_id_present=%s",
+            bool(WHATSAPP_TOKEN),
+            bool(PHONE_NUMBER_ID),
+        )
         return False
 
     headers = {
@@ -43,15 +59,23 @@ def _send(payload: Dict[str, Any]) -> bool:
             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
         )
 
-        print("📤 WhatsApp response")
-        print("Status:", response.status_code)
         if not response.ok:
-            print("Body:", response.text)
+            logger.warning(
+                "WhatsApp send failed: status=%s to=%s",
+                response.status_code,
+                _mask_phone(recipient),
+            )
+        else:
+            logger.info(
+                "WhatsApp send succeeded: status=%s to=%s",
+                response.status_code,
+                _mask_phone(recipient),
+            )
 
         return response.ok
 
     except requests.RequestException as e:
-        print("❌ WhatsApp send exception:", str(e))
+        logger.exception("WhatsApp send exception to=%s: %s", _mask_phone(recipient), e)
         return False
 
 

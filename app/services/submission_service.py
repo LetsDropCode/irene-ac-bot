@@ -10,7 +10,7 @@ def get_or_create_submission(member_id: int):
             FROM submissions
             WHERE member_id = %s
                 AND status != 'CANCELLED'
-                AND DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+                AND event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
             ORDER BY created_at DESC
              LIMIT 1
         """, (member_id,))
@@ -22,8 +22,15 @@ def get_or_create_submission(member_id: int):
 
     with get_cursor() as cur:
         cur.execute("""
-            INSERT INTO submissions (member_id, activity, status, time_text, seconds)
-            VALUES (%s, 'TT', 'PENDING', '', 0)
+            INSERT INTO submissions (member_id, activity, status, time_text, seconds, event_date)
+            VALUES (
+                %s,
+                'TT',
+                'PENDING',
+                '',
+                0,
+                (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+            )
             RETURNING *
         """, (member_id,))
 
@@ -117,7 +124,7 @@ def release_pending_submissions(member_id: int):
             SET status = 'CANCELLED'
             WHERE member_id = %s
               AND status = 'PENDING'
-                AND DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+              AND event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
               AND tt_code_verified = FALSE
         """, (member_id,))
 
@@ -140,7 +147,7 @@ def get_pending_members():
         WHERE
             s.status = 'PENDING'
             AND s.tt_code_verified = TRUE
-            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = CURRENT_DATE
+            AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         ORDER BY s.created_at ASC
         """)
 
@@ -165,8 +172,7 @@ def get_tonight_unprompted_checked_in_members():
             AND s.tt_code_verified = TRUE
             AND COALESCE(s.distance_text, '') = ''
             AND COALESCE(s.time_text, '') = ''
-            AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')
-                = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+            AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         ORDER BY s.created_at ASC
         """)
 

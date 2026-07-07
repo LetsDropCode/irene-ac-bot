@@ -8,6 +8,7 @@ from fastapi import BackgroundTasks
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from app import webhook as webhook_module
+from app.flows import admin_flow as admin_flow_module
 
 
 class FakeRequest:
@@ -102,55 +103,60 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         background_tasks = BackgroundTasks()
 
         with ExitStack() as stack:
-            mocks = {
-                name: stack.enter_context(patch.object(webhook_module, name))
-                for name in [
-                    "send_text",
-                    "send_distance_buttons",
-                    "send_confirm_buttons",
-                    "send_participation_buttons",
-                    "send_profile_buttons",
-                    "send_both_submission_buttons",
-                    "send_main_menu_list",
-                    "send_leaderboard_menu_list",
-                    "send_admin_menu_list",
-                    "send_admin_edit_field_buttons",
-                    "send_admin_confirm_correction_buttons",
-                    "send_admin_member_center_buttons",
-                    "save_member_name",
-                    "set_profile_state",
-                    "clear_profile_state",
-                    "reopen_submission_for_edit",
-                    "verify_tt_code",
-                    "release_pending_submissions",
-                    "mark_attendance",
-                    "save_distance",
-                    "save_time",
-                    "confirm_submission",
-                    "get_previous_best",
-                    "get_runner_leaderboard",
-                    "get_overall_leaderboard",
-                    "get_member_rankings",
-                    "get_walker_feed",
-                    "get_tt_status",
-                    "get_pending_members",
-                    "get_tonight_unprompted_checked_in_members",
-                    "generate_tt_code",
-                    "get_admin_dashboard",
-                    "get_member_submission_history",
-                    "get_submission_for_admin",
-                    "search_members_for_admin",
-                    "correct_submission_by_id",
-                    "correct_submission_time_by_id",
-                    "correct_runner_pb",
-                    "correct_runner_time",
-                    "correct_runner_time_on_date",
-                    "send_admin_pending_actions",
-                    "get_user_profile",
-                    "has_seen_whats_new",
-                    "mark_whats_new_seen",
-                ]
-            }
+            patch_names = [
+                "send_text",
+                "send_distance_buttons",
+                "send_confirm_buttons",
+                "send_participation_buttons",
+                "send_profile_buttons",
+                "send_both_submission_buttons",
+                "send_main_menu_list",
+                "send_leaderboard_menu_list",
+                "send_admin_menu_list",
+                "send_admin_edit_field_buttons",
+                "send_admin_confirm_correction_buttons",
+                "send_admin_member_center_buttons",
+                "save_member_name",
+                "set_profile_state",
+                "clear_profile_state",
+                "reopen_submission_for_edit",
+                "verify_tt_code",
+                "release_pending_submissions",
+                "mark_attendance",
+                "save_distance",
+                "save_time",
+                "confirm_submission",
+                "get_previous_best",
+                "get_runner_leaderboard",
+                "get_overall_leaderboard",
+                "get_member_rankings",
+                "get_walker_feed",
+                "get_tt_status",
+                "get_pending_members",
+                "get_tonight_unprompted_checked_in_members",
+                "generate_tt_code",
+                "get_admin_dashboard",
+                "get_member_submission_history",
+                "get_submission_for_admin",
+                "search_members_for_admin",
+                "correct_submission_by_id",
+                "correct_submission_time_by_id",
+                "correct_runner_pb",
+                "correct_runner_time",
+                "correct_runner_time_on_date",
+                "send_admin_pending_actions",
+                "get_user_profile",
+                "has_seen_whats_new",
+                "mark_whats_new_seen",
+            ]
+            mocks = {}
+            for name in patch_names:
+                primary = webhook_module if hasattr(webhook_module, name) else admin_flow_module
+                mock = stack.enter_context(patch.object(primary, name))
+                secondary = admin_flow_module if primary is webhook_module else webhook_module
+                if hasattr(secondary, name):
+                    stack.enter_context(patch.object(secondary, name, mock))
+                mocks[name] = mock
             mocks["has_seen_whats_new"].return_value = True
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
@@ -171,7 +177,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     mocks[name].side_effect = None
                     mocks[name].return_value = value
                 else:
-                    stack.enter_context(patch.object(webhook_module, name, value))
+                    target = webhook_module if hasattr(webhook_module, name) else admin_flow_module
+                    stack.enter_context(patch.object(target, name, value))
 
             result = await webhook_module.webhook(FakeRequest(payload), background_tasks)
 

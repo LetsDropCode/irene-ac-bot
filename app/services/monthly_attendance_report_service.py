@@ -61,7 +61,7 @@ def fetch_attendance_rows(report_date=None):
                     WHERE s.member_id = a.member_id
                       AND s.activity = 'TT'
                       AND s.status = 'COMPLETE'
-                      AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = a.event_date
+                      AND s.event_date = a.event_date
                 ) AS submitted_result,
                 EXISTS (
                     SELECT 1
@@ -70,7 +70,7 @@ def fetch_attendance_rows(report_date=None):
                       AND s.activity = 'TT'
                       AND s.status = 'PENDING'
                       AND s.tt_code_verified = TRUE
-                      AND DATE(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg') = a.event_date
+                      AND s.event_date = a.event_date
                 ) AS pending_result
             FROM attendance a
             JOIN members m ON m.id = a.member_id

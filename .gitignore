@@ -1,12 +1,32 @@
-# Virtual environment
-.venv
+# Virtual environments
+.venv/
+venv/
 
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Environment variables
 .env
+.env.*
 env.json
+
 # OS files
 .DS_Store
+
+# Local backups, logs, and generated exports
+*.log
+*.sql
+*.sql.gz
+*.csv
+*.xlsx
+*.xls
+*.rtf
+
+# Local recovery/export scripts output
+recovery_*.sql
+railway_backup*
+schema_backup.sql
+cleaned_submissions_working.xlsx
+tt_*_cleaned.csv
