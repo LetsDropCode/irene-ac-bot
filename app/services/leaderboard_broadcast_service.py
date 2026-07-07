@@ -2,12 +2,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.services.leaderboard_formatter import format_full_leaderboard
+from app.services.job_queue_service import enqueue_whatsapp_text
 from app.services.leaderboard_service import (
     get_checked_in_tt_member_phones,
     get_runner_leaderboard,
     get_walker_feed,
 )
-from app.whatsapp import send_text
 
 SA_TZ = ZoneInfo("Africa/Johannesburg")
 
@@ -45,17 +45,17 @@ def send_next_day_leaderboard(event_date=None):
     if not recipients or not message:
         return {
             "event_date": event_date.isoformat(),
-            "sent": 0,
+            "queued": 0,
             "skipped": len(recipients),
         }
 
-    sent = 0
+    queued = 0
     for phone in recipients:
-        if send_text(phone, message):
-            sent += 1
+        if enqueue_whatsapp_text(phone, message):
+            queued += 1
 
     return {
         "event_date": event_date.isoformat(),
-        "sent": sent,
-        "skipped": len(recipients) - sent,
+        "queued": queued,
+        "skipped": len(recipients) - queued,
     }

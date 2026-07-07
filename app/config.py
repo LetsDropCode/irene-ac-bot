@@ -15,6 +15,7 @@ def _env_list(name: str, default: str = "") -> tuple[str, ...]:
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET") or os.getenv("META_APP_SECRET")
 ENV = os.getenv("ENV", "development")
 JOB_RUNNER_TOKEN = os.getenv("JOB_RUNNER_TOKEN")
 JOB_RUNNER_BATCH_SIZE = int(os.getenv("JOB_RUNNER_BATCH_SIZE", "10"))

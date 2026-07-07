@@ -44,6 +44,15 @@ class JobQueueServiceTests(unittest.TestCase):
         self.assertIn("INSERT INTO job_queue", cursor.query)
         self.assertEqual(cursor.params[0], service.JOB_POST_CONFIRM_MESSAGES)
 
+    def test_enqueue_whatsapp_text_stores_text_payload(self):
+        cursor = FakeCursor(row={"id": 12})
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            job_id = service.enqueue_whatsapp_text("2771", "Hello")
+
+        self.assertEqual(job_id, 12)
+        self.assertEqual(cursor.params[0], service.JOB_WHATSAPP_SEND)
+
     def test_run_due_jobs_processes_until_queue_empty(self):
         jobs = [{"id": 1, "job_type": "anything", "payload": {}, "attempts": 1, "max_attempts": 3}]
 

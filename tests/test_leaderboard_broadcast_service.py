@@ -32,28 +32,28 @@ class LeaderboardBroadcastServiceTests(unittest.TestCase):
         self.assertIn("Lindsay Bull", message)
 
     def test_send_next_day_leaderboard_sends_only_to_checked_in_members(self):
-        sent = []
+        queued = []
 
         with patch.object(service, "get_checked_in_tt_member_phones", return_value=["2771", "2772"]), patch.object(
             service,
             "build_next_day_leaderboard_message",
             return_value="Leaderboard message",
-        ), patch.object(service, "send_text", side_effect=lambda phone, _message: sent.append(phone) or True):
+        ), patch.object(service, "enqueue_whatsapp_text", side_effect=lambda phone, _message: queued.append(phone) or 11):
             result = service.send_next_day_leaderboard(date(2026, 6, 9))
 
-        self.assertEqual(sent, ["2771", "2772"])
-        self.assertEqual(result, {"event_date": "2026-06-09", "sent": 2, "skipped": 0})
+        self.assertEqual(queued, ["2771", "2772"])
+        self.assertEqual(result, {"event_date": "2026-06-09", "queued": 2, "skipped": 0})
 
     def test_send_next_day_leaderboard_skips_when_no_results(self):
         with patch.object(service, "get_checked_in_tt_member_phones", return_value=["2771"]), patch.object(
             service,
             "build_next_day_leaderboard_message",
             return_value=None,
-        ), patch.object(service, "send_text") as send_text:
+        ), patch.object(service, "enqueue_whatsapp_text") as enqueue_whatsapp_text:
             result = service.send_next_day_leaderboard(date(2026, 6, 9))
 
-        send_text.assert_not_called()
-        self.assertEqual(result, {"event_date": "2026-06-09", "sent": 0, "skipped": 1})
+        enqueue_whatsapp_text.assert_not_called()
+        self.assertEqual(result, {"event_date": "2026-06-09", "queued": 0, "skipped": 1})
 
 
 if __name__ == "__main__":

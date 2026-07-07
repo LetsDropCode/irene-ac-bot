@@ -1,9 +1,12 @@
+import hashlib
+import hmac
+import json
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.config import ADMIN_NUMBERS, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
+from app.config import ADMIN_NUMBERS, ENV, WHATSAPP_APP_SECRET, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
 from app.flows.admin_flow import (
     clear_admin_edit_state_if_needed,
     correct_admin_result,
@@ -108,6 +111,22 @@ def _mask_phone(value: str | None) -> str:
     if len(value) <= 4:
         return "****"
     return f"***{value[-4:]}"
+
+
+def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    if not WHATSAPP_APP_SECRET:
+        return ENV == "development"
+
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+
+    expected = hmac.new(
+        WHATSAPP_APP_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    received = signature_header.split("=", 1)[1]
+    return hmac.compare_digest(f"sha256={expected}", f"sha256={received}")
 
 
 def send_help_menu(sender: str, admin: bool = False):
@@ -1043,5 +1062,12 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
 @router.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
-    payload = await request.json()
+    raw_body = await request.body()
+    signature = request.headers.get("x-hub-signature-256")
+
+    if not verify_webhook_signature(raw_body, signature):
+        logger.warning("Rejected webhook with invalid signature")
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+    payload = json.loads(raw_body)
     return await run_in_threadpool(process_webhook_payload, payload, background_tasks)

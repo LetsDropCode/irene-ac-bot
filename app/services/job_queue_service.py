@@ -45,6 +45,17 @@ def enqueue_whatsapp_send(payload: dict[str, Any]):
     return enqueue_job(JOB_WHATSAPP_SEND, {"payload": payload})
 
 
+def enqueue_whatsapp_text(to: str, text: str):
+    return enqueue_whatsapp_send({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {
+            "body": text,
+        },
+    })
+
+
 def run_due_jobs(limit: int = 10):
     processed = 0
     for _ in range(limit):

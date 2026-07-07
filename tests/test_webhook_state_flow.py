@@ -1,4 +1,7 @@
 import os
+import hashlib
+import hmac
+import json
 import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
@@ -12,11 +15,15 @@ from app.flows import admin_flow as admin_flow_module
 
 
 class FakeRequest:
-    def __init__(self, payload):
+    def __init__(self, payload, headers=None):
         self.payload = payload
+        self.headers = headers or {}
 
     async def json(self):
         return self.payload
+
+    async def body(self):
+        return json.dumps(self.payload).encode("utf-8")
 
 
 def text_payload(sender="27999999999", body="hello", message_id=None):
@@ -204,6 +211,124 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         mocks["send_main_menu_list"].assert_not_called()
         mocks["mark_inbound_message_processed"].assert_not_called()
+
+    async def test_webhook_rejects_invalid_signature_when_secret_configured(self):
+        background_tasks = BackgroundTasks()
+
+        with patch.object(webhook_module, "WHATSAPP_APP_SECRET", "secret"), patch.object(webhook_module, "ENV", "production"):
+            with self.assertRaises(webhook_module.HTTPException) as ctx:
+                await webhook_module.webhook(
+                    FakeRequest(text_payload(body="help"), headers={"x-hub-signature-256": "sha256=bad"}),
+                    background_tasks,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_webhook_accepts_valid_signature_when_secret_configured(self):
+        payload = text_payload(body="help")
+        request = FakeRequest(payload)
+        raw_body = await request.body()
+        digest = hmac.new(b"secret", raw_body, hashlib.sha256).hexdigest()
+        request.headers["x-hub-signature-256"] = f"sha256={digest}"
+
+        with patch.object(webhook_module, "WHATSAPP_APP_SECRET", "secret"), patch.object(webhook_module, "ENV", "production"):
+            result, mocks, _ = await self.call_webhook_with_request(request)
+
+        self.assertEqual(result, {"status": "help"})
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
+
+    async def call_webhook_with_request(self, request, member_data=None, submission_data=None, **patches):
+        return await self._call_webhook_request(request, member_data, submission_data, **patches)
+
+    async def _call_webhook_request(self, request, member_data=None, submission_data=None, **patches):
+        background_tasks = BackgroundTasks()
+
+        with ExitStack() as stack:
+            patch_names = [
+                "send_text",
+                "send_distance_buttons",
+                "send_confirm_buttons",
+                "send_participation_buttons",
+                "send_profile_buttons",
+                "send_both_submission_buttons",
+                "send_main_menu_list",
+                "send_leaderboard_menu_list",
+                "send_admin_menu_list",
+                "send_admin_edit_field_buttons",
+                "send_admin_confirm_correction_buttons",
+                "send_admin_member_center_buttons",
+                "save_member_name",
+                "set_profile_state",
+                "clear_profile_state",
+                "reopen_submission_for_edit",
+                "verify_tt_code",
+                "release_pending_submissions",
+                "mark_attendance",
+                "save_distance",
+                "save_time",
+                "confirm_submission",
+                "get_previous_best",
+                "get_runner_leaderboard",
+                "get_overall_leaderboard",
+                "get_member_rankings",
+                "get_walker_feed",
+                "get_tt_status",
+                "get_pending_members",
+                "get_tonight_unprompted_checked_in_members",
+                "generate_tt_code",
+                "get_admin_dashboard",
+                "get_member_submission_history",
+                "get_submission_for_admin",
+                "search_members_for_admin",
+                "correct_submission_by_id",
+                "correct_submission_time_by_id",
+                "correct_runner_pb",
+                "correct_runner_time",
+                "correct_runner_time_on_date",
+                "send_admin_pending_actions",
+                "get_user_profile",
+                "has_seen_whats_new",
+                "mark_whats_new_seen",
+                "enqueue_post_confirm_messages",
+                "run_due_jobs",
+                "register_inbound_message",
+                "mark_inbound_message_processed",
+            ]
+            mocks = {}
+            for name in patch_names:
+                primary = webhook_module if hasattr(webhook_module, name) else admin_flow_module
+                mock = stack.enter_context(patch.object(primary, name))
+                secondary = admin_flow_module if primary is webhook_module else webhook_module
+                if hasattr(secondary, name):
+                    stack.enter_context(patch.object(secondary, name, mock))
+                mocks[name] = mock
+            mocks["has_seen_whats_new"].return_value = True
+            mocks["register_inbound_message"].return_value = True
+
+            stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
+            stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
+            get_or_create_value = submission_data or submission()
+            get_or_create_mock = stack.enter_context(
+                patch.object(webhook_module, "get_or_create_submission")
+            )
+            if isinstance(get_or_create_value, list):
+                get_or_create_mock.side_effect = get_or_create_value
+            else:
+                get_or_create_mock.return_value = get_or_create_value
+
+            stack.enter_context(patch.object(webhook_module, "ensure_tt_open", return_value=(True, None)))
+
+            for name, value in patches.items():
+                if name in mocks:
+                    mocks[name].side_effect = None
+                    mocks[name].return_value = value
+                else:
+                    target = webhook_module if hasattr(webhook_module, name) else admin_flow_module
+                    stack.enter_context(patch.object(target, name, value))
+
+            result = await webhook_module.webhook(request, background_tasks)
+
+        return result, mocks, background_tasks
 
     async def test_verified_runner_resending_code_prompts_distance(self):
         result, mocks, _ = await self.call_webhook(
