@@ -992,14 +992,20 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_text(sender, "❌ That TT code is not valid for today.")
             return {"status": "bad_format"}
 
+        # Clear any abandoned attempt before verifying a fresh submission.  Doing
+        # this after verification would cancel the submission we just checked in.
+        release_pending_submissions(member["id"])
+        submission = get_or_create_submission(member["id"])
+
+        if not submission:
+            send_text(sender, "⚠️ Please send TT code again.")
+            return {"status": "error"}
+
         submission = verify_tt_code(submission["id"], text)
 
         if not submission or not submission.get("tt_code_verified"):
             send_text(sender, "❌ Invalid TT code.")
             return {"status": "bad_code"}
-
-        release_pending_submissions(member["id"])
-        submission = get_or_create_submission(member["id"])
 
         try:
             mark_attendance(member["id"])

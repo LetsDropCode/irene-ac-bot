@@ -1029,6 +1029,25 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in. Let’s capture your TT result.")
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
+    async def test_valid_code_verifies_fresh_submission_after_clearing_abandoned_attempts(self):
+        abandoned = submission(id=101, tt_code_verified=False)
+        fresh = submission(id=102, tt_code_verified=False)
+        verified = submission(id=102, tt_code_verified=True)
+
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            submission_data=[abandoned, fresh],
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=verified,
+            release_pending_submissions=lambda _member_id: None,
+            mark_attendance=lambda _member_id: None,
+        )
+
+        self.assertEqual(result, {"status": "code_ok_distance"})
+        mocks["release_pending_submissions"].assert_called_once_with(42)
+        mocks["verify_tt_code"].assert_called_once_with(102, "9793")
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
     async def test_runner_valid_code_sends_whats_new_once_when_unseen(self):
         unverified = submission(tt_code_verified=False)
         verified = submission(tt_code_verified=True)
