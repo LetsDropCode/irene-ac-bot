@@ -1046,8 +1046,57 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "code_ok_distance"})
-        mocks["send_text"].assert_called_once_with("27999999999", "✅ Checked in. Let’s capture your TT result.")
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "✅ Welcome back, Lindsay! You’re checked in. Let’s capture your TT result.",
+        )
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_returning_walker_code_checks_in_and_prompts_for_workout(self):
+        unverified = submission(tt_code_verified=False)
+        verified = submission(tt_code_verified=True)
+
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=[unverified, verified],
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=verified,
+            release_pending_submissions=lambda _member_id: None,
+            mark_attendance=lambda _member_id: None,
+        )
+
+        self.assertEqual(result, {"status": "code_ok_walk"})
+        self.assertEqual(
+            mocks["send_text"].call_args_list,
+            [
+                (
+                    ("27999999999", "✅ Welcome back, Lindsay! You’re checked in. Let’s capture your TT result."),
+                    {},
+                ),
+                (
+                    ("27999999999", "🚶 Send a short note about your walk or workout, e.g. 45 min walk."),
+                    {},
+                ),
+            ],
+        )
+
+    async def test_returning_both_member_code_checks_in_and_prompts_for_activity(self):
+        unverified = submission(tt_code_verified=False)
+        verified = submission(tt_code_verified=True)
+
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=[unverified, verified],
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=verified,
+            release_pending_submissions=lambda _member_id: None,
+            mark_attendance=lambda _member_id: None,
+        )
+
+        self.assertEqual(result, {"status": "code_ok_both_choice"})
+        mocks["send_both_submission_buttons"].assert_called_once_with("27999999999")
 
     async def test_valid_code_verifies_fresh_submission_after_clearing_abandoned_attempts(self):
         abandoned = submission(id=101, tt_code_verified=False)
@@ -1084,7 +1133,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "code_ok_distance"})
         self.assertEqual(mocks["send_text"].call_count, 2)
-        self.assertEqual(mocks["send_text"].call_args_list[0].args, ("27999999999", "✅ Checked in. Let’s capture your TT result."))
+        self.assertEqual(
+            mocks["send_text"].call_args_list[0].args,
+            (
+                "27999999999",
+                "✅ Welcome back, Lindsay! You’re checked in. Let’s capture your TT result.",
+            ),
+        )
         whats_new = mocks["send_text"].call_args_list[1].args[1]
         self.assertIn("What’s new", whats_new)
         self.assertIn("The Irene Shop", whats_new)

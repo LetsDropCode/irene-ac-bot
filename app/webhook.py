@@ -1022,7 +1022,11 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         except Exception as e:
             logger.exception("Attendance failed for member_id=%s: %s", member["id"], e)
 
-        send_text(sender, "✅ Checked in. Let’s capture your TT result.")
+        first_name = member.get("first_name") or "there"
+        send_text(
+            sender,
+            f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result.",
+        )
         send_whats_new_once(sender, member)
         prompt_status = send_submission_prompt(sender, member["participation_type"])
         return {"status": f"code_ok_{prompt_status}"}
