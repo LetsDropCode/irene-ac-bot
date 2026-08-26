@@ -8,6 +8,7 @@ from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
 from app import config
+from app.branding import BARK, DEEP_PURPLE, ICE, LEAF_GREEN, TURQUOISE
 from app.db import get_cursor
 
 SA_TZ = ZoneInfo("Africa/Johannesburg")
@@ -192,7 +193,7 @@ def _format_number(value):
 def _metric_table(metrics):
     split = metrics["by_type"]
     return f"""
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;color:{DEEP_PURPLE};">
       <tr><td>Total check-ins</td><td align="right"><strong>{metrics['total_checkins']}</strong></td></tr>
       <tr><td>Unique members</td><td align="right"><strong>{metrics['unique_members']}</strong></td></tr>
       <tr><td>TT events</td><td align="right"><strong>{metrics['events']}</strong></td></tr>
@@ -218,7 +219,7 @@ def _top_members_table(top_members):
             "</tr>"
         )
     return (
-        "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;\">"
+        f"<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;color:{DEEP_PURPLE};\">"
         "<tr><th align=\"left\">Member</th><th align=\"right\">Check-ins</th><th align=\"right\">Last</th></tr>"
         + "".join(rows)
         + "</table>"
@@ -239,7 +240,7 @@ def _event_trend_table(event_trend):
             "</tr>"
         )
     return (
-        "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;\">"
+        f"<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;color:{DEEP_PURPLE};\">"
         "<tr><th align=\"left\">TT date</th><th align=\"right\">Check-ins</th><th align=\"right\">Results</th></tr>"
         + "".join(rows)
         + "</table>"
@@ -253,12 +254,12 @@ def build_attendance_report_html(report):
 
     return f"""<!doctype html>
 <html>
-  <body style="margin:0;background:#f6f7f9;font-family:Arial,sans-serif;color:#111827;">
+  <body style="margin:0;background:{ICE};font-family:Arial,sans-serif;color:{DEEP_PURPLE};">
     <div style="max-width:860px;margin:0 auto;padding:24px;">
-      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;">
-        <p style="margin:0 0 6px;color:#64748b;font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Irene Athletics Club</p>
-        <h1 style="margin:0;font-size:26px;line-height:1.25;">TT Attendance Dashboard</h1>
-        <p style="margin:8px 0 0;color:#475569;">Report date: {_format_date(report_date)}</p>
+      <div style="background:#ffffff;border-top:8px solid {TURQUOISE};border-radius:8px;padding:24px;">
+        <p style="margin:0 0 6px;color:{LEAF_GREEN};font-size:13px;font-weight:bold;letter-spacing:.04em;text-transform:uppercase;">Irene Athletics Club</p>
+        <h1 style="margin:0;font-size:26px;line-height:1.25;color:{DEEP_PURPLE};">TT Attendance Dashboard</h1>
+        <p style="margin:8px 0 0;color:{BARK};">Report date: {_format_date(report_date)}</p>
       </div>
 
       <div style="display:block;margin-top:16px;">

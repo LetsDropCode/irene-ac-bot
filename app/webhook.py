@@ -6,7 +6,8 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.config import ADMIN_NUMBERS, ENV, WHATSAPP_APP_SECRET, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
+from app.config import ADMIN_NUMBERS, ENV, PUBLIC_BASE_URL, WHATSAPP_APP_SECRET, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
+from app.branding import LOGO_PATH
 from app.flows.admin_flow import (
     clear_admin_edit_state_if_needed,
     correct_admin_result,
@@ -30,6 +31,7 @@ from app.flows.submission_state import (
     resolve_pending_submission_state,
 )
 from app.whatsapp import (
+    send_image,
     send_text,
     send_distance_buttons,
     send_confirm_buttons,
@@ -790,6 +792,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
     # ───────── MEMBER ─────────
     member = get_member(sender)
+    is_new_member = not member
     if not member:
         member = create_member(sender)
 
@@ -801,6 +804,13 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
     # ───────── POPIA ─────────
     if not member.get("popia_acknowledged"):
+
+        if is_new_member and PUBLIC_BASE_URL:
+            send_image(
+                sender,
+                f"{PUBLIC_BASE_URL}{LOGO_PATH}",
+                "Welcome to Irene Athletics Club.",
+            )
 
         if text == "OK":
             acknowledge_popia(sender)

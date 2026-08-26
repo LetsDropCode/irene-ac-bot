@@ -60,6 +60,8 @@ class MonthlyAttendanceReportServiceTests(unittest.TestCase):
         self.assertIn("Month to date", body)
         self.assertIn("Year to date", body)
         self.assertIn("YTD top attendees", body)
+        self.assertIn("#38B8B7", body)
+        self.assertIn("#342B82", body)
 
         attachments = list(message.iter_attachments())
         self.assertEqual(len(attachments), 1)

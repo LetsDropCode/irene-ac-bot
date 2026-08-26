@@ -1,4 +1,12 @@
 import argparse
+import sys
+from pathlib import Path
+
+# Support the documented `venv/bin/python scripts/send_monthly_attendance_report.py`
+# invocation by making the repository package importable.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.services.monthly_attendance_report_service import (
     build_attendance_report,

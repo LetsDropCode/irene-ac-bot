@@ -120,6 +120,19 @@ def send_text(to: str, text: str) -> bool:
     return _send(payload)
 
 
+def send_image(to: str, image_url: str, caption: str | None = None) -> bool:
+    """Send a publicly accessible image in the active WhatsApp conversation."""
+    image = {"link": image_url}
+    if caption:
+        image["caption"] = caption
+    return _send({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": image,
+    })
+
+
 # ─────────────────────────────────────────────
 # MAIN MENU LIST
 # ─────────────────────────────────────────────

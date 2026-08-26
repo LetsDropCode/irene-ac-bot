@@ -33,7 +33,10 @@ WHATSAPP_CONNECT_TIMEOUT=2
 WHATSAPP_READ_TIMEOUT=5
 WHATS_NEW_VERSION=2026-06-shop-league-menu
 WHATS_NEW_MESSAGE=...
+PUBLIC_BASE_URL=https://your-public-app-domain
 ```
+
+`PUBLIC_BASE_URL` lets the bot send the Irene tree logo to first-time members. On Railway it is inferred from `RAILWAY_PUBLIC_DOMAIN` when this setting is omitted.
 
 OpenAI coaching fallback:
 

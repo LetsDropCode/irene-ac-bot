@@ -108,11 +108,31 @@ def submission(**overrides):
 
 
 class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_member_receives_irene_logo_when_public_url_is_configured(self):
+        new_member = member(popia_acknowledged=False)
+        with patch.object(webhook_module, "get_member", return_value=None), patch.object(
+            webhook_module, "create_member", return_value=new_member
+        ), patch.object(webhook_module, "PUBLIC_BASE_URL", "https://bot.example.com"), patch.object(
+            webhook_module, "send_image"
+        ) as send_image, patch.object(webhook_module, "send_text") as send_text:
+            result = webhook_module._process_webhook_message(
+                "27999999999", "hello", None, BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "popia"})
+        send_image.assert_called_once_with(
+            "27999999999",
+            "https://bot.example.com/assets/irene-tree-logo.jpeg",
+            "Welcome to Irene Athletics Club.",
+        )
+        send_text.assert_called_once()
+
     async def call_webhook(self, payload, member_data=None, submission_data=None, **patches):
         background_tasks = BackgroundTasks()
 
         with ExitStack() as stack:
             patch_names = [
+                "send_image",
                 "send_text",
                 "send_distance_buttons",
                 "send_confirm_buttons",
