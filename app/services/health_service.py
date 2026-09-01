@@ -36,7 +36,8 @@ def get_system_health():
         "checks": {
             "database": {
                 "status": "ok",
-                "sa_date": row["sa_date"] if row else None,
+                # JSONResponse cannot serialize a Python date object directly.
+                "sa_date": row["sa_date"].isoformat() if row and row["sa_date"] else None,
             },
             "submissions_event_date": {
                 "status": "ok" if missing_event_dates == 0 else "degraded",

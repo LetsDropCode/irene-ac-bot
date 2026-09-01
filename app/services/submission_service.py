@@ -131,7 +131,10 @@ def release_pending_submissions(member_id: int):
               AND tt_code_verified = FALSE
         """, (member_id,))
 
-        return cur.fetchone()
+        # This UPDATE intentionally has no RETURNING clause. Calling fetchone()
+        # here raises psycopg2.ProgrammingError ("no results to fetch"), which
+        # stopped every valid TT-code submission before it could be verified.
+        return cur.rowcount
 
 def get_pending_members():
     with get_cursor(commit=False) as cur:

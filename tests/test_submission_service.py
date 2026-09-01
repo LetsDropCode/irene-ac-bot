@@ -9,8 +9,9 @@ from app.services import submission_service as service
 
 
 class FakeCursor:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, rowcount=0):
         self.rows = rows or []
+        self.rowcount = rowcount
         self.queries = []
         self.params = []
 
@@ -46,6 +47,16 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertIn("event_date =", select_cursor.queries[0])
         self.assertIn("ON CONFLICT (member_id, event_date)", insert_cursor.queries[0])
         self.assertIn("WHERE status = 'PENDING'", insert_cursor.queries[0])
+
+    def test_release_pending_submissions_returns_update_count_without_fetching(self):
+        cursor = FakeCursor(rowcount=3)
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            released = service.release_pending_submissions(42)
+
+        self.assertEqual(released, 3)
+        self.assertIn("UPDATE submissions", cursor.queries[0])
+        self.assertIn("tt_code_verified = FALSE", cursor.queries[0])
 
 
 if __name__ == "__main__":
