@@ -40,6 +40,30 @@ def get_or_create_submission(member_id: int):
         return cur.fetchone()
 
 
+def get_resumable_submission(member_id: int):
+    """Return today's, or last night's, verified pending TT submission.
+
+    A checked-in member may finish the following morning, but only before the
+    submission gate's next-day deadline. The gate remains responsible for
+    enforcing that deadline.
+    """
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM submissions
+            WHERE member_id = %s
+              AND status = 'PENDING'
+              AND tt_code_verified = TRUE
+              AND event_date IN (
+                  (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date,
+                  (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date - 1
+              )
+            ORDER BY event_date DESC, created_at DESC
+            LIMIT 1
+        """, (member_id,))
+        return cur.fetchone()
+
+
 def verify_tt_code(submission_id: int, code: str):
 
     with get_cursor() as cur:
@@ -161,6 +185,12 @@ def get_pending_members():
 
 
 def get_tonight_unprompted_checked_in_members():
+    """Return every checked-in member with an unfinished result for today.
+
+    The legacy name is retained because this powers the existing admin recovery
+    action. Returning partial submissions lets recovery continue at the correct
+    step rather than restarting someone who has already supplied a distance.
+    """
     with get_cursor(commit=False) as cur:
         cur.execute("""
         SELECT
@@ -170,14 +200,14 @@ def get_tonight_unprompted_checked_in_members():
             m.profile_state,
             s.id AS submission_id,
             s.distance_text,
-            s.time_text
+            s.time_text,
+            s.status,
+            s.tt_code_verified
         FROM submissions s
         JOIN members m ON m.id = s.member_id
         WHERE
             s.status = 'PENDING'
             AND s.tt_code_verified = TRUE
-            AND COALESCE(s.distance_text, '') = ''
-            AND COALESCE(s.time_text, '') = ''
             AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
         ORDER BY s.created_at ASC
         """)

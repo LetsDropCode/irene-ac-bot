@@ -151,6 +151,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "reopen_submission_for_edit",
                 "verify_tt_code",
                 "release_pending_submissions",
+                "get_resumable_submission",
                 "mark_attendance",
                 "save_distance",
                 "save_time",
@@ -195,6 +196,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 mocks[name] = mock
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
+            mocks["get_resumable_submission"].return_value = None
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
@@ -286,6 +288,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "reopen_submission_for_edit",
                 "verify_tt_code",
                 "release_pending_submissions",
+                "get_resumable_submission",
                 "mark_attendance",
                 "save_distance",
                 "save_time",
@@ -330,6 +333,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 mocks[name] = mock
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
+            mocks["get_resumable_submission"].return_value = None
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))

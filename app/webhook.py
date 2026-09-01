@@ -60,6 +60,7 @@ from app.services.member_service import (
 
 from app.services.submission_service import (
     get_or_create_submission,
+    get_resumable_submission,
     get_pending_members,
     get_tonight_unprompted_checked_in_members,
     verify_tt_code,
@@ -309,7 +310,19 @@ def recover_tonight(sender: str):
     counts = {"WALKER": 0, "BOTH": 0, "RUNNER": 0}
     for row in rows:
         ptype = row.get("participation_type") or "RUNNER"
-        send_submission_prompt(row["phone"], ptype)
+        if "submission_id" in row:
+            prompt_for_pending_submission(
+                row["phone"],
+                {
+                    "id": row.get("member_id"),
+                    "participation_type": ptype,
+                    "profile_state": row.get("profile_state"),
+                },
+                row,
+            )
+        else:
+            # Compatibility with older recovery records and test doubles.
+            send_submission_prompt(row["phone"], ptype)
         counts[ptype if ptype in counts else "RUNNER"] += 1
 
     send_text(
@@ -928,7 +941,9 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         return {"status": "profile_done"}
 
     # ───────── SUBMISSION ─────────
-    submission = get_or_create_submission(member["id"])
+    # Preserve a verified pending check-in from last night so members can
+    # complete the same TT result before the next-day deadline.
+    submission = get_resumable_submission(member["id"]) or get_or_create_submission(member["id"])
 
     if not submission:
         send_text(sender, "⚠️ Please send TT code again.")
@@ -969,7 +984,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         return {"status": "edit_existing"}
 
     # ───────── TT GATE ─────────
-    allowed, reason = ensure_tt_open()
+    allowed, reason = ensure_tt_open(submission_event_date=submission.get("event_date"))
     if not allowed:
         send_text(sender, reason)
         return {"status": "closed"}

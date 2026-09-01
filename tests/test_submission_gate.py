@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -44,6 +44,26 @@ class SubmissionGateTests(unittest.TestCase):
 
         self.assertFalse(allowed)
         self.assertEqual(reason, "⛔ Time Trials only happen on *Tuesdays*.")
+
+    def test_verified_tuesday_submission_can_be_finished_before_wednesday_deadline(self):
+        with patch.object(submission_gate, "_get_event_config", return_value=None):
+            allowed, reason = submission_gate.ensure_tt_open(
+                now=datetime(2026, 9, 2, 12, 59, tzinfo=SA_TZ),
+                submission_event_date=date(2026, 9, 1),
+            )
+
+        self.assertTrue(allowed)
+        self.assertIsNone(reason)
+
+    def test_verified_tuesday_submission_closes_after_wednesday_deadline(self):
+        with patch.object(submission_gate, "_get_event_config", return_value=None):
+            allowed, reason = submission_gate.ensure_tt_open(
+                now=datetime(2026, 9, 2, 13, 1, tzinfo=SA_TZ),
+                submission_event_date=date(2026, 9, 1),
+            )
+
+        self.assertFalse(allowed)
+        self.assertIn("deadline", reason)
 
     def test_gate_uses_database_event_config(self):
         config = {

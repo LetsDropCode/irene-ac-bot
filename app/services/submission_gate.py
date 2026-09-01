@@ -1,5 +1,5 @@
 # app/services/submission_gate.py
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.db import get_cursor
@@ -8,6 +8,7 @@ SA_TZ = ZoneInfo("Africa/Johannesburg")
 TT_DAY = 1  # Tuesday
 TT_OPEN = time(17, 0)
 TT_CLOSE = time(22, 30)
+NEXT_DAY_RESULT_DEADLINE = time(13, 0)
 
 
 def _parse_time(value: str, fallback: time) -> time:
@@ -55,7 +56,7 @@ def _gate_config(event: str):
     }
 
 
-def ensure_tt_open(now=None, event: str = "TT"):
+def ensure_tt_open(now=None, event: str = "TT", submission_event_date: date | None = None):
     now = now or datetime.now(SA_TZ)
     if now.tzinfo is None:
         now = now.replace(tzinfo=SA_TZ)
@@ -65,6 +66,16 @@ def ensure_tt_open(now=None, event: str = "TT"):
     config = _gate_config(event)
     open_time = config["open_time"]
     close_time = config["close_time"]
+
+    # Members who checked in during the Tuesday window may finish the same
+    # result until 13:00 the next day. Their submission keeps Tuesday's date.
+    if submission_event_date == now.date() - timedelta(days=1):
+        if submission_event_date.weekday() == config["day_of_week"] and now.time() <= NEXT_DAY_RESULT_DEADLINE:
+            return True, None
+        return False, (
+            f"⛔ The deadline for the {submission_event_date.strftime('%-d %B')} TT was "
+            f"*{NEXT_DAY_RESULT_DEADLINE.strftime('%H:%M')}* today."
+        )
 
     if now.weekday() != config["day_of_week"]:
         return False, "⛔ Time Trials only happen on *Tuesdays*."
