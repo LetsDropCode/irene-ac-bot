@@ -22,13 +22,17 @@ def affected_senders(event_date: date) -> list[str]:
         cur.execute(
             """
             SELECT DISTINCT sender
-            FROM inbound_whatsapp_messages
-            WHERE status = 'FAILED'
-              AND error = %s
-              AND (received_at AT TIME ZONE 'Africa/Johannesburg')::date = %s
+            FROM inbound_whatsapp_messages i
+            JOIN members m ON m.phone = i.sender
+            JOIN submissions s ON s.member_id = m.id AND s.event_date = %s
+            WHERE i.status = 'FAILED'
+              AND i.error = %s
+              AND (i.received_at AT TIME ZONE 'Africa/Johannesburg')::date = %s
+              AND s.status = 'PENDING'
+              AND s.tt_code_verified = FALSE
             ORDER BY sender
             """,
-            (FAILURE_TEXT, event_date),
+            (event_date, FAILURE_TEXT, event_date),
         )
         return [row["sender"] for row in cur.fetchall() if row.get("sender")]
 
@@ -62,12 +66,14 @@ def send_next_step(phone: str, participation_type: str | None):
         send_distance_buttons(phone)
 
 
-def recover(event_date: date, dry_run: bool = False) -> int:
+def recover(event_date: date, dry_run: bool = False, limit: int | None = None) -> int:
     code = get_event_code(event_date)
     if not code:
         raise RuntimeError(f"No TT code exists for {event_date.isoformat()}.")
 
     senders = affected_senders(event_date)
+    if limit:
+        senders = senders[:limit]
     if dry_run:
         return len(senders)
 
@@ -81,10 +87,13 @@ def recover(event_date: date, dry_run: bool = False) -> int:
         if not submission:
             continue
 
-        if not submission.get("tt_code_verified"):
-            verify_tt_code(submission["id"], code)
-            mark_attendance(member["id"])
+        # This script is safe to rerun in small batches: it never sends a
+        # duplicate prompt to someone whose check-in it has already restored.
+        if submission.get("tt_code_verified") or submission.get("status") == "COMPLETE":
+            continue
 
+        verify_tt_code(submission["id"], code)
+        mark_attendance(member["id"])
         send_next_step(phone, member.get("participation_type"))
         recovered += 1
 
@@ -95,6 +104,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default="2026-09-01", type=date.fromisoformat)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--limit", type=int)
     args = parser.parse_args()
-    count = recover(args.date, dry_run=args.dry_run)
+    count = recover(args.date, dry_run=args.dry_run, limit=args.limit)
     print(f"{'Would recover' if args.dry_run else 'Recovered'} {count} member(s).")
