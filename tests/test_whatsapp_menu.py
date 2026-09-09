@@ -17,6 +17,8 @@ class WhatsAppMenuTests(unittest.TestCase):
 
         self.assertEqual(interactive["type"], "list")
         self.assertEqual(interactive["action"]["button"], "Open menu")
+        self.assertEqual(interactive["header"]["text"], "🌳 Irene AC")
+        self.assertIn("Serious about our frun", interactive["body"]["text"])
         self.assertIn("menu_submit", row_ids)
         self.assertIn("menu_progress", row_ids)
         self.assertIn("menu_leaderboard", row_ids)
@@ -24,6 +26,8 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertIn("menu_league_standings", row_ids)
         self.assertNotIn("menu_overall_leaderboard", row_ids)
         self.assertIn("menu_opt_out", row_ids)
+        self.assertIn("menu_opt_in", row_ids)
+        self.assertNotIn("menu_edit_profile", row_ids)
         self.assertNotIn("admin_tt_code", row_ids)
 
     def test_leaderboard_menu_has_member_leaderboard_options(self):
@@ -39,6 +43,19 @@ class WhatsAppMenuTests(unittest.TestCase):
             "leaderboard_overall",
             "leaderboard_my_ranking",
         ])
+        interactive = send.call_args.args[0]["interactive"]
+        self.assertEqual(interactive["header"]["text"], "🌳 Irene AC leaderboards")
+        self.assertEqual(interactive["footer"]["text"], "Irene AC • Serious about our frun")
+
+    def test_profile_actions_keep_edit_and_menu_controls_compact(self):
+        with patch.object(whatsapp, "_send", return_value=True) as send:
+            whatsapp.send_profile_buttons("27999999999", "Profile body")
+
+        buttons = send.call_args.args[0]["interactive"]["action"]["buttons"]
+        self.assertEqual(
+            [button["reply"]["id"] for button in buttons],
+            ["edit_name", "edit_type", "back_menu"],
+        )
 
     def test_admin_menu_includes_admin_rows(self):
         with patch.object(whatsapp, "_send", return_value=True) as send:

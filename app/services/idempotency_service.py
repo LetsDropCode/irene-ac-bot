@@ -9,7 +9,13 @@ def register_inbound_message(message_id: str | None, sender: str | None = None) 
         cur.execute("""
             INSERT INTO inbound_whatsapp_messages (message_id, sender)
             VALUES (%s, %s)
-            ON CONFLICT (message_id) DO NOTHING
+            ON CONFLICT (message_id) DO UPDATE
+            SET sender = EXCLUDED.sender,
+                status = 'RECEIVED',
+                received_at = CURRENT_TIMESTAMP,
+                processed_at = NULL,
+                error = NULL
+            WHERE inbound_whatsapp_messages.status = 'FAILED'
             RETURNING message_id
         """, (message_id, sender))
         return cur.fetchone() is not None

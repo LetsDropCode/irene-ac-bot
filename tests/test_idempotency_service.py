@@ -35,7 +35,8 @@ class IdempotencyServiceTests(unittest.TestCase):
             result = service.register_inbound_message("wamid.1", "27999999999")
 
         self.assertTrue(result)
-        self.assertIn("ON CONFLICT (message_id) DO NOTHING", cursor.query)
+        self.assertIn("ON CONFLICT (message_id) DO UPDATE", cursor.query)
+        self.assertIn("status = 'FAILED'", cursor.query)
         self.assertEqual(cursor.params, ("wamid.1", "27999999999"))
 
     def test_register_inbound_message_returns_false_for_duplicate(self):
@@ -45,6 +46,16 @@ class IdempotencyServiceTests(unittest.TestCase):
             result = service.register_inbound_message("wamid.1", "27999999999")
 
         self.assertFalse(result)
+
+    def test_failed_message_is_reopened_for_a_safe_retry(self):
+        cursor = FakeCursor(row={"message_id": "wamid.failed"})
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            result = service.register_inbound_message("wamid.failed", "27999999999")
+
+        self.assertTrue(result)
+        self.assertIn("processed_at = NULL", cursor.query)
+        self.assertIn("error = NULL", cursor.query)
 
     def test_missing_message_id_is_processable(self):
         self.assertTrue(service.register_inbound_message(None, "27999999999"))

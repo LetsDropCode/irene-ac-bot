@@ -17,7 +17,7 @@ def get_member(phone: str):
 # ─────────────────────────────────────────────
 # CREATE MEMBER (SAFE DEFAULTS)
 # ─────────────────────────────────────────────
-def create_member(phone: str):
+def create_member(phone: str, popia_acknowledged: bool = False):
     """
     Creates a new member with safe placeholders.
     Prevents NOT NULL constraint failures.
@@ -26,11 +26,13 @@ def create_member(phone: str):
     with get_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO members (phone, first_name, last_name)
-            VALUES (%s, %s, %s)
+            INSERT INTO members (phone, first_name, last_name, popia_acknowledged)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (phone) DO UPDATE
+            SET phone = EXCLUDED.phone
             RETURNING *
             """,
-            (phone, "Unknown", "Member")
+            (phone, "Unknown", "Member", popia_acknowledged)
         )
         return cur.fetchone()
 
@@ -116,6 +118,19 @@ def opt_out_leaderboard(sender: str):
             """
             UPDATE members
             SET leaderboard_opt_out = TRUE
+            WHERE phone = %s
+            """,
+            (sender,)
+        )
+
+
+def opt_in_leaderboard(sender: str):
+    """Restore public leaderboard sharing without changing profile or results."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET leaderboard_opt_out = FALSE
             WHERE phone = %s
             """,
             (sender,)

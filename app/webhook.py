@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.config import ADMIN_NUMBERS, ENV, PUBLIC_BASE_URL, WHATSAPP_APP_SECRET, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
-from app.branding import LOGO_PATH
+from app.branding import BRAND_NAME, LOGO_PATH, TAGLINE
 from app.flows.admin_flow import (
     clear_admin_edit_state_if_needed,
     correct_admin_result,
@@ -28,6 +28,7 @@ from app.flows.submission_state import (
     AWAITING_DISTANCE,
     AWAITING_TIME,
     AWAITING_WORKOUT,
+    AWAITING_WORKOUT_CONFIRM,
     resolve_pending_submission_state,
 )
 from app.whatsapp import (
@@ -35,6 +36,7 @@ from app.whatsapp import (
     send_text,
     send_distance_buttons,
     send_confirm_buttons,
+    send_workout_confirm_buttons,
     send_participation_buttons,
     send_profile_buttons,
     send_both_submission_buttons,
@@ -54,6 +56,7 @@ from app.services.member_service import (
     clear_profile_state,
     acknowledge_popia,
     opt_out_leaderboard,
+    opt_in_leaderboard,
     has_seen_whats_new,
     mark_whats_new_seen,
 )
@@ -61,6 +64,8 @@ from app.services.member_service import (
 from app.services.submission_service import (
     get_or_create_submission,
     get_resumable_submission,
+    get_active_submission,
+    get_completed_submission_for_current_event,
     get_pending_members,
     get_tonight_unprompted_checked_in_members,
     verify_tt_code,
@@ -69,6 +74,9 @@ from app.services.submission_service import (
     confirm_submission,
     release_pending_submissions,
     reopen_submission_for_edit,
+    reopen_workout_submission_for_edit,
+    set_submission_mode,
+    save_workout_and_confirm,
 )
 
 from app.services.attendance_service import mark_attendance
@@ -138,6 +146,12 @@ def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> b
 def send_help_menu(sender: str, admin: bool = False):
     if not send_main_menu_list(sender, admin):
         send_text(sender, format_help_menu(admin))
+
+
+def send_member_greeting(sender: str, member: dict):
+    first_name = member.get("first_name") or "there"
+    send_text(sender, f"Hi {first_name} 👋 {TAGLINE}. What would you like to do?")
+    send_help_menu(sender, is_admin(sender))
 
 
 def send_leaderboards_menu(sender: str):
@@ -420,10 +434,25 @@ def resume_submission(sender: str, member: dict, submission: dict):
     return prompt_for_pending_submission(sender, member, submission)
 
 
-def start_fix_result(sender: str, submission: dict):
+def _is_workout_submission(member: dict, submission: dict) -> bool:
+    if member.get("participation_type") == "WALKER":
+        return True
+    return (
+        member.get("participation_type") == "BOTH"
+        and not submission.get("distance_text")
+        and (submission.get("mode") == "WORKOUT" or submission.get("time_text"))
+    )
+
+
+def start_fix_result(sender: str, member: dict, submission: dict):
     if not submission.get("tt_code_verified"):
         send_text(sender, "I don’t have a result to fix yet. Send tonight’s TT code to start.")
         return submission
+
+    if _is_workout_submission(member, submission):
+        updated = reopen_workout_submission_for_edit(submission["id"])
+        send_text(sender, "No problem. Send the corrected walk or workout note.")
+        return updated
 
     updated = reopen_submission_for_edit(submission["id"])
     send_text(sender, "No problem. Let’s fix your result from the start.")
@@ -445,6 +474,10 @@ def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
 
     if state == AWAITING_WORKOUT:
         send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+        return state
+
+    if state == AWAITING_WORKOUT_CONFIRM:
+        send_workout_confirm_buttons(sender, submission["time_text"])
         return state
 
     if state == AWAITING_BOTH_CHOICE:
@@ -805,26 +838,74 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
     # ───────── MEMBER ─────────
     member = get_member(sender)
-    is_new_member = not member
+
+    # ───────── CONSENT / ONBOARDING ─────────
+    # Do not persist a profile simply because an unknown number contacted us.
+    # The affirmative consent reply is the sole creation path for new members.
     if not member:
-        member = create_member(sender)
+        if text == "OK":
+            member = create_member(sender, popia_acknowledged=True)
+            send_text(sender, "✅ Thanks. Please send your *first and last name* so I can set up your TT profile.")
+            return {"status": "popia_ack"}
 
-    # ───────── OPT OUT ─────────
-    if text in {"STOP", "OPT OUT"} or menu_action == "OPT_OUT":
-        opt_out_leaderboard(sender)
-        send_text(sender, "✅ You’ve opted out.")
-        return {"status": "opt_out"}
+        if text in {"STOP", "NO", "NO THANKS", "DECLINE"}:
+            send_text(
+                sender,
+                "No problem — no TT profile or results have been stored. "
+                "Send HI anytime if you would like to join later.",
+            )
+            return {"status": "consent_declined"}
 
-    # ───────── POPIA ─────────
-    if not member.get("popia_acknowledged"):
-
-        if is_new_member and PUBLIC_BASE_URL:
+        if PUBLIC_BASE_URL:
             send_image(
                 sender,
                 f"{PUBLIC_BASE_URL}{LOGO_PATH}",
-                "Welcome to Irene Athletics Club.",
+                f"Welcome to {BRAND_NAME} — {TAGLINE}.",
             )
 
+        send_text(
+            sender,
+            (
+                f"🌳 *Welcome to Irene AC TT*\n_{TAGLINE}._\n\n"
+                "Reply *OK* to create your TT profile and allow the bot to store "
+                "your profile and TT results.\n\n"
+                "Reply *NO THANKS* to leave without creating a profile."
+            ),
+        )
+        return {"status": "popia"}
+
+    # ───────── LEADERBOARD SHARING ─────────
+    # Sharing is independent from consent to store a member's private profile
+    # and results. Neither choice deletes historical data.
+    if menu_action == "OPT_OUT":
+        opt_out_leaderboard(sender)
+        send_text(
+            sender,
+            "✅ Your results are now hidden from public leaderboards. "
+            "Your TT profile and results are still saved privately. "
+            "Send START SHARING anytime to opt back in.",
+        )
+        return {"status": "opt_out"}
+
+    if menu_action == "OPT_IN":
+        opt_in_leaderboard(sender)
+        send_text(
+            sender,
+            "✅ Your results will appear on public leaderboards again. "
+            "Your existing TT profile and results are unchanged.",
+        )
+        return {"status": "opt_in"}
+
+    if text == "STOP":
+        send_text(
+            sender,
+            "To hide your results from public leaderboards, send STOP LEADERBOARD. "
+            "This does not delete your TT profile or results.",
+        )
+        return {"status": "stop_clarified"}
+
+    # ───────── POPIA ─────────
+    if not member.get("popia_acknowledged"):
         if text == "OK":
             acknowledge_popia(sender)
             send_text(sender, "✅ Thanks. Please send your *first and last name* so I can set up your TT profile.")
@@ -833,9 +914,9 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         send_text(
             sender,
             (
-                "Welcome to Irene AC TT.\n\n"
-                "Reply OK to continue and let the bot store your TT profile and results. "
-                "Reply STOP to opt out."
+                f"🌳 *Welcome to Irene AC TT*\n_{TAGLINE}._\n\n"
+                "Reply *OK* to allow the bot to store your TT profile and results.\n\n"
+                "Leaderboard sharing is a separate setting you can change anytime."
             ),
         )
         return {"status": "popia"}
@@ -887,6 +968,22 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         send_text(sender, f"✅ Participation updated to {ptype.title()}.")
         return {"status": "profile_type_updated"}
 
+    if profile_state == "ONBOARDING_PARTICIPATION":
+        if not button:
+            send_participation_buttons(sender)
+            return {"status": "onboarding_await_type"}
+
+        ptype = button.get("id")
+        if ptype not in {"RUNNER", "WALKER", "BOTH"}:
+            send_participation_buttons(sender)
+            return {"status": "onboarding_bad_type"}
+
+        save_participation_type(member["id"], ptype)
+        clear_profile_state(member["id"])
+        send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
+        send_help_menu(sender, is_admin(sender))
+        return {"status": "profile_complete"}
+
     if menu_action in {"PROFILE", "EDIT_PROFILE"}:
         send_user_profile(sender, member)
         return {"status": "profile"}
@@ -935,19 +1032,143 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         parts = raw_text.split()
         save_member_name(member["id"], parts[0], " ".join(parts[1:]))
+        set_profile_state(member["id"], "ONBOARDING_PARTICIPATION")
 
         send_text(sender, "✅ Profile created. Now choose how you usually take part.")
         send_participation_buttons(sender)
         return {"status": "profile_done"}
 
+    # Older profiles may have a saved name but no participation type. Completing
+    # that profile is available at all times and never starts a TT submission.
+    if not member.get("participation_type"):
+        if not button:
+            set_profile_state(member["id"], "ONBOARDING_PARTICIPATION")
+            send_participation_buttons(sender)
+            return {"status": "onboarding_await_type"}
+
+        ptype = button.get("id")
+        if ptype not in {"RUNNER", "WALKER", "BOTH"}:
+            send_participation_buttons(sender)
+            return {"status": "onboarding_bad_type"}
+
+        save_participation_type(member["id"], ptype)
+        clear_profile_state(member["id"])
+        send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
+        send_help_menu(sender, is_admin(sender))
+        return {"status": "profile_complete"}
+
     # ───────── SUBMISSION ─────────
     # Preserve a verified pending check-in from last night so members can
     # complete the same TT result before the next-day deadline.
-    submission = get_resumable_submission(member["id"]) or get_or_create_submission(member["id"])
+    if menu_action == "FIX_RESULT":
+        completed_submission = get_completed_submission_for_current_event(member["id"])
+        if not completed_submission:
+            send_text(sender, "I don’t have a completed TT result from today to fix. Type MENU for more options.")
+            return {"status": "no_result_to_fix"}
+
+        allowed, reason = ensure_tt_open(submission_event_date=completed_submission.get("event_date"))
+        if not allowed:
+            send_text(sender, reason)
+            return {"status": "closed"}
+
+        start_fix_result(sender, member, completed_submission)
+        return {"status": "fix_result"}
+
+    submission = get_resumable_submission(member["id"]) or get_active_submission(member["id"])
+
+    # Greetings are conversational. They can only resume a real, verified TT
+    # state and otherwise remain completely independent of TT availability.
+    if menu_action == "GREETING":
+        if submission and submission.get("tt_code_verified"):
+            allowed, _ = ensure_tt_open(submission_event_date=submission.get("event_date"))
+            if allowed:
+                prompt_status = resume_submission(sender, member, submission)
+                return {"status": f"greeting_{prompt_status}"}
+
+        send_member_greeting(sender, member)
+        return {"status": "greeting"}
 
     if not submission:
-        send_text(sender, "⚠️ Please send TT code again.")
-        return {"status": "error"}
+        # A new TT session is gate-controlled before a row is ever created.
+        if menu_action == "RESUME":
+            send_text(sender, "You don’t have an unfinished TT result to continue.")
+            send_help_menu(sender, is_admin(sender))
+            return {"status": "nothing_to_resume"}
+
+        if menu_action == "SUBMIT":
+            completed_submission = get_completed_submission_for_current_event(member["id"])
+            if completed_submission:
+                send_text(
+                    sender,
+                    (
+                        "You’ve already submitted today’s TT.\n\n"
+                        f"{completed_submission['distance_text']}km — {completed_submission['time_text']}\n\n"
+                        "Type FIX RESULT while submissions are open, or MENU to go back."
+                    ),
+                )
+                return {"status": "already_submitted"}
+
+            allowed, reason = ensure_tt_open()
+            if not allowed:
+                send_text(sender, reason)
+                return {"status": "closed"}
+
+            send_text(sender, "🔑 Send tonight's TT code to check in. You can type MENU anytime.")
+            return {"status": "await_code"}
+
+        allowed, reason = ensure_tt_open()
+        if not allowed:
+            send_text(sender, reason)
+            return {"status": "closed"}
+
+        if not text or not is_valid_tt_code(text):
+            send_text(sender, "🔑 Send tonight's TT code to check in.")
+            return {"status": "await_code"}
+
+        completed_submission = get_completed_submission_for_current_event(member["id"])
+        if completed_submission:
+            send_text(
+                sender,
+                (
+                    "You’ve already submitted today’s TT.\n\n"
+                    f"{completed_submission['distance_text']}km — {completed_submission['time_text']}\n\n"
+                    "Type FIX RESULT while submissions are open, or MENU to go back."
+                ),
+            )
+            return {"status": "already_submitted"}
+
+        # Compatibility cleanup for legacy unverified rows happens only after
+        # an open gate and a valid code; new sessions do not exist before here.
+        release_pending_submissions(member["id"])
+        submission = get_or_create_submission(member["id"])
+
+        if not submission:
+            send_text(sender, "⚠️ Please send TT code again.")
+            return {"status": "error"}
+
+        submission = verify_tt_code(submission["id"], text)
+
+        if not submission or not submission.get("tt_code_verified"):
+            send_text(sender, "❌ Invalid TT code.")
+            return {"status": "bad_code"}
+
+        try:
+            mark_attendance(member["id"])
+        except Exception as e:
+            logger.exception("Attendance failed for member_id=%s: %s", member["id"], e)
+
+        first_name = member.get("first_name") or "there"
+        send_text(sender, f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result.")
+        send_whats_new_once(sender, member)
+        prompt_status = send_submission_prompt(sender, member["participation_type"])
+        return {"status": f"code_ok_{prompt_status}"}
+
+    # Every continuation, including explicit RESUME/SUBMIT, is gated. This
+    # preserves the verified Tuesday submission until Wednesday's deadline.
+    allowed, reason = ensure_tt_open(submission_event_date=submission.get("event_date"))
+    if not allowed:
+        send_text(sender, reason)
+        return {"status": "closed"}
 
     if menu_action == "RESUME":
         prompt_status = resume_submission(sender, member, submission)
@@ -957,15 +1178,11 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         prompt_status = resume_submission(sender, member, submission)
         return {"status": f"menu_submit_{prompt_status}"}
 
-    if menu_action == "FIX_RESULT":
-        start_fix_result(sender, submission)
-        return {"status": "fix_result"}
-
     if button and submission["status"] == "COMPLETE":
         btn = button.get("id", "").lower().strip()
 
         if btn == "edit":
-            start_fix_result(sender, submission)
+            start_fix_result(sender, member, submission)
             return {"status": "edit_existing"}
 
         if btn == "confirm":
@@ -982,29 +1199,6 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             ),
         )
         return {"status": "edit_existing"}
-
-    # ───────── TT GATE ─────────
-    allowed, reason = ensure_tt_open(submission_event_date=submission.get("event_date"))
-    if not allowed:
-        send_text(sender, reason)
-        return {"status": "closed"}
-
-    # ───────── PARTICIPATION ─────────
-    if not member.get("participation_type"):
-
-        if not button:
-            send_participation_buttons(sender)
-            return {"status": "await_type"}
-
-        ptype = button.get("id")
-        if ptype not in {"RUNNER", "WALKER", "BOTH"}:
-            send_participation_buttons(sender)
-            return {"status": "bad_type"}
-
-        save_participation_type(member["id"], ptype)
-
-        send_text(sender, f"👍 Saved as {ptype.title()}. Send tonight’s TT code when you’re ready to check in.")
-        return {"status": "ptype"}
 
     # ───────── TT CODE ─────────
     if not submission["tt_code_verified"]:
@@ -1050,8 +1244,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if member["participation_type"] == "BOTH" and profile_state == "BOTH_WORKOUT":
 
         if text and not submission["time_text"]:
-            submission = save_time(submission["id"], text, 0)
-            submission = confirm_submission(submission["id"])
+            submission = save_workout_and_confirm(submission["id"], text)
             clear_profile_state(member["id"])
 
             send_text(sender, "🚶 Workout logged! Well done.")
@@ -1063,8 +1256,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if member["participation_type"] == "WALKER":
 
         if text and not submission["time_text"]:
-            submission = save_time(submission["id"], text, 0)
-            submission = confirm_submission(submission["id"])
+            submission = save_workout_and_confirm(submission["id"], text)
 
             send_text(sender, "🚶 Workout logged! Well done.")
             return {"status": "walker_done"}
@@ -1091,17 +1283,37 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             and btn in {"submit_distance", "submit_workout"}
         ):
             if btn == "submit_workout":
+                set_submission_mode(submission["id"], "WORKOUT")
                 set_profile_state(member["id"], "BOTH_WORKOUT")
                 send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
                 return {"status": "both_workout"}
 
             if btn == "submit_distance":
+                set_submission_mode(submission["id"], "RUN")
                 clear_profile_state(member["id"])
                 send_distance_buttons(sender)
                 return {"status": "both_distance"}
 
             send_both_submission_buttons(sender)
             return {"status": "both_bad_choice"}
+
+        # Legacy rows may contain a saved workout from before workout saving
+        # became atomic. Let the member confirm or replace that known note.
+        if _is_workout_submission(member, submission) and submission.get("time_text"):
+            if btn == "confirm":
+                submission = confirm_submission(submission["id"])
+                if not submission:
+                    send_text(sender, "✅ Already confirmed.")
+                    return {"status": "already_confirmed"}
+                clear_profile_state(member["id"])
+                send_text(sender, "🚶 Workout logged! Well done.")
+                return {"status": "workout_recovered"}
+
+            if btn == "edit":
+                reopen_workout_submission_for_edit(submission["id"])
+                clear_profile_state(member["id"])
+                send_text(sender, "🚶 Send the corrected walk or workout note.")
+                return {"status": "workout_edit"}
 
         # DISTANCE
         if btn in {"4km", "6km", "8km"}:

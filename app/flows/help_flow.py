@@ -16,9 +16,9 @@ MENU_ACTIONS = {
     "RESUME": "RESUME",
     "CARRY ON": "RESUME",
     "HELP ME": "RESUME",
-    "HI": "RESUME",
-    "HELLO": "RESUME",
-    "HEY": "RESUME",
+    "HI": "GREETING",
+    "HELLO": "GREETING",
+    "HEY": "GREETING",
     "2": "PROFILE",
     "PROFILE": "PROFILE",
     "MY PROFILE": "PROFILE",
@@ -58,7 +58,7 @@ MENU_ACTIONS = {
     "STANDINGS": "LEAGUE_STANDINGS",
     "6": "SHOP",
     "7": "LEAGUE_STANDINGS",
-    "8": "EDIT_PROFILE",
+    "8": "OPT_OUT",
     "EDIT": "EDIT_PROFILE",
     "EDIT PROFILE": "EDIT_PROFILE",
     "EDIT DETAILS": "EDIT_PROFILE",
@@ -72,9 +72,11 @@ MENU_ACTIONS = {
     "WRONG DISTANCE": "FIX_RESULT",
     "EDIT RESULT": "FIX_RESULT",
     "EDIT MY RESULT": "FIX_RESULT",
-    "9": "OPT_OUT",
+    "9": "OPT_IN",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
+    "START SHARING": "OPT_IN",
+    "START LEADERBOARD SHARING": "OPT_IN",
     "ADMIN": "ADMIN_MENU",
     "ADMIN MENU": "ADMIN_MENU",
     "ADMIN TOOLS": "ADMIN_MENU",
@@ -116,6 +118,7 @@ INTERACTIVE_ACTIONS = {
     "menu_league_standings": "LEAGUE_STANDINGS",
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
+    "menu_opt_in": "OPT_IN",
     "admin_menu": "ADMIN_MENU",
     "admin_tt_code": "ADMIN_TT_CODE",
     "admin_tt_status": "ADMIN_TT_STATUS",
@@ -150,8 +153,8 @@ def format_help_menu(admin: bool = False) -> str:
         "5 - Overall PBs\n"
         "6 - The Irene Shop\n"
         "7 - Irene League Standings\n"
-        "8 - Edit my details\n"
-        "9 - Stop leaderboard sharing\n\n"
+        "8 - Stop leaderboard sharing\n"
+        "9 - Start leaderboard sharing\n\n"
         "Tip: you can send HELP anytime."
     )
 

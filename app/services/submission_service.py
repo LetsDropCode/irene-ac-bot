@@ -64,6 +64,42 @@ def get_resumable_submission(member_id: int):
         return cur.fetchone()
 
 
+def get_active_submission(member_id: int):
+    """Return a legacy, unfinished submission for today without creating one.
+
+    New check-ins are created only after the TT gate and code validation. This
+    lookup exists solely so members with a pre-existing pending row can finish
+    it safely during the transition.
+    """
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM submissions
+            WHERE member_id = %s
+              AND status = 'PENDING'
+              AND event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (member_id,))
+        return cur.fetchone()
+
+
+def get_completed_submission_for_current_event(member_id: int):
+    """Find today's completed TT for the member's self-correction path."""
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM submissions
+            WHERE member_id = %s
+              AND status = 'COMPLETE'
+              AND activity = 'TT'
+              AND event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (member_id,))
+        return cur.fetchone()
+
+
 def verify_tt_code(submission_id: int, code: str):
 
     with get_cursor() as cur:
@@ -85,7 +121,10 @@ def save_distance(submission_id: int, distance: str):
 
         cur.execute("""
             UPDATE submissions
-            SET distance_text = %s
+            SET distance_text = %s,
+                time_text = '',
+                seconds = 0,
+                mode = 'RUN'
             WHERE id = %s
             RETURNING *
         """, (distance, submission_id))
@@ -101,11 +140,58 @@ def reopen_submission_for_edit(submission_id: int):
                 confirmed = FALSE,
                 distance_text = NULL,
                 time_text = '',
-                seconds = 0
+                seconds = 0,
+                mode = 'RUN'
             WHERE id = %s
             RETURNING *
         """, (submission_id,))
 
+        return cur.fetchone()
+
+
+def reopen_workout_submission_for_edit(submission_id: int):
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE submissions
+            SET status = 'PENDING',
+                confirmed = FALSE,
+                distance_text = NULL,
+                time_text = '',
+                seconds = 0,
+                mode = 'WORKOUT'
+            WHERE id = %s
+            RETURNING *
+        """, (submission_id,))
+        return cur.fetchone()
+
+
+def set_submission_mode(submission_id: int, mode: str):
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE submissions
+            SET mode = %s
+            WHERE id = %s
+            RETURNING *
+        """, (mode, submission_id))
+        return cur.fetchone()
+
+
+def save_workout_and_confirm(submission_id: int, workout_text: str):
+    """Persist a workout and its completion together so it cannot half-save."""
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE submissions
+            SET time_text = %s,
+                seconds = 0,
+                distance_text = NULL,
+                mode = 'WORKOUT',
+                status = 'COMPLETE',
+                confirmed = TRUE
+            WHERE id = %s
+              AND status = 'PENDING'
+              AND tt_code_verified = TRUE
+            RETURNING *
+        """, (workout_text, submission_id))
         return cur.fetchone()
 
 

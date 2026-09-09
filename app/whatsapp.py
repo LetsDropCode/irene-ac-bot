@@ -7,6 +7,7 @@ from typing import Dict, Any
 
 from app.services.validation import time_to_seconds
 from app.services.insight_services import seconds_to_pace
+from app.branding import SHORT_BRAND_NAME, TAGLINE, WHATSAPP_FOOTER
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
@@ -169,14 +170,14 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
             "description": "Open The Irene League standings.",
         },
         {
-            "id": "menu_edit_profile",
-            "title": "Edit profile",
-            "description": "Change your name or participation type.",
-        },
-        {
             "id": "menu_opt_out",
             "title": "Stop sharing",
             "description": "Opt out of leaderboard sharing.",
+        },
+        {
+            "id": "menu_opt_in",
+            "title": "Start sharing",
+            "description": "Show my results on leaderboards.",
         },
     ]
 
@@ -195,9 +196,9 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "Irene AC Bot"},
-            "body": {"text": "Choose what you’d like to do."},
-            "footer": {"text": "You can also type HELP anytime."},
+            "header": {"type": "text", "text": f"🌳 {SHORT_BRAND_NAME}"},
+            "body": {"text": f"{TAGLINE}. What would you like to do?"},
+            "footer": {"text": "Type HELP anytime."},
             "action": {
                 "button": "Open menu",
                 "sections": [
@@ -222,9 +223,9 @@ def send_admin_menu_list(to: str) -> bool:
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "Admin tools"},
-            "body": {"text": "Choose an admin action."},
-            "footer": {"text": "Type MENU anytime to go back."},
+            "header": {"type": "text", "text": f"🌳 {SHORT_BRAND_NAME} admin"},
+            "body": {"text": "Keep Tuesday night running smoothly."},
+            "footer": {"text": WHATSAPP_FOOTER},
             "action": {
                 "button": "Open tools",
                 "sections": [
@@ -390,9 +391,9 @@ def send_leaderboard_menu_list(to: str) -> bool:
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "Leaderboards"},
-            "body": {"text": "Choose a leaderboard view."},
-            "footer": {"text": "Type MENU anytime to go back."},
+            "header": {"type": "text", "text": f"🌳 {SHORT_BRAND_NAME} leaderboards"},
+            "body": {"text": "Celebrate the miles, moments and milestones."},
+            "footer": {"text": WHATSAPP_FOOTER},
             "action": {
                 "button": "Choose view",
                 "sections": [
@@ -581,6 +582,25 @@ def send_confirm_buttons(
                             "title": "✏️ Edit"
                         }
                     },
+                ]
+            },
+        },
+    }
+    _send(payload)
+
+
+def send_workout_confirm_buttons(to: str, workout: str) -> None:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": f"Save this workout?\n\n{workout}"},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "confirm", "title": "✅ Confirm"}},
+                    {"type": "reply", "reply": {"id": "edit", "title": "✏️ Edit"}},
                 ]
             },
         },

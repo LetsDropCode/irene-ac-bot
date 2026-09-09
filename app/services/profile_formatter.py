@@ -20,6 +20,13 @@ def format_profile(member, data):
     msg += f"Name: {member['first_name']} {member['last_name']}\n"
     msg += f"Participation: {member.get('participation_type') or 'Not set'}\n\n"
 
+    if member.get("leaderboard_opt_out"):
+        msg += "Leaderboard sharing: Off\n"
+        msg += "Send START SHARING to show your results publicly.\n\n"
+    else:
+        msg += "Leaderboard sharing: On\n"
+        msg += "Send STOP LEADERBOARD to hide your results publicly.\n\n"
+
     msg += f"🏃 Runs: {data['total_runs']}\n\n"
 
     # PBs
@@ -31,7 +38,7 @@ def format_profile(member, data):
         msg += "No PBs yet\n"
 
     # Recent runs
-    msg += "\n📊 *Last 3 Runs*\n"
+    msg += "\n📊 *Last 5 Runs*\n"
     if data["recent"]:
         for r in data["recent"]:
             msg += f"• {r['distance_text']} — {r['time_text']}\n"

@@ -109,23 +109,53 @@ def submission(**overrides):
 
 class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_member_receives_irene_logo_when_public_url_is_configured(self):
-        new_member = member(popia_acknowledged=False)
         with patch.object(webhook_module, "get_member", return_value=None), patch.object(
-            webhook_module, "create_member", return_value=new_member
-        ), patch.object(webhook_module, "PUBLIC_BASE_URL", "https://bot.example.com"), patch.object(
+            webhook_module, "create_member"
+        ) as create_member, patch.object(webhook_module, "PUBLIC_BASE_URL", "https://bot.example.com"), patch.object(
             webhook_module, "send_image"
         ) as send_image, patch.object(webhook_module, "send_text") as send_text:
             result = webhook_module._process_webhook_message(
-                "27999999999", "hello", None, BackgroundTasks()
+                "27999999999", "HI", None, BackgroundTasks()
             )
 
         self.assertEqual(result, {"status": "popia"})
         send_image.assert_called_once_with(
             "27999999999",
             "https://bot.example.com/assets/irene-tree-logo.jpeg",
-            "Welcome to Irene Athletics Club.",
+            "Welcome to Irene Athletics Club — Serious about our frun.",
         )
         send_text.assert_called_once()
+        create_member.assert_not_called()
+
+    async def test_unknown_ok_creates_an_acknowledged_member(self):
+        created = member(
+            first_name="Unknown",
+            last_name="Member",
+            participation_type=None,
+            popia_acknowledged=True,
+        )
+        with patch.object(webhook_module, "get_member", return_value=None), patch.object(
+            webhook_module, "create_member", return_value=created
+        ) as create_member, patch.object(webhook_module, "send_text") as send_text:
+            result = webhook_module._process_webhook_message(
+                "27999999999", "OK", None, BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "popia_ack"})
+        create_member.assert_called_once_with("27999999999", popia_acknowledged=True)
+        self.assertIn("first and last name", send_text.call_args.args[1])
+
+    async def test_unknown_decline_does_not_create_member(self):
+        with patch.object(webhook_module, "get_member", return_value=None), patch.object(
+            webhook_module, "create_member"
+        ) as create_member, patch.object(webhook_module, "send_text") as send_text:
+            result = webhook_module._process_webhook_message(
+                "27999999999", "NO THANKS", None, BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "consent_declined"})
+        create_member.assert_not_called()
+        self.assertIn("no TT profile or results", send_text.call_args.args[1])
 
     async def call_webhook(self, payload, member_data=None, submission_data=None, **patches):
         background_tasks = BackgroundTasks()
@@ -136,6 +166,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_text",
                 "send_distance_buttons",
                 "send_confirm_buttons",
+                "send_workout_confirm_buttons",
                 "send_participation_buttons",
                 "send_profile_buttons",
                 "send_both_submission_buttons",
@@ -146,16 +177,24 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_confirm_correction_buttons",
                 "send_admin_member_center_buttons",
                 "save_member_name",
+                "save_participation_type",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",
+                "reopen_workout_submission_for_edit",
+                "set_submission_mode",
+                "set_submission_mode",
                 "verify_tt_code",
                 "release_pending_submissions",
                 "get_resumable_submission",
+                "get_active_submission",
+                "ensure_tt_open",
                 "mark_attendance",
                 "save_distance",
                 "save_time",
+                "save_workout_and_confirm",
                 "confirm_submission",
+                "get_completed_submission_for_current_event",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -178,6 +217,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_user_profile",
                 "has_seen_whats_new",
                 "mark_whats_new_seen",
+                "opt_out_leaderboard",
+                "opt_in_leaderboard",
                 "enqueue_post_confirm_messages",
                 "run_due_jobs",
                 "get_queue_health",
@@ -197,10 +238,17 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None
+            mocks["get_completed_submission_for_current_event"].return_value = None
+            mocks["ensure_tt_open"].return_value = (True, None)
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
             get_or_create_value = submission_data or submission()
+            mocks["get_active_submission"].return_value = (
+                get_or_create_value[0]
+                if isinstance(get_or_create_value, list)
+                else get_or_create_value
+            )
             get_or_create_mock = stack.enter_context(
                 patch.object(webhook_module, "get_or_create_submission")
             )
@@ -208,8 +256,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 get_or_create_mock.side_effect = get_or_create_value
             else:
                 get_or_create_mock.return_value = get_or_create_value
-
-            stack.enter_context(patch.object(webhook_module, "ensure_tt_open", return_value=(True, None)))
+            mocks["get_or_create_submission"] = get_or_create_mock
 
             for name, value in patches.items():
                 if name in mocks:
@@ -236,6 +283,154 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         mocks["send_main_menu_list"].assert_not_called()
         mocks["mark_inbound_message_processed"].assert_not_called()
+
+    async def test_existing_member_stop_leaderboard_hides_public_results_without_deleting_data(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="STOP LEADERBOARD"),
+        )
+
+        self.assertEqual(result, {"status": "opt_out"})
+        mocks["opt_out_leaderboard"].assert_called_once_with("27999999999")
+        mocks["opt_in_leaderboard"].assert_not_called()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("hidden from public leaderboards", sent)
+        self.assertIn("still saved privately", sent)
+
+    async def test_opted_out_member_can_start_sharing_again(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="START SHARING"),
+            member_data=member(leaderboard_opt_out=True),
+        )
+
+        self.assertEqual(result, {"status": "opt_in"})
+        mocks["opt_in_leaderboard"].assert_called_once_with("27999999999")
+        mocks["opt_out_leaderboard"].assert_not_called()
+        self.assertIn("public leaderboards again", mocks["send_text"].call_args.args[1])
+
+    async def test_existing_acknowledged_member_is_not_sent_to_onboarding(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="PROFILE"))
+
+        self.assertEqual(result, {"status": "profile"})
+        mocks["send_profile_buttons"].assert_called_once()
+        mocks["send_text"].assert_not_called()
+
+    async def test_profile_onboarding_completes_outside_tt_window_without_submission(self):
+        incomplete = member(
+            first_name="Unknown",
+            last_name="Member",
+            participation_type=None,
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="Lindsay Bull"),
+            member_data=incomplete,
+            ensure_tt_open=(False, "⛔ Time Trials only happen on *Tuesdays*."),
+        )
+
+        self.assertEqual(result, {"status": "profile_done"})
+        mocks["save_member_name"].assert_called_once_with(42, "Lindsay", "Bull")
+        mocks["set_profile_state"].assert_called_once_with(42, "ONBOARDING_PARTICIPATION")
+        mocks["get_or_create_submission"].assert_not_called()
+
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="RUNNER", title="Runner"),
+            member_data=member(
+                first_name="Lindsay",
+                last_name="Bull",
+                participation_type=None,
+                profile_state="ONBOARDING_PARTICIPATION",
+            ),
+            ensure_tt_open=(False, "⏱ Submissions open at *17:00*."),
+        )
+
+        self.assertEqual(result, {"status": "profile_complete"})
+        mocks["save_participation_type"].assert_called_once_with(42, "RUNNER")
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_non_tt_commands_and_greeting_never_create_submission(self):
+        for command in ("HI", "PROFILE", "PROGRESS", "LEADERBOARDS", "SHOP", "LEAGUE"):
+            with self.subTest(command=command):
+                result, mocks, _ = await self.call_webhook(
+                    text_payload(body=command),
+                    get_active_submission=None,
+                    ensure_tt_open=(False, "⛔ Time Trials only happen on *Tuesdays*."),
+                    get_user_profile={"total_runs": 0, "latest": None, "pbs": [], "recent": []},
+                )
+
+                self.assertNotEqual(result["status"], "closed")
+                mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_greeting_and_submit_availability_by_tt_state(self):
+        cases = [
+            ("Monday HI", "HI", None, (False, "⛔ Time Trials only happen on *Tuesdays*."), "greeting"),
+            ("Monday SUBMIT", "SUBMIT", None, (False, "⛔ Time Trials only happen on *Tuesdays*."), "closed"),
+            ("Tuesday before opening HI", "HI", None, (False, "⏱ Submissions open at *17:00*."), "greeting"),
+            ("Tuesday before opening SUBMIT", "SUBMIT", None, (False, "⏱ Submissions open at *17:00*."), "closed"),
+            ("Tuesday during TT HI", "HI", None, (True, None), "greeting"),
+            ("Tuesday during TT SUBMIT", "SUBMIT", None, (True, None), "await_code"),
+            ("Tuesday checked-in pending HI", "HI", submission(tt_code_verified=True), (True, None), "greeting_awaiting_distance"),
+            ("Wednesday noon verified pending HI", "HI", submission(tt_code_verified=True, event_date="2026-09-08"), (True, None), "greeting_awaiting_distance"),
+            ("Wednesday after deadline HI", "HI", submission(tt_code_verified=True, event_date="2026-09-08"), (False, "⛔ The deadline for the 8 September TT was *13:00* today."), "greeting"),
+            ("Completed result HI", "HI", None, (False, "⛔ Time Trials only happen on *Tuesdays*."), "greeting"),
+        ]
+
+        for label, command, active, gate_result, expected_status in cases:
+            with self.subTest(label=label):
+                resumable = active if active and active.get("event_date") else None
+                result, mocks, _ = await self.call_webhook(
+                    text_payload(body=command),
+                    get_active_submission=None if resumable else active,
+                    get_resumable_submission=resumable,
+                    ensure_tt_open=gate_result,
+                )
+
+                self.assertEqual(result, {"status": expected_status})
+                mocks["get_or_create_submission"].assert_not_called()
+
+                if expected_status == "greeting":
+                    self.assertIn("Hi Lindsay", mocks["send_text"].call_args.args[1])
+                    if active is None:
+                        mocks["ensure_tt_open"].assert_not_called()
+                if expected_status == "await_code":
+                    self.assertIn("TT code", mocks["send_text"].call_args.args[1])
+
+    async def test_closed_new_tt_request_does_not_create_submission(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="SUBMIT"),
+            get_active_submission=None,
+            ensure_tt_open=(False, "⏱ Submissions open at *17:00*."),
+        )
+
+        self.assertEqual(result, {"status": "closed"})
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_new_submission_is_created_only_after_open_gate_and_valid_code(self):
+        unverified = submission(tt_code_verified=False)
+        verified = submission(tt_code_verified=True)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            get_active_submission=None,
+            ensure_tt_open=(True, None),
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=verified,
+            release_pending_submissions=lambda _member_id: None,
+            mark_attendance=lambda _member_id: None,
+            submission_data=unverified,
+        )
+
+        self.assertEqual(result, {"status": "code_ok_distance"})
+        mocks["get_or_create_submission"].assert_called_once_with(42)
+
+    async def test_expired_verified_tuesday_submission_cannot_resume(self):
+        tuesday_pending = submission(event_date="2026-09-01", tt_code_verified=True)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            submission_data=tuesday_pending,
+            ensure_tt_open=(False, "⛔ The deadline for the 1 September TT was *13:00* today."),
+        )
+
+        self.assertEqual(result, {"status": "closed"})
+        mocks["send_distance_buttons"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
 
     async def test_webhook_rejects_invalid_signature_when_secret_configured(self):
         background_tasks = BackgroundTasks()
@@ -273,6 +468,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_text",
                 "send_distance_buttons",
                 "send_confirm_buttons",
+                "send_workout_confirm_buttons",
                 "send_participation_buttons",
                 "send_profile_buttons",
                 "send_both_submission_buttons",
@@ -283,16 +479,23 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_confirm_correction_buttons",
                 "send_admin_member_center_buttons",
                 "save_member_name",
+                "save_participation_type",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",
+                "reopen_workout_submission_for_edit",
+                "set_submission_mode",
                 "verify_tt_code",
                 "release_pending_submissions",
                 "get_resumable_submission",
+                "get_active_submission",
+                "ensure_tt_open",
                 "mark_attendance",
                 "save_distance",
                 "save_time",
+                "save_workout_and_confirm",
                 "confirm_submission",
+                "get_completed_submission_for_current_event",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -315,6 +518,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_user_profile",
                 "has_seen_whats_new",
                 "mark_whats_new_seen",
+                "opt_out_leaderboard",
+                "opt_in_leaderboard",
                 "enqueue_post_confirm_messages",
                 "run_due_jobs",
                 "get_queue_health",
@@ -334,10 +539,17 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None
+            mocks["get_completed_submission_for_current_event"].return_value = None
+            mocks["ensure_tt_open"].return_value = (True, None)
 
             stack.enter_context(patch.object(webhook_module, "get_member", return_value=member_data or member()))
             stack.enter_context(patch.object(webhook_module, "create_member", side_effect=AssertionError))
             get_or_create_value = submission_data or submission()
+            mocks["get_active_submission"].return_value = (
+                get_or_create_value[0]
+                if isinstance(get_or_create_value, list)
+                else get_or_create_value
+            )
             get_or_create_mock = stack.enter_context(
                 patch.object(webhook_module, "get_or_create_submission")
             )
@@ -345,8 +557,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 get_or_create_mock.side_effect = get_or_create_value
             else:
                 get_or_create_mock.return_value = get_or_create_value
-
-            stack.enter_context(patch.object(webhook_module, "ensure_tt_open", return_value=(True, None)))
+            mocks["get_or_create_submission"] = get_or_create_mock
 
             for name, value in patches.items():
                 if name in mocks:
@@ -1109,7 +1320,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         result, mocks, _ = await self.call_webhook(
             text_payload(body="9793"),
-            submission_data=[abandoned, fresh],
+            submission_data=fresh,
+            get_active_submission=abandoned,
             is_valid_tt_code=lambda _code: True,
             verify_tt_code=verified,
             release_pending_submissions=lambda _member_id: None,
@@ -1162,6 +1374,42 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             "27999999999",
             "🔑 Send tonight's TT code to check in. You can type MENU anytime.",
         )
+
+    async def test_submit_after_completed_result_does_not_restart_check_in(self):
+        completed = submission(
+            status="COMPLETE",
+            distance_text="4",
+            time_text="27:41",
+            seconds=1661,
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="SUBMIT"),
+            get_active_submission=None,
+            get_completed_submission_for_current_event=completed,
+        )
+
+        self.assertEqual(result, {"status": "already_submitted"})
+        mocks["get_or_create_submission"].assert_not_called()
+        sent = mocks["send_text"].call_args.args[1]
+        self.assertIn("already submitted", sent)
+        self.assertIn("4km — 27:41", sent)
+
+    async def test_valid_code_after_completed_result_does_not_restart_check_in(self):
+        completed = submission(
+            status="COMPLETE",
+            distance_text="6",
+            time_text="42:00",
+            seconds=2520,
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            get_active_submission=None,
+            get_completed_submission_for_current_event=completed,
+            is_valid_tt_code=lambda _code: True,
+        )
+
+        self.assertEqual(result, {"status": "already_submitted"})
+        mocks["get_or_create_submission"].assert_not_called()
 
     async def test_menu_profile_shortcut_opens_profile(self):
         result, mocks, _ = await self.call_webhook(
@@ -1344,21 +1592,37 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["send_confirm_buttons"].assert_called_once_with("27999999999", "4", "27:41")
 
     async def test_walker_logs_workout(self):
-        saved = submission(distance_text=None, time_text="Easy 5km walk", seconds=0)
         completed = submission(status="COMPLETE", distance_text=None, time_text="Easy 5km walk", seconds=0)
 
         result, mocks, _ = await self.call_webhook(
             text_payload(body="Easy 5km walk"),
             member_data=member(participation_type="WALKER"),
             submission_data=submission(distance_text=None, time_text=""),
-            save_time=saved,
-            confirm_submission=completed,
+            save_workout_and_confirm=completed,
         )
 
         self.assertEqual(result, {"status": "walker_done"})
-        mocks["save_time"].assert_called_once_with(101, "EASY 5KM WALK", 0)
-        mocks["confirm_submission"].assert_called_once_with(101)
+        mocks["save_workout_and_confirm"].assert_called_once_with(101, "EASY 5KM WALK")
+        mocks["confirm_submission"].assert_not_called()
         mocks["send_text"].assert_called_once_with("27999999999", "🚶 Workout logged! Well done.")
+
+    async def test_legacy_saved_walker_workout_resumes_with_confirmation(self):
+        legacy_pending = submission(
+            distance_text=None,
+            time_text="Easy 5km walk",
+            seconds=0,
+            mode="WORKOUT",
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=legacy_pending,
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "Easy 5km walk"
+        )
 
     async def test_both_user_can_choose_distance_or_workout(self):
         with self.subTest("distance choice"):
@@ -1421,7 +1685,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         reopened = submission(status="PENDING", distance_text=None, time_text="")
         result, mocks, _ = await self.call_webhook(
             text_payload(body="wrong time"),
-            submission_data=submission(
+            submission_data=reopened,
+            get_completed_submission_for_current_event=submission(
                 status="COMPLETE",
                 distance_text="4",
                 time_text="27:41",
@@ -1436,7 +1701,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resume_command_continues_pending_submission(self):
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="hi"),
+            text_payload(body="resume"),
             submission_data=submission(distance_text="4", time_text=""),
         )
 
