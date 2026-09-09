@@ -69,16 +69,63 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertIn("seconds = 0", cursor.queries[0])
         self.assertIn("mode = 'RUN'", cursor.queries[0])
 
-    def test_save_workout_and_confirm_is_one_atomic_update(self):
+    def test_save_workout_for_confirmation_keeps_submission_pending(self):
+        cursor = FakeCursor(rows=[{"id": 101, "status": "PENDING"}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.save_workout_for_confirmation(101, "45 min walk")
+
+        self.assertEqual(row["status"], "PENDING")
+        self.assertIn("status = 'PENDING'", cursor.queries[0])
+        self.assertIn("confirmed = FALSE", cursor.queries[0])
+        self.assertIn("mode = 'WORKOUT'", cursor.queries[0])
+
+    def test_confirm_workout_submission_completes_only_a_saved_workout(self):
         cursor = FakeCursor(rows=[{"id": 101, "status": "COMPLETE"}])
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
-            row = service.save_workout_and_confirm(101, "45 min walk")
+            row = service.confirm_workout_submission(101)
 
         self.assertEqual(row["status"], "COMPLETE")
         self.assertIn("status = 'COMPLETE'", cursor.queries[0])
-        self.assertIn("confirmed = TRUE", cursor.queries[0])
+        self.assertIn("tt_code_verified = TRUE", cursor.queries[0])
         self.assertIn("mode = 'WORKOUT'", cursor.queries[0])
+
+    def test_confirm_runner_submission_requires_a_complete_verified_result(self):
+        cursor = FakeCursor(rows=[{"id": 101, "status": "COMPLETE"}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.confirm_submission(101)
+
+        self.assertEqual(row["status"], "COMPLETE")
+        query = cursor.queries[0]
+        self.assertIn("status = 'PENDING'", query)
+        self.assertIn("tt_code_verified = TRUE", query)
+        self.assertIn("distance_text IN ('4', '6', '8')", query)
+        self.assertIn("COALESCE(time_text, '') <> ''", query)
+        self.assertIn("COALESCE(seconds, 0) > 0", query)
+
+    def test_self_correctable_submission_uses_the_single_current_tt_event_date(self):
+        cursor = FakeCursor(rows=[{"id": 101, "event_date": "2026-09-08"}])
+
+        with patch.object(service, "self_correctable_event_date", return_value="2026-09-08"), patch.object(
+            service, "get_cursor", return_value=fake_cursor_context(cursor, commit=False)
+        ):
+            row = service.get_self_correctable_tt_submission(42)
+
+        self.assertEqual(row["id"], 101)
+        self.assertIn("tt_code_verified = TRUE", cursor.queries[0])
+        self.assertIn("event_date = %s", cursor.queries[0])
+        self.assertEqual(cursor.params[0], (42, "2026-09-08"))
+
+    def test_self_correctable_submission_does_not_query_without_an_eligible_event_date(self):
+        with patch.object(service, "self_correctable_event_date", return_value=None), patch.object(
+            service, "get_cursor"
+        ) as get_cursor:
+            row = service.get_self_correctable_tt_submission(42)
+
+        self.assertIsNone(row)
+        get_cursor.assert_not_called()
 
     def test_release_pending_submissions_returns_update_count_without_fetching(self):
         cursor = FakeCursor(rowcount=3)

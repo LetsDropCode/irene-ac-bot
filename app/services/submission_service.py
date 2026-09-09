@@ -1,5 +1,6 @@
 # app/services/submission_service.py
 from app.db import get_cursor
+from app.services.submission_gate import self_correctable_event_date
 
 
 def get_or_create_submission(member_id: int):
@@ -100,6 +101,32 @@ def get_completed_submission_for_current_event(member_id: int):
         return cur.fetchone()
 
 
+def get_self_correctable_tt_submission(member_id: int):
+    """Resolve the member's completed TT that may still be self-corrected.
+
+    The resolver selects only the configured TT event date for today or its
+    immediate recovery day. The caller applies ``ensure_tt_open`` to that
+    date, keeping the existing Tuesday-to-Wednesday deadline authoritative.
+    """
+    event_date = self_correctable_event_date()
+    if not event_date:
+        return None
+
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM submissions
+            WHERE member_id = %s
+              AND status = 'COMPLETE'
+              AND activity = 'TT'
+              AND tt_code_verified = TRUE
+              AND event_date = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (member_id, event_date))
+        return cur.fetchone()
+
+
 def verify_tt_code(submission_id: int, code: str):
 
     with get_cursor() as cur:
@@ -176,8 +203,12 @@ def set_submission_mode(submission_id: int, mode: str):
         return cur.fetchone()
 
 
-def save_workout_and_confirm(submission_id: int, workout_text: str):
-    """Persist a workout and its completion together so it cannot half-save."""
+def save_workout_for_confirmation(submission_id: int, workout_text: str):
+    """Persist a verified workout note while leaving it available for review.
+
+    Keeping the submission pending means a failed WhatsApp delivery, or a
+    member returning later, can resume at the Confirm/Edit screen.
+    """
     with get_cursor() as cur:
         cur.execute("""
             UPDATE submissions
@@ -185,13 +216,39 @@ def save_workout_and_confirm(submission_id: int, workout_text: str):
                 seconds = 0,
                 distance_text = NULL,
                 mode = 'WORKOUT',
-                status = 'COMPLETE',
-                confirmed = TRUE
+                status = 'PENDING',
+                confirmed = FALSE
             WHERE id = %s
               AND status = 'PENDING'
               AND tt_code_verified = TRUE
+              AND COALESCE(time_text, '') = ''
             RETURNING *
         """, (workout_text, submission_id))
+        return cur.fetchone()
+
+
+def confirm_workout_submission(submission_id: int):
+    """Complete a saved workout exactly once.
+
+    The legacy condition keeps recovery working for old workout rows that did
+    not have ``mode`` populated, while excluding runner submissions.
+    """
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE submissions
+            SET status = 'COMPLETE',
+                confirmed = TRUE,
+                mode = 'WORKOUT'
+            WHERE id = %s
+              AND status = 'PENDING'
+              AND tt_code_verified = TRUE
+              AND COALESCE(time_text, '') <> ''
+              AND (
+                    mode = 'WORKOUT'
+                    OR (distance_text IS NULL AND mode IS NULL)
+              )
+            RETURNING *
+        """, (submission_id,))
         return cur.fetchone()
 
 
@@ -211,7 +268,12 @@ def save_time(submission_id: int, time_text: str, seconds: int):
 
 
 def confirm_submission(submission_id: int):
+    """Complete a reviewed runner result exactly once.
 
+    The confirmation button can be delivered late, so the database—not only
+    the webhook state machine—must reject a confirmation until the checked-in
+    submission contains a complete runner result.
+    """
     with get_cursor() as cur:
 
         cur.execute("""
@@ -219,7 +281,11 @@ def confirm_submission(submission_id: int):
             SET status = 'COMPLETE',
                 confirmed = TRUE
             WHERE id = %s
-                    AND status != 'COMPLETE'
+              AND status = 'PENDING'
+              AND tt_code_verified = TRUE
+              AND distance_text IN ('4', '6', '8')
+              AND COALESCE(time_text, '') <> ''
+              AND COALESCE(seconds, 0) > 0
             RETURNING *
         """, (submission_id,))
 

@@ -63,6 +63,14 @@ class HelpFlowTests(unittest.TestCase):
         self.assertEqual(resolve_interactive_action("admin_menu"), "ADMIN_MENU")
         self.assertEqual(resolve_interactive_action("admin_tt_code"), "ADMIN_TT_CODE")
         self.assertEqual(resolve_interactive_action("admin_correct"), "ADMIN_CORRECT")
+        self.assertEqual(resolve_interactive_action("admin_find"), "ADMIN_FIND")
+        self.assertEqual(resolve_interactive_action("admin_history"), "ADMIN_HISTORY")
+        self.assertEqual(resolve_interactive_action("admin_jobs_status"), "ADMIN_JOBS_STATUS")
+        self.assertEqual(resolve_interactive_action("admin_jobs_failed"), "ADMIN_JOBS_FAILED")
+        self.assertEqual(resolve_interactive_action("admin_jobs_retry"), "ADMIN_JOBS_RETRY")
+        self.assertEqual(resolve_interactive_action("admin_leaderboards"), "ADMIN_LEADERBOARDS")
+        self.assertEqual(resolve_interactive_action("admin_member_history"), "ADMIN_MEMBER_HISTORY")
+        self.assertEqual(resolve_interactive_action("admin_member_correct"), "ADMIN_MEMBER_CORRECT")
 
     def test_admin_menu_includes_admin_commands(self):
         self.assertIn("Admin commands", format_help_menu(admin=True))

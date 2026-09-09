@@ -104,6 +104,7 @@ MENU_ACTIONS = {
     "FAILED JOBS": "ADMIN_JOBS_FAILED",
     "JOBS RETRY": "ADMIN_JOBS_RETRY",
     "RETRY JOBS": "ADMIN_JOBS_RETRY",
+    "ADMIN LEADERBOARDS": "ADMIN_LEADERBOARDS",
 }
 
 INTERACTIVE_ACTIONS = {
@@ -123,10 +124,18 @@ INTERACTIVE_ACTIONS = {
     "admin_tt_code": "ADMIN_TT_CODE",
     "admin_tt_status": "ADMIN_TT_STATUS",
     "admin_pending": "ADMIN_PENDING",
+    "admin_find": "ADMIN_FIND",
+    "admin_history": "ADMIN_HISTORY",
     "admin_correct": "ADMIN_CORRECT",
     "admin_recover_tonight": "ADMIN_RECOVER_TONIGHT",
+    "admin_jobs_status": "ADMIN_JOBS_STATUS",
+    "admin_jobs_failed": "ADMIN_JOBS_FAILED",
+    "admin_jobs_retry": "ADMIN_JOBS_RETRY",
+    "admin_leaderboards": "ADMIN_LEADERBOARDS",
     "admin_tonight_leaderboard": "TONIGHT_LEADERBOARD",
     "admin_overall_leaderboard": "OVERALL_LEADERBOARD",
+    "admin_member_history": "ADMIN_MEMBER_HISTORY",
+    "admin_member_correct": "ADMIN_MEMBER_CORRECT",
 }
 
 

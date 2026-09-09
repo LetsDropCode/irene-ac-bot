@@ -173,6 +173,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_main_menu_list",
                 "send_leaderboard_menu_list",
                 "send_admin_menu_list",
+                "send_admin_leaderboard_menu_list",
                 "send_admin_edit_field_buttons",
                 "send_admin_confirm_correction_buttons",
                 "send_admin_member_center_buttons",
@@ -192,9 +193,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_attendance",
                 "save_distance",
                 "save_time",
-                "save_workout_and_confirm",
+                "save_workout_for_confirmation",
+                "confirm_workout_submission",
                 "confirm_submission",
                 "get_completed_submission_for_current_event",
+                "get_self_correctable_tt_submission",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -455,7 +458,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             result, mocks, _ = await self.call_webhook_with_request(request)
 
         self.assertEqual(result, {"status": "help"})
-        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False, member())
 
     async def call_webhook_with_request(self, request, member_data=None, submission_data=None, **patches):
         return await self._call_webhook_request(request, member_data, submission_data, **patches)
@@ -475,6 +478,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_main_menu_list",
                 "send_leaderboard_menu_list",
                 "send_admin_menu_list",
+                "send_admin_leaderboard_menu_list",
                 "send_admin_edit_field_buttons",
                 "send_admin_confirm_correction_buttons",
                 "send_admin_member_center_buttons",
@@ -493,9 +497,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_attendance",
                 "save_distance",
                 "save_time",
-                "save_workout_and_confirm",
+                "save_workout_for_confirmation",
+                "confirm_workout_submission",
                 "confirm_submission",
                 "get_completed_submission_for_current_event",
+                "get_self_correctable_tt_submission",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -585,7 +591,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(text_payload(body="\\Help"))
 
         self.assertEqual(result, {"status": "help"})
-        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False, member())
         mocks["send_text"].assert_not_called()
 
     async def test_help_menu_for_admin_includes_admin_commands(self):
@@ -595,7 +601,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "help"})
-        mocks["send_main_menu_list"].assert_called_once_with("27722135094", True)
+        mocks["send_main_menu_list"].assert_called_once_with(
+            "27722135094", True, member(phone="27722135094")
+        )
 
     async def test_admin_menu_text_clears_active_admin_edit_state(self):
         result, mocks, _ = await self.call_webhook(
@@ -605,7 +613,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "help"})
         mocks["clear_profile_state"].assert_called_once_with(7)
-        mocks["send_main_menu_list"].assert_called_once_with("27722135094", True)
+        mocks["send_main_menu_list"].assert_called_once_with(
+            "27722135094", True,
+            member(id=7, phone="27722135094", profile_state="ADMIN_CONFIRM|101|4|26:59"),
+        )
 
     async def test_admin_menu_selection_opens_admin_tools(self):
         result, mocks, _ = await self.call_webhook(
@@ -761,6 +772,80 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["retry_failed_jobs"].assert_called_once_with()
         sent = mocks["send_text"].call_args.args[1]
         self.assertIn("Retried 2 failed job", sent)
+
+    async def test_admin_find_button_starts_member_search_state(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_find", title="Find member"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "member_lookup_prompt"})
+        mocks["set_profile_state"].assert_called_once_with(42, "ADMIN_FIND")
+        self.assertIn("member name or phone number", mocks["send_text"].call_args.args[1])
+
+    async def test_admin_find_state_accepts_plain_member_query(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="Lindsay"),
+            member_data=member(phone="27722135094", profile_state="ADMIN_FIND"),
+            search_members_for_admin=[],
+        )
+
+        self.assertEqual(result, {"status": "admin_find_results", "count": 0})
+        mocks["search_members_for_admin"].assert_called_once_with("Lindsay")
+
+    async def test_admin_history_button_guides_captain_through_find_member(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_history", title="Member history"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "submission_history_prompt"})
+        self.assertIn("Find member first", mocks["send_text"].call_args.args[1])
+
+    async def test_admin_queue_status_button_uses_existing_queue_handler(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_jobs_status", title="Queue status"),
+            member_data=member(phone="27722135094"),
+            get_queue_health={
+                "pending_jobs": 1,
+                "running_jobs": 0,
+                "failed_jobs": 0,
+                "done_jobs": 4,
+                "oldest_pending_seconds": 0,
+            },
+        )
+
+        self.assertEqual(result, {"status": "jobs_status"})
+        self.assertIn("Job Queue Status", mocks["send_text"].call_args.args[1])
+
+    async def test_admin_failed_jobs_button_uses_existing_failed_jobs_handler(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_jobs_failed", title="Failed jobs"),
+            member_data=member(phone="27722135094"),
+            get_failed_jobs=[],
+        )
+
+        self.assertEqual(result, {"status": "jobs_failed", "count": 0})
+        mocks["get_failed_jobs"].assert_called_once_with()
+
+    async def test_admin_retry_failed_button_uses_existing_retry_handler(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_jobs_retry", title="Retry failed"),
+            member_data=member(phone="27722135094"),
+            retry_failed_jobs=2,
+        )
+
+        self.assertEqual(result, {"status": "jobs_retry", "retried": 2})
+        mocks["retry_failed_jobs"].assert_called_once_with()
+
+    async def test_admin_leaderboards_button_opens_leaderboard_submenu(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_leaderboards", title="Leaderboard views"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "admin_leaderboards"})
+        mocks["send_admin_leaderboard_menu_list"].assert_called_once_with("27722135094")
 
     async def test_admin_recover_tonight_resends_prompts(self):
         result, mocks, _ = await self.call_webhook(
@@ -1591,20 +1676,71 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["save_time"].assert_called_once_with(101, "27:41", 1661)
             mocks["send_confirm_buttons"].assert_called_once_with("27999999999", "4", "27:41")
 
-    async def test_walker_logs_workout(self):
-        completed = submission(status="COMPLETE", distance_text=None, time_text="Easy 5km walk", seconds=0)
+    async def test_fresh_walker_workout_is_saved_for_confirmation(self):
+        saved = submission(distance_text=None, time_text="EASY 5KM WALK", seconds=0, mode="WORKOUT")
 
         result, mocks, _ = await self.call_webhook(
             text_payload(body="Easy 5km walk"),
             member_data=member(participation_type="WALKER"),
             submission_data=submission(distance_text=None, time_text=""),
-            save_workout_and_confirm=completed,
+            save_workout_for_confirmation=saved,
         )
 
-        self.assertEqual(result, {"status": "walker_done"})
-        mocks["save_workout_and_confirm"].assert_called_once_with(101, "EASY 5KM WALK")
+        self.assertEqual(result, {"status": "walker_workout_confirm"})
+        mocks["save_workout_for_confirmation"].assert_called_once_with(101, "EASY 5KM WALK")
+        mocks["confirm_submission"].assert_not_called()
+        mocks["confirm_workout_submission"].assert_not_called()
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "EASY 5KM WALK"
+        )
+
+    async def test_walker_workout_confirm_completes_the_saved_submission(self):
+        completed = submission(status="COMPLETE", distance_text=None, time_text="45 MIN BRISK WALK", seconds=0, mode="WORKOUT")
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=submission(distance_text=None, time_text="45 MIN BRISK WALK", mode="WORKOUT"),
+            confirm_workout_submission=completed,
+        )
+
+        self.assertEqual(result, {"status": "workout_confirmed"})
+        mocks["confirm_workout_submission"].assert_called_once_with(101)
         mocks["confirm_submission"].assert_not_called()
         mocks["send_text"].assert_called_once_with("27999999999", "🚶 Workout logged! Well done.")
+
+    async def test_walker_workout_edit_clears_only_the_workout_note(self):
+        reopened = submission(distance_text=None, time_text="", seconds=0, mode="WORKOUT")
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=submission(distance_text=None, time_text="45 MIN BRISK WALK", mode="WORKOUT"),
+            reopen_workout_submission_for_edit=reopened,
+        )
+
+        self.assertEqual(result, {"status": "workout_edit"})
+        mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+        mocks["send_text"].assert_called_once_with(
+            "27999999999", "🚶 Send the corrected walk or workout note."
+        )
+
+    async def test_unconfirmed_walker_workout_resumes_at_confirmation(self):
+        pending = submission(
+            distance_text=None,
+            time_text="45 MIN BRISK WALK",
+            seconds=0,
+            mode="WORKOUT",
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=pending,
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "45 MIN BRISK WALK"
+        )
 
     async def test_legacy_saved_walker_workout_resumes_with_confirmation(self):
         legacy_pending = submission(
@@ -1622,6 +1758,27 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
         mocks["send_workout_confirm_buttons"].assert_called_once_with(
             "27999999999", "Easy 5km walk"
+        )
+
+    async def test_wednesday_recovery_of_unconfirmed_workout_keeps_review_screen(self):
+        pending = submission(
+            distance_text=None,
+            time_text="45 MIN BRISK WALK",
+            seconds=0,
+            mode="WORKOUT",
+            event_date="2026-09-08",
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=pending,
+            get_resumable_submission=pending,
+            ensure_tt_open=(True, None),
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "45 MIN BRISK WALK"
         )
 
     async def test_both_user_can_choose_distance_or_workout(self):
@@ -1648,6 +1805,68 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "27999999999",
                 "🚶 Send a short note about your walk or workout, e.g. 45 min walk.",
             )
+
+    async def test_both_workout_is_saved_for_confirmation(self):
+        saved = submission(distance_text=None, time_text="EASY 5KM WALK", seconds=0, mode="WORKOUT")
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="Easy 5km walk"),
+            member_data=member(participation_type="BOTH", profile_state="BOTH_WORKOUT"),
+            submission_data=submission(distance_text=None, time_text="", mode="WORKOUT"),
+            save_workout_for_confirmation=saved,
+        )
+
+        self.assertEqual(result, {"status": "both_workout_confirm"})
+        mocks["save_workout_for_confirmation"].assert_called_once_with(101, "EASY 5KM WALK")
+        mocks["clear_profile_state"].assert_called_once_with(42)
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "EASY 5KM WALK"
+        )
+
+    async def test_both_workout_confirm_completes_the_saved_submission(self):
+        completed = submission(status="COMPLETE", distance_text=None, time_text="EASY 5KM WALK", seconds=0, mode="WORKOUT")
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=submission(distance_text=None, time_text="EASY 5KM WALK", mode="WORKOUT"),
+            confirm_workout_submission=completed,
+        )
+
+        self.assertEqual(result, {"status": "workout_confirmed"})
+        mocks["confirm_workout_submission"].assert_called_once_with(101)
+
+    async def test_both_workout_edit_reopens_the_same_submission(self):
+        reopened = submission(distance_text=None, time_text="", seconds=0, mode="WORKOUT")
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=submission(distance_text=None, time_text="EASY 5KM WALK", mode="WORKOUT"),
+            reopen_workout_submission_for_edit=reopened,
+        )
+
+        self.assertEqual(result, {"status": "workout_edit"})
+        mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_duplicate_workout_confirm_is_harmless(self):
+        completed = submission(
+            status="COMPLETE",
+            distance_text=None,
+            time_text="45 MIN BRISK WALK",
+            seconds=0,
+            mode="WORKOUT",
+        )
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=None,
+            get_active_submission=None,
+            get_completed_submission_for_current_event=completed,
+        )
+
+        self.assertEqual(result, {"status": "already_confirmed"})
+        mocks["confirm_workout_submission"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
+        mocks["send_text"].assert_called_once_with("27999999999", "✅ Already confirmed.")
 
     async def test_profile_name_edit_clears_state(self):
         result, mocks, _ = await self.call_webhook(
@@ -1686,7 +1905,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(
             text_payload(body="wrong time"),
             submission_data=reopened,
-            get_completed_submission_for_current_event=submission(
+            get_self_correctable_tt_submission=submission(
                 status="COMPLETE",
                 distance_text="4",
                 time_text="27:41",
@@ -1698,6 +1917,82 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "fix_result"})
         mocks["reopen_submission_for_edit"].assert_called_once_with(101)
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_tuesday_completed_result_can_be_fixed(self):
+        completed = submission(
+            status="COMPLETE", distance_text="4", time_text="27:41", event_date="2026-09-08"
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=completed,
+            ensure_tt_open=(True, None),
+        )
+
+        self.assertEqual(result, {"status": "fix_result"})
+        mocks["ensure_tt_open"].assert_called_once_with(submission_event_date="2026-09-08")
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_wednesday_0800_tuesday_result_can_be_fixed(self):
+        completed = submission(
+            status="COMPLETE", distance_text="6", time_text="42:00", event_date="2026-09-08"
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=completed,
+            ensure_tt_open=(True, None),
+        )
+
+        self.assertEqual(result, {"status": "fix_result"})
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_wednesday_1259_tuesday_result_can_be_fixed(self):
+        completed = submission(
+            status="COMPLETE", distance_text="8", time_text="55:00", event_date="2026-09-08"
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=completed,
+            ensure_tt_open=(True, None),
+        )
+
+        self.assertEqual(result, {"status": "fix_result"})
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+
+    async def test_wednesday_after_deadline_closes_self_fix(self):
+        completed = submission(
+            status="COMPLETE", distance_text="4", time_text="27:41", event_date="2026-09-08"
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=completed,
+            ensure_tt_open=(False, "⛔ The deadline for the 8 September TT was *13:00* today."),
+        )
+
+        self.assertEqual(result, {"status": "closed"})
+        mocks["reopen_submission_for_edit"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_previous_tuesday_cannot_be_fixed(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=None,
+        )
+
+        self.assertEqual(result, {"status": "no_result_to_fix"})
+        mocks["ensure_tt_open"].assert_not_called()
+        mocks["reopen_submission_for_edit"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_fix_result_without_a_completed_tt_gives_helpful_message(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=None,
+        )
+
+        self.assertEqual(result, {"status": "no_result_to_fix"})
+        self.assertIn("completed result from the current TT", mocks["send_text"].call_args.args[1])
 
     async def test_resume_command_continues_pending_submission(self):
         result, mocks, _ = await self.call_webhook(
@@ -1727,7 +2022,19 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             "27999999999",
             "I can help with submitting a result, checking progress, or leaderboards.",
         )
-        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False)
+        mocks["send_main_menu_list"].assert_called_once_with("27999999999", False, member())
+
+    async def test_help_menu_passes_opted_out_member_preference_to_menu(self):
+        hidden_member = member(leaderboard_opt_out=True)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="HELP"),
+            member_data=hidden_member,
+        )
+
+        self.assertEqual(result, {"status": "help"})
+        mocks["send_main_menu_list"].assert_called_once_with(
+            "27999999999", False, hidden_member
+        )
 
     async def test_confirm_replies_fast_and_schedules_followups(self):
         completed = submission(
@@ -1749,6 +2056,17 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["enqueue_post_confirm_messages"].assert_called_once()
         mocks["get_runner_leaderboard"].assert_not_called()
         self.assertEqual(len(background_tasks.tasks), 1)
+
+    async def test_stale_runner_confirm_reprompts_without_completing_an_incomplete_result(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            submission_data=submission(distance_text=None, time_text="", seconds=0),
+        )
+
+        self.assertEqual(result, {"status": "confirm_not_ready_awaiting_distance"})
+        mocks["confirm_submission"].assert_not_called()
+        mocks["enqueue_post_confirm_messages"].assert_not_called()
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
     async def test_post_confirm_followup_sends_fallback_coach_message(self):
         messages = []

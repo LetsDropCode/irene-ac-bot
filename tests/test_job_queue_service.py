@@ -63,11 +63,29 @@ class JobQueueServiceTests(unittest.TestCase):
         def claim():
             return jobs.pop(0) if jobs else None
 
-        with patch.object(service, "_claim_next_job", side_effect=claim), patch.object(service, "_run_job") as run_job:
+        with patch.object(service, "recover_stale_running_jobs", return_value=0), patch.object(
+            service, "_claim_next_job", side_effect=claim
+        ), patch.object(service, "_run_job") as run_job:
             processed = service.run_due_jobs(limit=5)
 
         self.assertEqual(processed, 1)
         run_job.assert_called_once()
+
+    def test_recover_stale_running_jobs_requeues_or_fails_expired_leases(self):
+        cursor = FakeCursor(rows=[{"id": 7}, {"id": 8}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            recovered = service.recover_stale_running_jobs(
+                stale_after_seconds=300,
+                limit=20,
+            )
+
+        self.assertEqual(recovered, 2)
+        self.assertIn("status = 'RUNNING'", cursor.query)
+        self.assertIn("FOR UPDATE SKIP LOCKED", cursor.query)
+        self.assertIn("WHEN q.attempts >= q.max_attempts THEN 'FAILED'", cursor.query)
+        self.assertIn("ELSE 'PENDING'", cursor.query)
+        self.assertEqual(cursor.params, (300, 20))
 
     def test_get_queue_health_returns_queue_counts(self):
         cursor = FakeCursor(row={

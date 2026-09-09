@@ -65,6 +65,26 @@ class SubmissionGateTests(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertIn("deadline", reason)
 
+    def test_self_correctable_event_date_selects_only_tuesday_or_its_recovery_day(self):
+        with patch.object(submission_gate, "_get_event_config", return_value=None):
+            self.assertEqual(
+                submission_gate.self_correctable_event_date(
+                    now=datetime(2026, 9, 8, 18, 0, tzinfo=SA_TZ)
+                ),
+                date(2026, 9, 8),
+            )
+            self.assertEqual(
+                submission_gate.self_correctable_event_date(
+                    now=datetime(2026, 9, 9, 8, 0, tzinfo=SA_TZ)
+                ),
+                date(2026, 9, 8),
+            )
+            self.assertIsNone(
+                submission_gate.self_correctable_event_date(
+                    now=datetime(2026, 9, 10, 8, 0, tzinfo=SA_TZ)
+                )
+            )
+
     def test_gate_uses_database_event_config(self):
         config = {
             "day_of_week": 2,

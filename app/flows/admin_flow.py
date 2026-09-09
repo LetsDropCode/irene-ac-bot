@@ -313,6 +313,14 @@ def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text
         query = parts[1]
         return _select_member_from_search(sender, admin_member, query, text)
 
+    if state_name == "ADMIN_FIND":
+        if not raw_text:
+            send_text(sender, "Send a member name or phone number, or CANCEL.")
+            return {"status": "admin_find_await_query"}
+
+        count = send_member_lookup(sender, raw_text.strip(), admin_member)
+        return {"status": "admin_find_results", "count": count}
+
     if state_name == "ADMIN_FIND_FOR_CORRECT":
         if not raw_text:
             send_text(sender, "Send a member name or phone number, or CANCEL.")
@@ -622,5 +630,4 @@ def correct_admin_result(sender: str, raw_text: str, admin_member_id: int = None
         )
     _send_typed_correction_confirmation(sender, scope, identifier, state_date, distance, time_text)
     return {"status": "admin_correct_confirmation"}
-
 

@@ -43,6 +43,7 @@ from app.whatsapp import (
     send_main_menu_list,
     send_leaderboard_menu_list,
     send_admin_menu_list,
+    send_admin_leaderboard_menu_list,
     send_admin_pending_actions,
 )
 
@@ -66,6 +67,7 @@ from app.services.submission_service import (
     get_resumable_submission,
     get_active_submission,
     get_completed_submission_for_current_event,
+    get_self_correctable_tt_submission,
     get_pending_members,
     get_tonight_unprompted_checked_in_members,
     verify_tt_code,
@@ -76,7 +78,8 @@ from app.services.submission_service import (
     reopen_submission_for_edit,
     reopen_workout_submission_for_edit,
     set_submission_mode,
-    save_workout_and_confirm,
+    save_workout_for_confirmation,
+    confirm_workout_submission,
 )
 
 from app.services.attendance_service import mark_attendance
@@ -143,15 +146,15 @@ def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> b
     return hmac.compare_digest(f"sha256={expected}", f"sha256={received}")
 
 
-def send_help_menu(sender: str, admin: bool = False):
-    if not send_main_menu_list(sender, admin):
+def send_help_menu(sender: str, admin: bool = False, member: dict | None = None):
+    if not send_main_menu_list(sender, admin, member):
         send_text(sender, format_help_menu(admin))
 
 
 def send_member_greeting(sender: str, member: dict):
     first_name = member.get("first_name") or "there"
     send_text(sender, f"Hi {first_name} 👋 {TAGLINE}. What would you like to do?")
-    send_help_menu(sender, is_admin(sender))
+    send_help_menu(sender, is_admin(sender), member)
 
 
 def send_leaderboards_menu(sender: str):
@@ -714,11 +717,11 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if is_admin(sender) and text == "MENU":
         admin_member = get_member(sender)
         clear_admin_edit_state_if_needed(admin_member)
-        send_help_menu(sender, True)
+        send_help_menu(sender, True, admin_member)
         return {"status": "help"}
 
     if is_help_command(text):
-        send_help_menu(sender, is_admin(sender))
+        send_help_menu(sender, is_admin(sender), get_member(sender))
         return {"status": "help"}
 
     menu_action = resolve_menu_action(text) if text else None
@@ -728,7 +731,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if button and button.get("id", "").lower().strip() == "back_menu":
         if is_admin(sender):
             clear_admin_edit_state_if_needed(get_member(sender))
-        send_help_menu(sender, is_admin(sender))
+        send_help_menu(sender, is_admin(sender), get_member(sender))
         return {"status": "menu"}
 
     # ───────── ADMIN ─────────
@@ -738,16 +741,21 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         admin_state_raw_text = raw_text
 
         if button:
-            admin_button_id = button.get("id", "").lower().strip()
+            # Button semantics are resolved centrally in help_flow.py. The
+            # existing admin state machine still receives its familiar input.
             admin_button_text = {
-                "admin_edit_time": "TIME",
-                "admin_edit_distance": "DISTANCE",
-                "admin_edit_both": "BOTH",
-                "admin_confirm_correction": "YES",
-                "admin_cancel_correction": "NO",
-                "admin_member_history": "HISTORY",
-                "admin_member_correct": "CORRECT",
-            }.get(admin_button_id)
+                "ADMIN_MEMBER_HISTORY": "HISTORY",
+                "ADMIN_MEMBER_CORRECT": "CORRECT",
+            }.get(menu_action)
+            if not admin_button_text:
+                admin_button_id = button.get("id", "").lower().strip()
+                admin_button_text = {
+                    "admin_edit_time": "TIME",
+                    "admin_edit_distance": "DISTANCE",
+                    "admin_edit_both": "BOTH",
+                    "admin_confirm_correction": "YES",
+                    "admin_cancel_correction": "NO",
+                }.get(admin_button_id)
             if admin_button_text:
                 admin_state_text = admin_button_text
                 admin_state_raw_text = admin_button_text
@@ -787,18 +795,28 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             return state_result
 
         if menu_action == "ADMIN_FIND":
+            set_profile_state(admin_member["id"], "ADMIN_FIND")
             send_text(
                 sender,
                 (
-                    "Send FIND plus a name or phone number, e.g. FIND Lindsay.\n"
+                    "Send a member name or phone number, e.g. Lindsay or 2772...\n"
                     "Then reply with the number to open that member."
                 ),
             )
             return {"status": "member_lookup_prompt"}
 
         if menu_action == "ADMIN_HISTORY":
-            send_text(sender, "Send HISTORY plus a member ID or phone number, e.g. HISTORY 42.")
+            send_text(
+                sender,
+                "Choose Find member first, then select History from the Member Command Center.\n\n"
+                "You can still type HISTORY plus a member ID or phone number.",
+            )
             return {"status": "submission_history_prompt"}
+
+        if menu_action == "ADMIN_LEADERBOARDS":
+            if not send_admin_leaderboard_menu_list(sender):
+                send_text(sender, "Reply TONIGHT LEADERBOARD or OVERALL PBs.")
+            return {"status": "admin_leaderboards"}
 
         if menu_action == "ADMIN_TT_CODE":
             send_admin_code(sender)
@@ -981,7 +999,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         save_participation_type(member["id"], ptype)
         clear_profile_state(member["id"])
         send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
-        send_help_menu(sender, is_admin(sender))
+        send_help_menu(sender, is_admin(sender), member)
         return {"status": "profile_complete"}
 
     if menu_action in {"PROFILE", "EDIT_PROFILE"}:
@@ -1054,16 +1072,16 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         save_participation_type(member["id"], ptype)
         clear_profile_state(member["id"])
         send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
-        send_help_menu(sender, is_admin(sender))
+        send_help_menu(sender, is_admin(sender), member)
         return {"status": "profile_complete"}
 
     # ───────── SUBMISSION ─────────
     # Preserve a verified pending check-in from last night so members can
     # complete the same TT result before the next-day deadline.
     if menu_action == "FIX_RESULT":
-        completed_submission = get_completed_submission_for_current_event(member["id"])
+        completed_submission = get_self_correctable_tt_submission(member["id"])
         if not completed_submission:
-            send_text(sender, "I don’t have a completed TT result from today to fix. Type MENU for more options.")
+            send_text(sender, "I don’t have a completed result from the current TT to fix. Type MENU for more options.")
             return {"status": "no_result_to_fix"}
 
         allowed, reason = ensure_tt_open(submission_event_date=completed_submission.get("event_date"))
@@ -1089,10 +1107,19 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         return {"status": "greeting"}
 
     if not submission:
+        # A delayed duplicate Confirm can arrive after the first click has
+        # already completed the row, so no pending row will be found above.
+        # Treat it as a harmless acknowledgement rather than opening a new TT.
+        if button and button.get("id", "").lower().strip() == "confirm":
+            completed_submission = get_completed_submission_for_current_event(member["id"])
+            if completed_submission:
+                send_text(sender, "✅ Already confirmed.")
+                return {"status": "already_confirmed"}
+
         # A new TT session is gate-controlled before a row is ever created.
         if menu_action == "RESUME":
             send_text(sender, "You don’t have an unfinished TT result to continue.")
-            send_help_menu(sender, is_admin(sender))
+            send_help_menu(sender, is_admin(sender), member)
             return {"status": "nothing_to_resume"}
 
         if menu_action == "SUBMIT":
@@ -1244,11 +1271,14 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if member["participation_type"] == "BOTH" and profile_state == "BOTH_WORKOUT":
 
         if text and not submission["time_text"]:
-            submission = save_workout_and_confirm(submission["id"], text)
+            submission = save_workout_for_confirmation(submission["id"], text)
             clear_profile_state(member["id"])
+            if not submission:
+                send_text(sender, "⚠️ I couldn't save that workout note. Please send it again.")
+                return {"status": "both_workout_save_failed"}
 
-            send_text(sender, "🚶 Workout logged! Well done.")
-            return {"status": "both_workout_done"}
+            send_workout_confirm_buttons(sender, submission["time_text"])
+            return {"status": "both_workout_confirm"}
 
         send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
         return {"status": "both_await_workout"}
@@ -1256,10 +1286,13 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     if member["participation_type"] == "WALKER":
 
         if text and not submission["time_text"]:
-            submission = save_workout_and_confirm(submission["id"], text)
+            submission = save_workout_for_confirmation(submission["id"], text)
+            if not submission:
+                send_text(sender, "⚠️ I couldn't save that workout note. Please send it again.")
+                return {"status": "walker_workout_save_failed"}
 
-            send_text(sender, "🚶 Workout logged! Well done.")
-            return {"status": "walker_done"}
+            send_workout_confirm_buttons(sender, submission["time_text"])
+            return {"status": "walker_workout_confirm"}
 
     if (
         member["participation_type"] == "BOTH"
@@ -1297,17 +1330,16 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_both_submission_buttons(sender)
             return {"status": "both_bad_choice"}
 
-        # Legacy rows may contain a saved workout from before workout saving
-        # became atomic. Let the member confirm or replace that known note.
+        # Saved workouts (including legacy rows) always receive a review step.
         if _is_workout_submission(member, submission) and submission.get("time_text"):
             if btn == "confirm":
-                submission = confirm_submission(submission["id"])
+                submission = confirm_workout_submission(submission["id"])
                 if not submission:
                     send_text(sender, "✅ Already confirmed.")
                     return {"status": "already_confirmed"}
                 clear_profile_state(member["id"])
                 send_text(sender, "🚶 Workout logged! Well done.")
-                return {"status": "workout_recovered"}
+                return {"status": "workout_confirmed"}
 
             if btn == "edit":
                 reopen_workout_submission_for_edit(submission["id"])
@@ -1333,6 +1365,17 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             if submission["status"] =="COMPLETE":
                 send_text(sender,"Already confirmed.")
                 return {"status" : "already confirmed"}
+
+            # A late interactive reply must not turn an unfinished check-in
+            # into a result. The service repeats this condition in SQL so a
+            # concurrent or direct caller cannot bypass it.
+            if (
+                submission.get("distance_text") not in {"4", "6", "8"}
+                or not submission.get("time_text")
+                or not submission.get("seconds")
+            ):
+                prompt_status = prompt_for_pending_submission(sender, member, submission)
+                return {"status": f"confirm_not_ready_{prompt_status}"}
 
             previous_best = None
             if submission.get("seconds"):
@@ -1398,7 +1441,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         sender,
         "I can help with submitting a result, checking progress, or leaderboards.",
     )
-    send_help_menu(sender, is_admin(sender))
+    send_help_menu(sender, is_admin(sender), member)
     return {"status": "fallback_help"}
 
 

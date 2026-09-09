@@ -1,6 +1,7 @@
 import importlib
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 JOB_POST_CONFIRM_MESSAGES = "post_confirm_messages"
 JOB_WHATSAPP_SEND = "whatsapp_send"
+# All current job handlers are bounded network calls. A five-minute lease is
+# deliberately generous, while still allowing a worker crash to self-heal.
+STALE_RUNNING_AFTER_SECONDS = int(os.getenv("JOB_STALE_RUNNING_AFTER_SECONDS", "300"))
 
 
 def _json_payload(payload: dict[str, Any]):
@@ -57,6 +61,7 @@ def enqueue_whatsapp_text(to: str, text: str):
 
 
 def run_due_jobs(limit: int = 10):
+    recover_stale_running_jobs()
     processed = 0
     for _ in range(limit):
         job = _claim_next_job()
@@ -65,6 +70,51 @@ def run_due_jobs(limit: int = 10):
         _run_job(job)
         processed += 1
     return processed
+
+
+def recover_stale_running_jobs(
+    stale_after_seconds: int = STALE_RUNNING_AFTER_SECONDS,
+    limit: int = 100,
+):
+    """Return jobs abandoned by a crashed worker to a runnable terminal path.
+
+    A job that exhausted its attempts becomes FAILED so the existing admin
+    retry route can handle it; otherwise it is put back into PENDING. This is
+    performed before every normal job run, rather than relying on an operator
+    to notice a RUNNING count.
+    """
+    with get_cursor() as cur:
+        cur.execute("""
+            WITH stale_jobs AS (
+                SELECT id
+                FROM job_queue
+                WHERE status = 'RUNNING'
+                  AND (
+                      locked_at IS NULL
+                      OR locked_at <= CURRENT_TIMESTAMP
+                          - (%s * INTERVAL '1 second')
+                  )
+                ORDER BY locked_at ASC NULLS FIRST, id ASC
+                LIMIT %s
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE job_queue q
+            SET status = CASE
+                    WHEN q.attempts >= q.max_attempts THEN 'FAILED'
+                    ELSE 'PENDING'
+                END,
+                run_after = CURRENT_TIMESTAMP,
+                locked_at = NULL,
+                last_error = COALESCE(
+                    q.last_error,
+                    'Recovered after worker lease expired'
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            FROM stale_jobs
+            WHERE q.id = stale_jobs.id
+            RETURNING q.id
+        """, (stale_after_seconds, limit))
+        return len(cur.fetchall())
 
 
 def get_queue_health():

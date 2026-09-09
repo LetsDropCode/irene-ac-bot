@@ -137,7 +137,8 @@ def send_image(to: str, image_url: str, caption: str | None = None) -> bool:
 # ─────────────────────────────────────────────
 # MAIN MENU LIST
 # ─────────────────────────────────────────────
-def send_main_menu_list(to: str, admin: bool = False) -> bool:
+def send_main_menu_list(to: str, admin: bool = False, member: dict | None = None) -> bool:
+    """Send the member menu using the already-loaded sharing preference."""
     rows = [
         {
             "id": "menu_submit",
@@ -169,17 +170,20 @@ def send_main_menu_list(to: str, admin: bool = False) -> bool:
             "title": "League standings",
             "description": "Open The Irene League standings.",
         },
-        {
-            "id": "menu_opt_out",
-            "title": "Stop sharing",
-            "description": "Opt out of leaderboard sharing.",
-        },
-        {
-            "id": "menu_opt_in",
-            "title": "Start sharing",
-            "description": "Show my results on leaderboards.",
-        },
     ]
+
+    if member and member.get("leaderboard_opt_out"):
+        rows.append({
+            "id": "menu_opt_in",
+            "title": "Show my results",
+            "description": "Show my results on public leaderboards again.",
+        })
+    else:
+        rows.append({
+            "id": "menu_opt_out",
+            "title": "Hide my results",
+            "description": "Hide my results from public leaderboards.",
+        })
 
     if admin:
         rows.extend([
@@ -248,11 +252,6 @@ def send_admin_menu_list(to: str) -> bool:
                                 "description": "Checked-in members still pending.",
                             },
                             {
-                                "id": "admin_correct",
-                                "title": "Correct result",
-                                "description": "Fix a runner's distance or time.",
-                            },
-                            {
                                 "id": "admin_recover_tonight",
                                 "title": "Resend prompts",
                                 "description": "Prompt checked-in members with no result.",
@@ -260,17 +259,47 @@ def send_admin_menu_list(to: str) -> bool:
                         ],
                     },
                     {
+                        "title": "Members",
+                        "rows": [
+                            {
+                                "id": "admin_find",
+                                "title": "Find member",
+                                "description": "Find a member for history or corrections.",
+                            },
+                            {
+                                "id": "admin_correct",
+                                "title": "Correct result",
+                                "description": "Find a member and correct a result.",
+                            },
+                        ],
+                    },
+                    {
+                        "title": "System",
+                        "rows": [
+                            {
+                                "id": "admin_jobs_status",
+                                "title": "Queue status",
+                                "description": "See pending, running and failed jobs.",
+                            },
+                            {
+                                "id": "admin_jobs_failed",
+                                "title": "Failed jobs",
+                                "description": "Review jobs that need attention.",
+                            },
+                            {
+                                "id": "admin_jobs_retry",
+                                "title": "Retry failed",
+                                "description": "Retry all failed jobs.",
+                            },
+                        ],
+                    },
+                    {
                         "title": "Leaderboards",
                         "rows": [
                             {
-                                "id": "admin_tonight_leaderboard",
-                                "title": "Tonight leaderboard",
-                                "description": "Show tonight's TT results.",
-                            },
-                            {
-                                "id": "admin_overall_leaderboard",
-                                "title": "Overall PBs",
-                                "description": "Show fastest 8km, 6km and 4km PBs.",
+                                "id": "admin_leaderboards",
+                                "title": "Leaderboard views",
+                                "description": "Tonight's results and overall PBs.",
                             },
                         ],
                     },
@@ -279,6 +308,39 @@ def send_admin_menu_list(to: str) -> bool:
         },
     }
     return _send(payload)
+
+
+def send_admin_leaderboard_menu_list(to: str) -> bool:
+    """Keep both admin leaderboard views reachable within list row limits."""
+    return _send({
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "🌳 Irene AC leaderboards"},
+            "body": {"text": "Choose a leaderboard view."},
+            "footer": {"text": WHATSAPP_FOOTER},
+            "action": {
+                "button": "Choose view",
+                "sections": [{
+                    "title": "Leaderboards",
+                    "rows": [
+                        {
+                            "id": "admin_tonight_leaderboard",
+                            "title": "Tonight leaderboard",
+                            "description": "Show tonight's TT results.",
+                        },
+                        {
+                            "id": "admin_overall_leaderboard",
+                            "title": "Overall PBs",
+                            "description": "Show fastest 8km, 6km and 4km PBs.",
+                        },
+                    ],
+                }],
+            },
+        },
+    })
 
 
 # ─────────────────────────────────────────────

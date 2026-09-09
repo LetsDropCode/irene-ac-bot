@@ -56,6 +56,28 @@ def _gate_config(event: str):
     }
 
 
+def self_correctable_event_date(now=None, event: str = "TT"):
+    """Return the one TT date a member may currently self-correct.
+
+    This deliberately identifies the event date only; ``ensure_tt_open``
+    remains responsible for enforcing the Tuesday window and Wednesday
+    deadline. Keeping the configured TT weekday here prevents a Wednesday row
+    from shadowing the completed Tuesday result.
+    """
+    now = now or datetime.now(SA_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=SA_TZ)
+    else:
+        now = now.astimezone(SA_TZ)
+
+    event_day = _gate_config(event)["day_of_week"]
+    if now.weekday() == event_day:
+        return now.date()
+    if now.weekday() == (event_day + 1) % 7:
+        return now.date() - timedelta(days=1)
+    return None
+
+
 def ensure_tt_open(now=None, event: str = "TT", submission_event_date: date | None = None):
     now = now or datetime.now(SA_TZ)
     if now.tzinfo is None:
