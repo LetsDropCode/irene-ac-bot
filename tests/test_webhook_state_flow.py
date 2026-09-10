@@ -1974,6 +1974,194 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
         mocks["get_or_create_submission"].assert_not_called()
 
+    async def test_both_workout_edit_journey_uses_same_submission_and_mode(self):
+        unverified = submission(tt_code_verified=False, event_date="2026-09-08")
+        checked_in = submission(tt_code_verified=True, event_date="2026-09-08")
+        workout_mode = submission(
+            tt_code_verified=True, mode="WORKOUT", event_date="2026-09-08"
+        )
+        original_note = submission(
+            tt_code_verified=True,
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="45 MIN WALK",
+            seconds=0,
+            event_date="2026-09-08",
+        )
+        reopened = submission(
+            tt_code_verified=True,
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="",
+            seconds=0,
+            confirmed=False,
+            event_date="2026-09-08",
+        )
+        corrected_note = submission(
+            tt_code_verified=True,
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="50 MIN BRISK WALK",
+            seconds=0,
+            event_date="2026-09-08",
+        )
+        completed = submission(
+            status="COMPLETE",
+            tt_code_verified=True,
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="50 MIN BRISK WALK",
+            seconds=0,
+            confirmed=True,
+            event_date="2026-09-08",
+        )
+        both_member = member(participation_type="BOTH")
+
+        code_result, code_mocks, _ = await self.call_webhook(
+            text_payload(body="9793"),
+            member_data=both_member,
+            submission_data=unverified,
+            verify_tt_code=checked_in,
+            is_valid_tt_code=lambda _value: True,
+        )
+        choice_result, choice_mocks, _ = await self.call_webhook(
+            button_payload(button_id="submit_workout", title="Workout"),
+            member_data=both_member,
+            submission_data=checked_in,
+        )
+        original_result, original_mocks, _ = await self.call_webhook(
+            text_payload(body="45 min walk"),
+            member_data=member(participation_type="BOTH", profile_state="BOTH_WORKOUT"),
+            submission_data=workout_mode,
+            save_workout_for_confirmation=original_note,
+        )
+        edit_result, edit_mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            member_data=both_member,
+            submission_data=original_note,
+            reopen_workout_submission_for_edit=reopened,
+        )
+        corrected_result, corrected_mocks, _ = await self.call_webhook(
+            text_payload(body="50 min brisk walk"),
+            member_data=both_member,
+            submission_data=reopened,
+            save_workout_for_confirmation=corrected_note,
+        )
+        confirm_result, confirm_mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            member_data=both_member,
+            submission_data=corrected_note,
+            confirm_workout_submission=completed,
+        )
+
+        self.assertEqual(code_result, {"status": "code_ok_both_choice"})
+        self.assertEqual(choice_result, {"status": "both_workout"})
+        choice_mocks["set_submission_mode"].assert_called_once_with(101, "WORKOUT")
+        self.assertEqual(original_result, {"status": "both_workout_confirm"})
+        original_mocks["save_workout_for_confirmation"].assert_called_once_with(101, "45 MIN WALK")
+        self.assertEqual(edit_result, {"status": "workout_edit"})
+        edit_mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
+        self.assertEqual(corrected_result, {"status": "both_workout_confirm"})
+        corrected_mocks["save_workout_for_confirmation"].assert_called_once_with(101, "50 MIN BRISK WALK")
+        corrected_mocks["send_both_submission_buttons"].assert_not_called()
+        self.assertEqual(confirm_result, {"status": "workout_confirmed"})
+        confirm_mocks["confirm_workout_submission"].assert_called_once_with(101)
+
+        for row in (checked_in, workout_mode, original_note, reopened, corrected_note, completed):
+            self.assertEqual(row["id"], 101)
+            self.assertEqual(row["event_date"], "2026-09-08")
+            self.assertTrue(row["tt_code_verified"])
+        self.assertEqual(reopened["mode"], "WORKOUT")
+        self.assertEqual(completed["mode"], "WORKOUT")
+        self.assertTrue(completed["confirmed"])
+        edit_mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_both_workout_edit_then_resume_prompts_for_corrected_note(self):
+        reopened = submission(
+            mode="WORKOUT", distance_text=None, time_text="", seconds=0
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=reopened,
+            get_resumable_submission=reopened,
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout"})
+        mocks["send_text"].assert_called_once_with(
+            "27999999999", "🚶 Send a short note about your walk or workout, e.g. 45 min walk."
+        )
+        mocks["send_both_submission_buttons"].assert_not_called()
+
+    async def test_both_workout_edit_on_wednesday_keeps_workout_mode(self):
+        reviewed = submission(
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="45 MIN WALK",
+            seconds=0,
+            event_date="2026-09-08",
+        )
+        reopened = submission(
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="",
+            seconds=0,
+            event_date="2026-09-08",
+        )
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=reviewed,
+            get_resumable_submission=reviewed,
+            reopen_workout_submission_for_edit=reopened,
+        )
+
+        self.assertEqual(result, {"status": "workout_edit"})
+        mocks["ensure_tt_open"].assert_called_once_with(submission_event_date="2026-09-08")
+        mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
+        mocks["send_text"].assert_called_once_with(
+            "27999999999", "🚶 Send the corrected walk or workout note."
+        )
+
+    async def test_legacy_mode_less_both_workout_resumes_at_review(self):
+        legacy = submission(
+            mode=None,
+            distance_text=None,
+            time_text="45 MIN WALK",
+            seconds=0,
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=legacy,
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "45 MIN WALK"
+        )
+
+    async def test_both_workout_duplicate_confirm_is_harmless(self):
+        completed = submission(
+            status="COMPLETE",
+            mode="WORKOUT",
+            distance_text=None,
+            time_text="50 MIN BRISK WALK",
+            seconds=0,
+            confirmed=True,
+        )
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            member_data=member(participation_type="BOTH"),
+            submission_data=None,
+            get_active_submission=None,
+            get_completed_submission_for_current_event=completed,
+        )
+
+        self.assertEqual(result, {"status": "already_confirmed"})
+        mocks["confirm_workout_submission"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
+
     async def test_duplicate_workout_confirm_is_harmless(self):
         completed = submission(
             status="COMPLETE",

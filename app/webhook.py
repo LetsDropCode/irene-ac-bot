@@ -1277,10 +1277,9 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
     # ───────── WALKER ─────────
     if _is_workout_submission(member, submission) and not submission.get("time_text"):
-        is_both_workout = (
-            member.get("participation_type") == "BOTH"
-            and profile_state == "BOTH_WORKOUT"
-        )
+        # The submission mode selects this path. Profile state is only
+        # onboarding/UI residue and is deliberately not needed after Edit.
+        is_both_workout = member.get("participation_type") == "BOTH"
         status_prefix = "both_" if is_both_workout else "walker_"
 
         if text and not submission["time_text"]:
