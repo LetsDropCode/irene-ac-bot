@@ -47,8 +47,10 @@ def _client_safe() -> Optional[object]:
     try:
         _client = OpenAI(api_key=key, timeout=TIMEOUT)
         return _client
-    except Exception as e:
-        logger.exception("Failed to initialize OpenAI client: %s", e)
+    except Exception:
+        # Provider exceptions can include request/configuration context; do
+        # not include those details in logs.
+        logger.error("Failed to initialize OpenAI client")
         return None
 
 
@@ -85,8 +87,8 @@ def coach_reply(prompt: str) -> str:
 
         return content.strip()
 
-    except Exception as e:
-        logger.exception("OpenAI call failed: %s", e)
+    except Exception:
+        logger.error("OpenAI call failed")
         return fallback(prompt)
 
 

@@ -560,8 +560,13 @@ def _milestone_lines(total_runs: int, previous_best, submission: dict):
     return lines
 
 
-def send_post_confirm_messages(sender: str, member: dict, submission: dict, previous_best):
-    first_name = member.get("first_name") or "Runner"
+def send_post_confirm_messages(
+    sender: str,
+    member_id: int,
+    first_name: str,
+    submission: dict,
+    previous_best,
+):
     profile = {"total_runs": None, "recent": []}
     pace = None
 
@@ -573,13 +578,13 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
                 submission["seconds"],
                 submission["distance_text"]
             )
-    except Exception as e:
-        logger.exception("Pace calculation failed: %s", e)
+    except Exception:
+        logger.error("Pace calculation failed")
 
     try:
-        profile = get_user_profile(member["id"])
-    except Exception as e:
-        logger.exception("Profile summary failed: %s", e)
+        profile = get_user_profile(member_id)
+    except Exception:
+        logger.error("Profile summary failed")
 
     lines = [
         f"🏁 *{first_name}, your TT result is saved*",
@@ -606,7 +611,7 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
     rows = get_runner_leaderboard()
     position = _find_runner_position(
         rows,
-        member["id"],
+        member_id,
         submission["distance_text"],
     )
     if position:
@@ -634,8 +639,10 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
             trend = detect_trend(profile["recent"])
             fatigue = detect_fatigue(profile["recent"])
 
+            # This is the entire model-facing context. Identity, contact
+            # details, IDs, and unrelated profile history stay outside it.
             prompt = (
-                f"{member['first_name']} ran {submission['distance_text']}km in {submission['time_text']} "
+                f"Runner completed {submission['distance_text']}km in {submission['time_text']} "
                 f"(pace {pace}). Trend: {trend}. "
             )
 
@@ -649,8 +656,8 @@ def send_post_confirm_messages(sender: str, member: dict, submission: dict, prev
             if insight:
                 lines.extend(["", "*Coach note*", insight])
 
-    except Exception as e:
-        logger.exception("Insight engine failed: %s", e)
+    except Exception:
+        logger.error("Insight engine failed")
 
     lines.extend(["", "Type MENU for more options, or MY PROGRESS to see your history."])
     send_text(sender, "\n".join(lines))
@@ -1433,12 +1440,17 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
                 return {"status": "already_confirmed"}
 
             send_text(sender, "TT recorded.")
-            enqueue_post_confirm_messages(
-                sender,
-                dict(member),
-                dict(submission),
-                previous_best,
-            )
+            try:
+                enqueue_post_confirm_messages(
+                    sender,
+                    dict(member),
+                    dict(submission),
+                    previous_best,
+                )
+            except Exception:
+                # A coaching/follow-up delivery failure must never undo or
+                # turn a saved TT result into a failed confirmation.
+                logger.error("Could not queue post-confirm follow-up")
             background_tasks.add_task(run_due_jobs, 5)
 
             return {"status": "done"}

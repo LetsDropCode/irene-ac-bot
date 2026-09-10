@@ -34,12 +34,23 @@ def enqueue_job(job_type: str, payload: dict[str, Any], run_after: datetime | No
 
 
 def enqueue_post_confirm_messages(sender: str, member: dict, submission: dict, previous_best):
+    """Queue only the fields needed for the member follow-up.
+
+    The job is durable, so avoid storing the complete member/profile or
+    submission records.  In particular, no raw member dictionary can flow to
+    the coaching integration.
+    """
     return enqueue_job(
         JOB_POST_CONFIRM_MESSAGES,
         {
             "sender": sender,
-            "member": member,
-            "submission": submission,
+            "member_id": member["id"],
+            "first_name": member.get("first_name") or "Runner",
+            "submission": {
+                "distance_text": submission.get("distance_text"),
+                "time_text": submission.get("time_text"),
+                "seconds": submission.get("seconds"),
+            },
             "previous_best": previous_best,
         },
     )
@@ -251,7 +262,8 @@ def _dispatch_job(job_type: str, payload: dict):
         webhook = importlib.import_module("app.webhook")
         webhook.send_post_confirm_messages(
             payload["sender"],
-            payload["member"],
+            payload["member_id"],
+            payload.get("first_name") or "Runner",
             payload["submission"],
             payload.get("previous_best"),
         )

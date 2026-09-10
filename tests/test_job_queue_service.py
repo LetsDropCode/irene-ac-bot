@@ -104,19 +104,37 @@ def in_memory_cursor_context(jobs):
 
 class JobQueueServiceTests(unittest.TestCase):
     def test_enqueue_post_confirm_messages_stores_durable_job(self):
-        cursor = FakeCursor(row={"id": 11})
-
-        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+        with patch.object(service, "enqueue_job", return_value=11) as enqueue_job:
             job_id = service.enqueue_post_confirm_messages(
                 "27999999999",
-                {"id": 42},
-                {"id": 101, "event_date": date(2026, 7, 7)},
+                {"id": 42, "first_name": "Lindsay", "phone": "27999999999", "admin": True},
+                {
+                    "id": 101,
+                    "event_date": date(2026, 7, 7),
+                    "member_id": 42,
+                    "distance_text": "8",
+                    "time_text": "43:21",
+                    "seconds": 2601,
+                },
                 1800,
             )
 
         self.assertEqual(job_id, 11)
-        self.assertIn("INSERT INTO job_queue", cursor.query)
-        self.assertEqual(cursor.params[0], service.JOB_POST_CONFIRM_MESSAGES)
+        job_type, payload = enqueue_job.call_args.args
+        self.assertEqual(job_type, service.JOB_POST_CONFIRM_MESSAGES)
+        self.assertEqual(
+            payload,
+            {
+                "sender": "27999999999",
+                "member_id": 42,
+                "first_name": "Lindsay",
+                "submission": {"distance_text": "8", "time_text": "43:21", "seconds": 2601},
+                "previous_best": 1800,
+            },
+        )
+        self.assertNotIn("member", payload)
+        self.assertNotIn("phone", payload)
+        self.assertNotIn("admin", payload)
 
     def test_enqueue_whatsapp_text_stores_text_payload(self):
         cursor = FakeCursor(row={"id": 12})

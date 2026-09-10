@@ -272,8 +272,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
             for name, value in patches.items():
                 if name in mocks:
-                    mocks[name].side_effect = None
-                    mocks[name].return_value = value
+                    if isinstance(value, Exception):
+                        mocks[name].side_effect = value
+                    else:
+                        mocks[name].side_effect = None
+                        mocks[name].return_value = value
                 else:
                     target = webhook_module if hasattr(webhook_module, name) else admin_flow_module
                     stack.enter_context(patch.object(target, name, value))
@@ -647,8 +650,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
             for name, value in patches.items():
                 if name in mocks:
-                    mocks[name].side_effect = None
-                    mocks[name].return_value = value
+                    if isinstance(value, Exception):
+                        mocks[name].side_effect = value
+                    else:
+                        mocks[name].side_effect = None
+                        mocks[name].return_value = value
                 else:
                     target = webhook_module if hasattr(webhook_module, name) else admin_flow_module
                     stack.enter_context(patch.object(target, name, value))
@@ -2519,6 +2525,19 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["enqueue_post_confirm_messages"].assert_not_called()
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
+    async def test_followup_queue_failure_does_not_affect_saved_result(self):
+        completed = submission(status="COMPLETE", distance_text="4", time_text="27:41", seconds=1661)
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            submission_data=submission(distance_text="4", time_text="27:41", seconds=1661),
+            confirm_submission=completed,
+            enqueue_post_confirm_messages=RuntimeError("coaching unavailable"),
+        )
+
+        self.assertEqual(result, {"status": "done"})
+        mocks["confirm_submission"].assert_called_once_with(101)
+        mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
+
     async def test_post_confirm_followup_sends_fallback_coach_message(self):
         messages = []
 
@@ -2534,7 +2553,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
             )
-            stack.enter_context(patch.object(webhook_module, "coach_reply", return_value="Keep building steadily."))
+            coach_reply = stack.enter_context(
+                patch.object(webhook_module, "coach_reply", return_value="Keep building steadily.")
+            )
             stack.enter_context(
                 patch.object(
                     webhook_module,
@@ -2552,7 +2573,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
             webhook_module.send_post_confirm_messages(
                 "27999999999",
-                member(),
+                42,
+                "Lindsay",
                 submission(status="COMPLETE", distance_text="4", time_text="27:41", seconds=1661),
                 previous_best=1800,
             )
@@ -2569,6 +2591,15 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("🥇 Badge: 4km PB", messages[0])
         self.assertIn("*Coach note*", messages[0])
         self.assertIn("Keep building steadily.", messages[0])
+        prompt = coach_reply.call_args.args[0]
+        self.assertIn("4km", prompt)
+        self.assertIn("27:41", prompt)
+        self.assertIn("pace", prompt)
+        self.assertIn("Trend:", prompt)
+        self.assertNotIn("Lindsay", prompt)
+        self.assertNotIn("27999999999", prompt)
+        self.assertNotIn("42", prompt)
+        self.assertIsInstance(prompt, str)
 
 
 if __name__ == "__main__":
