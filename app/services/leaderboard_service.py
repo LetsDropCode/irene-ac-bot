@@ -40,6 +40,7 @@ def get_runner_leaderboard(event_date=None):
             AND s.distance_text <> ''
             AND s.activity = 'TT'
             AND (s.mode = 'RUN' OR s.mode IS NULL)
+            AND m.leaderboard_visibility_set = TRUE
             AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND s.event_date = """ + date_expr + """
         ORDER BY
@@ -65,6 +66,7 @@ def get_walker_feed(event_date=None):
             s.status = 'COMPLETE'
             AND (s.distance_text IS NULL OR s.distance_text = '')
             AND (s.mode = 'WORKOUT' OR s.mode IS NULL)
+            AND m.leaderboard_visibility_set = TRUE
             AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND s.event_date = """ + date_expr + """
         ORDER BY s.created_at DESC
@@ -82,6 +84,7 @@ def get_checked_in_tt_member_phones(event_date):
         WHERE a.event = 'TT'
           AND a.event_date = %s
           AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+          AND m.leaderboard_visibility_set = TRUE
         ORDER BY m.phone
         """, (event_date,))
 
@@ -116,6 +119,7 @@ def get_overall_leaderboard(member_id=None, limit_per_distance=10):
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
                 AND (s.mode = 'RUN' OR s.mode IS NULL)
+                AND m.leaderboard_visibility_set = TRUE
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 
@@ -177,6 +181,7 @@ def get_member_rankings(member_id):
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
                 AND (s.mode = 'RUN' OR s.mode IS NULL)
+                AND m.leaderboard_visibility_set = TRUE
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 

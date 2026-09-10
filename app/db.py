@@ -62,6 +62,29 @@ def get_cursor(commit: bool = True):
 # Database initialisation & migrations
 # --------------------------------------------------
 
+def apply_legacy_visibility_onboarding_migration(cur):
+    """Mark established pre-feature profiles exactly once.
+
+    The marker prevents later deploys from inferring public visibility for a
+    new, interrupted onboarding profile.
+    """
+    cur.execute("""
+        WITH applied AS (
+            INSERT INTO schema_migrations (name)
+            VALUES ('2026-09-visibility-onboarding-v1')
+            ON CONFLICT (name) DO NOTHING
+            RETURNING name
+        )
+        UPDATE members
+        SET participation_type = COALESCE(participation_type, 'RUNNER'),
+            leaderboard_visibility_set = TRUE
+        WHERE EXISTS (SELECT 1 FROM applied)
+          AND COALESCE(first_name, '') NOT IN ('', 'Unknown')
+          AND COALESCE(last_name, '') NOT IN ('', 'Unknown', 'Member')
+          AND COALESCE(profile_state, '') NOT LIKE 'ONBOARDING_%';
+    """)
+
+
 def init_db():
     print("🚀 Initialising database...")
 
@@ -78,6 +101,13 @@ def init_db():
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
 
@@ -295,22 +325,7 @@ def init_db():
         END $$;
     """)
 
-    # Backfills (idempotent)
-    cur.execute("""
-        UPDATE members
-        SET participation_type = 'RUNNER'
-        WHERE participation_type IS NULL;
-    """)
-
-    # Preserve established members' existing visibility preference. New
-    # onboarding keeps profile_state at ONBOARDING_LEADERBOARD until a choice
-    # is made, so it is not included in this legacy backfill.
-    cur.execute("""
-        UPDATE members
-        SET leaderboard_visibility_set = TRUE
-        WHERE participation_type IS NOT NULL
-          AND profile_state IS DISTINCT FROM 'ONBOARDING_LEADERBOARD';
-    """)
+    apply_legacy_visibility_onboarding_migration(cur)
 
     # Infer historic activity type from submission data, never from the
     # member's current preference. Leave empty legacy rows unclassified so the

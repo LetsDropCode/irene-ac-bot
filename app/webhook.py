@@ -63,12 +63,15 @@ from app.services.member_service import (
     create_member,
     save_member_name,
     save_participation_type,
+    save_onboarding_name_and_advance,
+    save_onboarding_participation_and_advance,
     set_profile_state,
     clear_profile_state,
     acknowledge_popia,
     opt_out_leaderboard,
     opt_in_leaderboard,
     set_leaderboard_visibility,
+    complete_onboarding_visibility,
     has_seen_whats_new,
     mark_whats_new_seen,
 )
@@ -1114,8 +1117,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_participation_buttons(sender)
             return {"status": "onboarding_bad_type"}
 
-        save_participation_type(member["id"], ptype)
-        set_profile_state(member["id"], "ONBOARDING_LEADERBOARD")
+        save_onboarding_participation_and_advance(member["id"], ptype)
         send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
         send_leaderboard_visibility_buttons(sender)
         return {"status": "onboarding_await_visibility"}
@@ -1127,7 +1129,12 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             return {"status": "onboarding_await_visibility"}
 
         private = visibility_button == "onboarding_keep_private"
-        set_leaderboard_visibility(member["id"], private)
+        completed = complete_onboarding_visibility(member["id"], private)
+        if not completed:
+            # Never claim a profile is public/private if the guarded atomic
+            # transition was not applied; leave it safely incomplete instead.
+            send_leaderboard_visibility_buttons(sender)
+            return {"status": "onboarding_await_visibility"}
         send_text(
             sender,
             "✅ Your TT profile is complete. "
@@ -1184,8 +1191,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             return {"status": "await_name"}
 
         parts = raw_text.split()
-        save_member_name(member["id"], parts[0], " ".join(parts[1:]))
-        set_profile_state(member["id"], "ONBOARDING_PARTICIPATION")
+        save_onboarding_name_and_advance(member["id"], parts[0], " ".join(parts[1:]))
 
         send_text(sender, "✅ Profile created. Now choose how you usually take part.")
         send_participation_buttons(sender)
@@ -1204,8 +1210,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_participation_buttons(sender)
             return {"status": "onboarding_bad_type"}
 
-        save_participation_type(member["id"], ptype)
-        set_profile_state(member["id"], "ONBOARDING_LEADERBOARD")
+        save_onboarding_participation_and_advance(member["id"], ptype)
         send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
         send_leaderboard_visibility_buttons(sender)
         return {"status": "onboarding_await_visibility"}

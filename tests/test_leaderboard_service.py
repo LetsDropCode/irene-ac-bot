@@ -35,6 +35,7 @@ class LeaderboardServiceTests(unittest.TestCase):
 
         self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
         self.assertNotIn("m.participation_type", cursor.query)
+        self.assertIn("AND m.leaderboard_visibility_set = TRUE", cursor.query)
         self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
         self.assertEqual(cursor.params, ())
 
@@ -46,6 +47,7 @@ class LeaderboardServiceTests(unittest.TestCase):
 
         self.assertIn("AND (s.mode = 'WORKOUT' OR s.mode IS NULL)", cursor.query)
         self.assertNotIn("m.participation_type", cursor.query)
+        self.assertIn("AND m.leaderboard_visibility_set = TRUE", cursor.query)
         self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
         self.assertEqual(cursor.params, ())
 
@@ -57,6 +59,7 @@ class LeaderboardServiceTests(unittest.TestCase):
 
         self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
         self.assertNotIn("m.participation_type", cursor.query)
+        self.assertIn("AND m.leaderboard_visibility_set = TRUE", cursor.query)
         self.assertEqual(cursor.params, (10, 42))
 
     def test_member_rankings_uses_runner_submission_mode(self):
@@ -67,7 +70,17 @@ class LeaderboardServiceTests(unittest.TestCase):
 
         self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
         self.assertNotIn("m.participation_type", cursor.query)
+        self.assertIn("AND m.leaderboard_visibility_set = TRUE", cursor.query)
         self.assertEqual(cursor.params, (42,))
+
+    def test_public_broadcast_recipients_require_completed_visibility_choice(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.get_checked_in_tt_member_phones("2026-09-08")
+
+        self.assertIn("m.leaderboard_visibility_set = TRUE", cursor.query)
+        self.assertIn("COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
 
 
 if __name__ == "__main__":

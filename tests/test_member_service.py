@@ -72,6 +72,37 @@ class MemberServiceTests(unittest.TestCase):
         self.assertIn("profile_state = NULL", cursor.query)
         self.assertEqual(cursor.params, (True, 42))
 
+    def test_onboarding_name_transition_is_atomic_and_keeps_visibility_private(self):
+        cursor = FakeCursor(row={"id": 42})
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.save_onboarding_name_and_advance(42, "New", "Member")
+
+        self.assertIn("profile_state = 'ONBOARDING_PARTICIPATION'", cursor.query)
+        self.assertIn("leaderboard_visibility_set = FALSE", cursor.query)
+        self.assertEqual(cursor.params, ("New", "Member", 42))
+
+    def test_onboarding_participation_transition_is_atomic_and_keeps_visibility_private(self):
+        cursor = FakeCursor(row={"id": 42})
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.save_onboarding_participation_and_advance(42, "RUNNER")
+
+        self.assertIn("profile_state = 'ONBOARDING_LEADERBOARD'", cursor.query)
+        self.assertIn("leaderboard_visibility_set = FALSE", cursor.query)
+        self.assertEqual(cursor.params, ("RUNNER", 42))
+
+    def test_onboarding_visibility_completion_is_atomic(self):
+        cursor = FakeCursor(row={"id": 42})
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.complete_onboarding_visibility(42, False)
+
+        self.assertIn("leaderboard_visibility_set = TRUE", cursor.query)
+        self.assertIn("profile_state = NULL", cursor.query)
+        self.assertIn("profile_state = 'ONBOARDING_LEADERBOARD'", cursor.query)
+        self.assertEqual(cursor.params, (False, 42))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -206,7 +206,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_member_center_buttons",
                 "save_member_name",
                 "save_participation_type",
+                "save_onboarding_name_and_advance",
+                "save_onboarding_participation_and_advance",
                 "set_leaderboard_visibility",
+                "complete_onboarding_visibility",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",
@@ -369,8 +372,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "profile_done"})
-        mocks["save_member_name"].assert_called_once_with(42, "Lindsay", "Bull")
-        mocks["set_profile_state"].assert_called_once_with(42, "ONBOARDING_PARTICIPATION")
+        mocks["save_onboarding_name_and_advance"].assert_called_once_with(42, "Lindsay", "Bull")
+        mocks["set_profile_state"].assert_not_called()
         mocks["get_or_create_submission"].assert_not_called()
 
         result, mocks, _ = await self.call_webhook(
@@ -385,8 +388,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "onboarding_await_visibility"})
-        mocks["save_participation_type"].assert_called_once_with(42, "RUNNER")
-        mocks["set_profile_state"].assert_called_once_with(42, "ONBOARDING_LEADERBOARD")
+        mocks["save_onboarding_participation_and_advance"].assert_called_once_with(42, "RUNNER")
+        mocks["set_profile_state"].assert_not_called()
         mocks["send_leaderboard_visibility_buttons"].assert_called_once_with("27999999999")
         mocks["get_or_create_submission"].assert_not_called()
 
@@ -403,7 +406,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "profile_complete"})
-        mocks["set_leaderboard_visibility"].assert_called_once_with(42, False)
+        mocks["complete_onboarding_visibility"].assert_called_once_with(42, False)
         mocks["get_or_create_submission"].assert_not_called()
 
     async def test_profile_onboarding_visibility_choice_can_be_private(self):
@@ -416,13 +419,49 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, {"status": "profile_complete"})
-        mocks["set_leaderboard_visibility"].assert_called_once_with(42, True)
+        mocks["complete_onboarding_visibility"].assert_called_once_with(42, True)
         self.assertIn("stay private", mocks["send_text"].call_args.args[1])
 
     async def test_abandoned_visibility_onboarding_resumes_without_submission(self):
         result, mocks, _ = await self.call_webhook(
             text_payload(body="HI"),
             member_data=member(
+                profile_state="ONBOARDING_LEADERBOARD",
+                leaderboard_visibility_set=False,
+            ),
+        )
+
+        self.assertEqual(result, {"status": "onboarding_await_visibility"})
+        mocks["send_leaderboard_visibility_buttons"].assert_called_once_with("27999999999")
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_restart_after_name_transition_remains_awaiting_participation(self):
+        # Represents the member row read after a process restart: the atomic
+        # name transition persisted the next state and still-private marker.
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="HI"),
+            member_data=member(
+                first_name="New",
+                last_name="Member",
+                participation_type=None,
+                profile_state="ONBOARDING_PARTICIPATION",
+                leaderboard_visibility_set=False,
+            ),
+        )
+
+        self.assertEqual(result, {"status": "onboarding_await_type"})
+        mocks["send_participation_buttons"].assert_called_once_with("27999999999")
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_restart_after_participation_transition_remains_awaiting_visibility(self):
+        # The member cannot reach submission handling while this persisted
+        # state says the explicit public/private choice is unfinished.
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="SUBMIT"),
+            member_data=member(
+                first_name="New",
+                last_name="Member",
+                participation_type="RUNNER",
                 profile_state="ONBOARDING_LEADERBOARD",
                 leaderboard_visibility_set=False,
             ),
@@ -594,7 +633,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_member_center_buttons",
                 "save_member_name",
                 "save_participation_type",
+                "save_onboarding_name_and_advance",
+                "save_onboarding_participation_and_advance",
                 "set_leaderboard_visibility",
+                "complete_onboarding_visibility",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",

@@ -54,6 +54,24 @@ def save_member_name(member_id: int, first_name: str, last_name: str):
         )
 
 
+def save_onboarding_name_and_advance(member_id: int, first_name: str, last_name: str):
+    """Atomically persist a new member's name and next onboarding step."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET first_name = %s,
+                last_name = %s,
+                profile_state = 'ONBOARDING_PARTICIPATION',
+                leaderboard_visibility_set = FALSE
+            WHERE id = %s
+            RETURNING *
+            """,
+            (first_name.strip(), last_name.strip(), member_id),
+        )
+        return cur.fetchone()
+
+
 # ─────────────────────────────────────────────
 # PARTICIPATION TYPE
 # ─────────────────────────────────────────────
@@ -68,6 +86,23 @@ def save_participation_type(member_id: int, participation_type: str):
             """,
             (participation_type, member_id)
         )
+
+
+def save_onboarding_participation_and_advance(member_id: int, participation_type: str):
+    """Atomically advance a new profile to its explicit visibility choice."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET participation_type = %s,
+                profile_state = 'ONBOARDING_LEADERBOARD',
+                leaderboard_visibility_set = FALSE
+            WHERE id = %s
+            RETURNING *
+            """,
+            (participation_type, member_id),
+        )
+        return cur.fetchone()
 
 
 def set_profile_state(member_id: int, state: str):
@@ -152,6 +187,24 @@ def set_leaderboard_visibility(member_id: int, opt_out: bool):
             """,
             (opt_out, member_id),
         )
+
+
+def complete_onboarding_visibility(member_id: int, opt_out: bool):
+    """Atomically complete the separate public-visibility onboarding step."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET leaderboard_opt_out = %s,
+                leaderboard_visibility_set = TRUE,
+                profile_state = NULL
+            WHERE id = %s
+              AND profile_state = 'ONBOARDING_LEADERBOARD'
+            RETURNING *
+            """,
+            (opt_out, member_id),
+        )
+        return cur.fetchone()
 
 
 def has_seen_whats_new(member: dict, version: str) -> bool:
