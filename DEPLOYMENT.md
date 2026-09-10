@@ -180,12 +180,30 @@ GitHub Actions runs on push and pull request:
 .github/workflows/ci.yml
 ```
 
-It installs dependencies, compiles Python files, and runs the unit test suite:
+It installs dependencies, compiles Python files, and runs the unit suite plus
+a separate PostgreSQL 16 integration suite. The integration job uses an
+ephemeral GitHub Actions PostgreSQL service and never uses Railway:
 
 ```sh
 python -m compileall app scripts tests
 python -m unittest discover -s tests
+python -m unittest discover -s tests/integration -p '*_integration.py'
 ```
+
+## PostgreSQL Integration Tests
+
+Integration tests require PostgreSQL **16** and a disposable database. They
+drop and recreate the `public` schema before each test, so never point them at
+a shared, staging, or production database.
+
+```sh
+export DATABASE_URL=postgresql://irene_test:irene_test@localhost:5432/irene_integration
+export INTEGRATION_DATABASE_URL="$DATABASE_URL"
+python -m unittest discover -s tests/integration -p '*_integration.py'
+```
+
+The suite refuses to run unless `INTEGRATION_DATABASE_URL` names a database
+containing `test` or `integration`.
 
 ## Deploy Checklist
 

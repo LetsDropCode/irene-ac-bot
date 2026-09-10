@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
 
     env:
@@ -31,3 +31,43 @@ jobs:
 
       - name: Run unit tests
         run: python -m unittest discover -s tests
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: irene_test
+          POSTGRES_PASSWORD: irene_test
+          POSTGRES_DB: irene_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U irene_test -d irene_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      ENV: test
+      DATABASE_URL: postgresql://irene_test:irene_test@localhost:5432/irene_integration
+      INTEGRATION_DATABASE_URL: postgresql://irene_test:irene_test@localhost:5432/irene_integration
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run PostgreSQL integration tests
+        run: python -m unittest discover -s tests/integration -p '*_integration.py'
