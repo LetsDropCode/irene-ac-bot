@@ -173,6 +173,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_main_menu_list",
                 "send_leaderboard_menu_list",
                 "send_admin_menu_list",
+                "send_admin_code",
                 "send_admin_leaderboard_menu_list",
                 "send_admin_edit_field_buttons",
                 "send_admin_confirm_correction_buttons",
@@ -643,6 +644,37 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("TT code: *1234*", dashboard)
         self.assertIn("Top pending: Asha Runner", dashboard)
         mocks["send_admin_menu_list"].assert_called_once_with("27722135094")
+
+    async def test_admin_text_tt_code_uses_admin_code_intent(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="TT CODE"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "admin_code"})
+        mocks["send_admin_code"].assert_called_once_with("27722135094")
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_interactive_admin_tt_code_still_uses_admin_code_intent(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(sender="27722135094", button_id="admin_tt_code", title="TT Code"),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "admin_code"})
+        mocks["send_admin_code"].assert_called_once_with("27722135094")
+
+    async def test_member_tt_code_retains_submit_shortcut(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="TT CODE"),
+            submission_data=submission(tt_code_verified=False),
+        )
+
+        self.assertEqual(result, {"status": "menu_submit_await_code"})
+        mocks["send_admin_code"].assert_not_called()
+        mocks["send_text"].assert_called_once_with(
+            "27999999999", "🔑 Send tonight's TT code to check in. You can type MENU anytime."
+        )
 
     async def test_admin_tools_text_clears_active_admin_edit_state(self):
         result, mocks, _ = await self.call_webhook(

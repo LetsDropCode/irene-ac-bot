@@ -721,29 +721,30 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     raw_text = text.strip() if text else None
     if text:
         text = raw_text.upper()
+    admin_sender = is_admin(sender)
 
-    if is_admin(sender) and text == "MENU":
+    if admin_sender and text == "MENU":
         admin_member = get_member(sender)
         clear_admin_edit_state_if_needed(admin_member)
         send_help_menu(sender, True, admin_member)
         return {"status": "help"}
 
     if is_help_command(text):
-        send_help_menu(sender, is_admin(sender), get_member(sender))
+        send_help_menu(sender, admin_sender, get_member(sender))
         return {"status": "help"}
 
-    menu_action = resolve_menu_action(text) if text else None
+    menu_action = resolve_menu_action(text, admin=admin_sender) if text else None
     if button:
         menu_action = resolve_interactive_action(button.get("id", "")) or menu_action
 
     if button and button.get("id", "").lower().strip() == "back_menu":
-        if is_admin(sender):
+        if admin_sender:
             clear_admin_edit_state_if_needed(get_member(sender))
-        send_help_menu(sender, is_admin(sender), get_member(sender))
+        send_help_menu(sender, admin_sender, get_member(sender))
         return {"status": "menu"}
 
     # ───────── ADMIN ─────────
-    if is_admin(sender):
+    if admin_sender:
         admin_member = get_member(sender)
         admin_state_text = text
         admin_state_raw_text = raw_text

@@ -138,12 +138,21 @@ INTERACTIVE_ACTIONS = {
     "admin_member_correct": "ADMIN_MEMBER_CORRECT",
 }
 
+# Admin text commands that intentionally override otherwise compatible member
+# aliases. Keep this small: member aliases remain available to administrators
+# unless an admin command actually collides with one.
+ADMIN_TEXT_ACTIONS = {
+    "TT CODE": "ADMIN_TT_CODE",
+}
+
 
 def is_help_command(text: str) -> bool:
     return text in HELP_COMMANDS
 
 
-def resolve_menu_action(text: str):
+def resolve_menu_action(text: str, admin: bool = False):
+    if admin and text in ADMIN_TEXT_ACTIONS:
+        return ADMIN_TEXT_ACTIONS[text]
     return MENU_ACTIONS.get(text)
 
 

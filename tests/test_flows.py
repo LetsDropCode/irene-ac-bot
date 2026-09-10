@@ -23,6 +23,8 @@ class HelpFlowTests(unittest.TestCase):
         self.assertTrue(is_help_command("MENU"))
         self.assertEqual(resolve_menu_action("1"), "SUBMIT")
         self.assertEqual(resolve_menu_action("CODE"), "SUBMIT")
+        self.assertEqual(resolve_menu_action("TT CODE"), "SUBMIT")
+        self.assertEqual(resolve_menu_action("TT CODE", admin=True), "ADMIN_TT_CODE")
         self.assertEqual(resolve_menu_action("TIME"), "RESUME")
         self.assertEqual(resolve_menu_action("CHANGE"), "FIX_RESULT")
         self.assertEqual(resolve_menu_action("MY PROFILE"), "PROFILE")
@@ -72,6 +74,21 @@ class HelpFlowTests(unittest.TestCase):
         self.assertEqual(resolve_interactive_action("admin_leaderboards"), "ADMIN_LEADERBOARDS")
         self.assertEqual(resolve_interactive_action("admin_member_history"), "ADMIN_MEMBER_HISTORY")
         self.assertEqual(resolve_interactive_action("admin_member_correct"), "ADMIN_MEMBER_CORRECT")
+
+    def test_admin_context_only_overrides_the_real_tt_code_collision(self):
+        # STATUS, HISTORY, PENDING, and CORRECT are already admin-only text
+        # intents. The remaining audited member aliases have no conflicting
+        # admin text command and deliberately retain their behavior.
+        self.assertEqual(resolve_menu_action("STATUS", admin=True), "ADMIN_TT_STATUS")
+        self.assertEqual(resolve_menu_action("HISTORY", admin=True), "ADMIN_HISTORY")
+        self.assertEqual(resolve_menu_action("PENDING", admin=True), "ADMIN_PENDING")
+        self.assertEqual(resolve_menu_action("CORRECT", admin=True), "ADMIN_CORRECT")
+        self.assertEqual(resolve_menu_action("RESULTS", admin=True), "LEADERBOARDS")
+        self.assertEqual(resolve_menu_action("TIME", admin=True), "RESUME")
+        self.assertEqual(resolve_menu_action("CODE", admin=True), "SUBMIT")
+        self.assertEqual(resolve_menu_action("TT", admin=True), "SUBMIT")
+        self.assertIsNone(resolve_menu_action("START", admin=True))
+        self.assertIsNone(resolve_menu_action("MENU", admin=True))
 
     def test_admin_menu_includes_admin_commands(self):
         self.assertIn("Admin commands", format_help_menu(admin=True))
