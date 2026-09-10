@@ -17,6 +17,7 @@ def get_previous_best(member_id: int, distance: str, exclude_submission_id: int 
               AND distance_text = %s
               AND status = 'COMPLETE'
               AND seconds IS NOT NULL
+              AND (mode = 'RUN' OR mode IS NULL)
               {exclude_clause}
         """, tuple(params))
 

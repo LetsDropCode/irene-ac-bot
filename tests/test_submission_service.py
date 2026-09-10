@@ -69,6 +69,24 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertIn("seconds = 0", cursor.queries[0])
         self.assertIn("mode = 'RUN'", cursor.queries[0])
 
+    def test_reopening_runner_result_for_edit_resets_the_same_submission(self):
+        cursor = FakeCursor(rows=[{"id": 101, "status": "PENDING"}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.reopen_submission_for_edit(101)
+
+        self.assertEqual(row, {"id": 101, "status": "PENDING"})
+        query = cursor.queries[0]
+        self.assertIn("UPDATE submissions", query)
+        self.assertNotIn("INSERT", query)
+        self.assertIn("status = 'PENDING'", query)
+        self.assertIn("confirmed = FALSE", query)
+        self.assertIn("distance_text = NULL", query)
+        self.assertIn("time_text = ''", query)
+        self.assertIn("seconds = 0", query)
+        self.assertIn("mode = 'RUN'", query)
+        self.assertEqual(cursor.params[0], (101,))
+
     def test_save_workout_for_confirmation_keeps_submission_pending(self):
         cursor = FakeCursor(rows=[{"id": 101, "status": "PENDING"}])
 

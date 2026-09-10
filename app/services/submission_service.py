@@ -279,7 +279,8 @@ def confirm_submission(submission_id: int):
         cur.execute("""
             UPDATE submissions
             SET status = 'COMPLETE',
-                confirmed = TRUE
+                confirmed = TRUE,
+                mode = 'RUN'
             WHERE id = %s
               AND status = 'PENDING'
               AND tt_code_verified = TRUE
@@ -353,6 +354,7 @@ def get_tonight_unprompted_checked_in_members():
             s.id AS submission_id,
             s.distance_text,
             s.time_text,
+            s.mode,
             s.status,
             s.tt_code_verified
         FROM submissions s

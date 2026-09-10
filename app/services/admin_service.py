@@ -218,6 +218,7 @@ def correct_submission_by_id(
             SET distance_text = %s,
                 time_text = %s,
                 seconds = %s,
+                mode = 'RUN',
                 status = 'COMPLETE',
                 confirmed = TRUE
             FROM target
@@ -341,6 +342,7 @@ def correct_runner_time(
             SET distance_text = %s,
                 time_text = %s,
                 seconds = %s,
+                mode = 'RUN',
                 status = 'COMPLETE',
                 confirmed = TRUE
             FROM target
@@ -490,7 +492,7 @@ def correct_runner_pb(
               AND s.distance_text IS NOT NULL
               AND s.distance_text <> ''
               AND s.activity = 'TT'
-              AND m.participation_type IN ('RUNNER', 'BOTH')
+              AND (s.mode = 'RUN' OR s.mode IS NULL)
               AND regexp_replace(LOWER(s.distance_text), '[^0-9]', '', 'g') = %s
               AND (
                     (%s IS NOT NULL AND m.id = %s)
@@ -504,6 +506,7 @@ def correct_runner_pb(
             SET distance_text = %s,
                 time_text = %s,
                 seconds = %s,
+                mode = 'RUN',
                 status = 'COMPLETE',
                 confirmed = TRUE
             FROM target

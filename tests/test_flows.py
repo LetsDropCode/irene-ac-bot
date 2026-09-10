@@ -12,6 +12,7 @@ from app.flows.submission_state import (
     AWAITING_DISTANCE,
     AWAITING_TIME,
     AWAITING_WORKOUT,
+    AWAITING_WORKOUT_CONFIRM,
     resolve_pending_submission_state,
 )
 
@@ -113,6 +114,54 @@ class SubmissionStateTests(unittest.TestCase):
                 {"distance_text": "4", "time_text": "27:41"},
             ),
             AWAITING_CONFIRM,
+        )
+
+    def test_submission_mode_overrides_a_changed_member_preference(self):
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "WALKER"},
+                {"mode": "RUN", "distance_text": "8", "time_text": ""},
+            ),
+            AWAITING_TIME,
+        )
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "RUNNER"},
+                {"mode": "WORKOUT", "distance_text": None, "time_text": ""},
+            ),
+            AWAITING_WORKOUT,
+        )
+
+    def test_both_member_submission_mode_selects_its_own_state_machine(self):
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "BOTH"},
+                {"mode": "RUN", "distance_text": None, "time_text": ""},
+            ),
+            AWAITING_DISTANCE,
+        )
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "BOTH"},
+                {"mode": "WORKOUT", "distance_text": None, "time_text": ""},
+            ),
+            AWAITING_WORKOUT,
+        )
+
+    def test_legacy_mode_less_rows_remain_recoverable(self):
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "RUNNER"},
+                {"distance_text": "6", "time_text": ""},
+            ),
+            AWAITING_TIME,
+        )
+        self.assertEqual(
+            resolve_pending_submission_state(
+                {"participation_type": "RUNNER"},
+                {"distance_text": None, "time_text": "Easy walk"},
+            ),
+            AWAITING_WORKOUT_CONFIRM,
         )
 
 

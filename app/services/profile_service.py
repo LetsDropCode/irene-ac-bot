@@ -24,6 +24,7 @@ def get_user_profile(member_id):
             AND seconds > 0
             AND distance_text IS NOT NULL
             AND distance_text <> ''
+            AND (mode = 'RUN' OR mode IS NULL)
             GROUP BY distance_text
         """, (member_id,))
         pbs = cur.fetchall()
@@ -49,6 +50,7 @@ def get_user_profile(member_id):
             AND seconds > 0
             AND distance_text IS NOT NULL
             AND distance_text <> ''
+            AND (mode = 'RUN' OR mode IS NULL)
             ORDER BY created_at DESC
             LIMIT 5
         """, (member_id,))

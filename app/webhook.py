@@ -438,12 +438,20 @@ def resume_submission(sender: str, member: dict, submission: dict):
 
 
 def _is_workout_submission(member: dict, submission: dict) -> bool:
-    if member.get("participation_type") == "WALKER":
+    mode = (submission.get("mode") or "").upper()
+    if mode == "WORKOUT":
+        return True
+    if mode == "RUN":
+        return False
+
+    # Mode-less rows predate per-submission activity types. Their populated
+    # fields are the safest fallback; an empty legacy walker row still uses
+    # the member preference as its original default.
+    if not submission.get("distance_text") and submission.get("time_text"):
         return True
     return (
-        member.get("participation_type") == "BOTH"
-        and not submission.get("distance_text")
-        and (submission.get("mode") == "WORKOUT" or submission.get("time_text"))
+        not submission.get("distance_text")
+        and member.get("participation_type") == "WALKER"
     )
 
 
@@ -1268,34 +1276,29 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
         return {"status": f"code_ok_{prompt_status}"}
 
     # ───────── WALKER ─────────
-    if member["participation_type"] == "BOTH" and profile_state == "BOTH_WORKOUT":
+    if _is_workout_submission(member, submission) and not submission.get("time_text"):
+        is_both_workout = (
+            member.get("participation_type") == "BOTH"
+            and profile_state == "BOTH_WORKOUT"
+        )
+        status_prefix = "both_" if is_both_workout else "walker_"
 
         if text and not submission["time_text"]:
             submission = save_workout_for_confirmation(submission["id"], text)
             clear_profile_state(member["id"])
             if not submission:
                 send_text(sender, "⚠️ I couldn't save that workout note. Please send it again.")
-                return {"status": "both_workout_save_failed"}
+                return {"status": f"{status_prefix}workout_save_failed"}
 
             send_workout_confirm_buttons(sender, submission["time_text"])
-            return {"status": "both_workout_confirm"}
+            return {"status": f"{status_prefix}workout_confirm"}
 
         send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
-        return {"status": "both_await_workout"}
-
-    if member["participation_type"] == "WALKER":
-
-        if text and not submission["time_text"]:
-            submission = save_workout_for_confirmation(submission["id"], text)
-            if not submission:
-                send_text(sender, "⚠️ I couldn't save that workout note. Please send it again.")
-                return {"status": "walker_workout_save_failed"}
-
-            send_workout_confirm_buttons(sender, submission["time_text"])
-            return {"status": "walker_workout_confirm"}
+        return {"status": f"{status_prefix}await_workout"}
 
     if (
-        member["participation_type"] == "BOTH"
+        not submission.get("mode")
+        and member["participation_type"] == "BOTH"
         and not submission["distance_text"]
         and not submission["time_text"]
         and not button
@@ -1310,7 +1313,8 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         # BOTH SUBMISSION TYPE
         if (
-            member["participation_type"] == "BOTH"
+            not submission.get("mode")
+            and member["participation_type"] == "BOTH"
             and not submission["distance_text"]
             and not submission["time_text"]
             and btn in {"submit_distance", "submit_workout"}
@@ -1403,6 +1407,11 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         # EDIT
         if btn == "edit":
+            # Editing a reviewed runner result is a state transition, not just
+            # a new prompt.  Persistently clear the reviewed values first so a
+            # late Confirm from the old WhatsApp card cannot complete them.
+            submission = reopen_submission_for_edit(submission["id"])
+            clear_profile_state(member["id"])
             send_distance_buttons(sender)
             return {"status": "edit"}
 

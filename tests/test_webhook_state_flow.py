@@ -1676,6 +1676,133 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["save_time"].assert_called_once_with(101, "27:41", 1661)
             mocks["send_confirm_buttons"].assert_called_once_with("27999999999", "4", "27:41")
 
+    async def test_runner_edit_resets_reviewed_result_on_the_same_submission(self):
+        reopened = submission(
+            id=101,
+            status="PENDING",
+            distance_text=None,
+            time_text="",
+            seconds=0,
+            confirmed=False,
+            mode="RUN",
+            event_date="2026-09-08",
+        )
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            submission_data=submission(
+                id=101,
+                distance_text="6",
+                time_text="42:00",
+                seconds=2520,
+                confirmed=False,
+                mode="RUN",
+                event_date="2026-09-08",
+            ),
+            reopen_submission_for_edit=reopened,
+        )
+
+        self.assertEqual(result, {"status": "edit"})
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+        mocks["clear_profile_state"].assert_called_once_with(42)
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+        self.assertEqual(reopened["id"], 101)
+        self.assertEqual(reopened["event_date"], "2026-09-08")
+        self.assertEqual(reopened["distance_text"], None)
+        self.assertEqual(reopened["time_text"], "")
+        self.assertEqual(reopened["seconds"], 0)
+        self.assertFalse(reopened["confirmed"])
+        self.assertEqual(reopened["status"], "PENDING")
+        self.assertEqual(reopened["mode"], "RUN")
+
+    async def test_runner_edit_then_resume_returns_to_distance_selection(self):
+        reset = submission(distance_text=None, time_text="", seconds=0, mode="RUN")
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            submission_data=reset,
+            get_resumable_submission=reset,
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_distance"})
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+        mocks["send_confirm_buttons"].assert_not_called()
+
+    async def test_runner_edit_rejects_a_delayed_confirm_from_old_card(self):
+        reset = submission(distance_text=None, time_text="", seconds=0, mode="RUN")
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            submission_data=reset,
+        )
+
+        self.assertEqual(result, {"status": "confirm_not_ready_awaiting_distance"})
+        mocks["confirm_submission"].assert_not_called()
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
+    async def test_runner_edit_accepts_a_reentered_result_and_confirm(self):
+        reset = submission(distance_text=None, time_text="", seconds=0, mode="RUN")
+        after_distance = submission(distance_text="8", time_text="", seconds=0, mode="RUN")
+        after_time = submission(distance_text="8", time_text="55:00", seconds=3300, mode="RUN")
+        completed = submission(
+            status="COMPLETE", distance_text="8", time_text="55:00", seconds=3300
+        )
+
+        edit_result, edit_mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            submission_data=submission(distance_text="6", time_text="42:00", seconds=2520),
+            reopen_submission_for_edit=reset,
+        )
+        distance_result, distance_mocks, _ = await self.call_webhook(
+            button_payload(button_id="8km", title="8 km"),
+            submission_data=reset,
+            save_distance=after_distance,
+        )
+        time_result, time_mocks, _ = await self.call_webhook(
+            text_payload(body="55:00"),
+            submission_data=after_distance,
+            save_time=after_time,
+        )
+        confirm_result, confirm_mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            submission_data=after_time,
+            confirm_submission=completed,
+        )
+
+        self.assertEqual(edit_result, {"status": "edit"})
+        edit_mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        self.assertEqual(distance_result, {"status": "distance"})
+        distance_mocks["save_distance"].assert_called_once_with(101, "8")
+        self.assertEqual(time_result, {"status": "confirm"})
+        time_mocks["save_time"].assert_called_once_with(101, "55:00", 3300)
+        self.assertEqual(confirm_result, {"status": "done"})
+        confirm_mocks["confirm_submission"].assert_called_once_with(101)
+
+    async def test_wednesday_resumable_runner_can_edit_to_a_safe_distance_state(self):
+        reviewed = submission(
+            distance_text="6",
+            time_text="42:00",
+            seconds=2520,
+            event_date="2026-09-08",
+        )
+        reset = submission(
+            distance_text=None,
+            time_text="",
+            seconds=0,
+            mode="RUN",
+            event_date="2026-09-08",
+        )
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="edit", title="Edit"),
+            submission_data=reviewed,
+            get_resumable_submission=reviewed,
+            reopen_submission_for_edit=reset,
+        )
+
+        self.assertEqual(result, {"status": "edit"})
+        mocks["ensure_tt_open"].assert_called_once_with(submission_event_date="2026-09-08")
+        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["get_or_create_submission"].assert_not_called()
+        mocks["send_distance_buttons"].assert_called_once_with("27999999999")
+
     async def test_fresh_walker_workout_is_saved_for_confirmation(self):
         saved = submission(distance_text=None, time_text="EASY 5KM WALK", seconds=0, mode="WORKOUT")
 
@@ -2004,6 +2131,31 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["send_text"].assert_called_once_with(
             "27999999999",
             "⏱ Send your time, for example 27:41 or 01:27:41. I’ll show a confirmation before saving.",
+        )
+
+    async def test_runner_submission_survives_profile_change_to_walker(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="WALKER"),
+            submission_data=submission(mode="RUN", distance_text="8", time_text=""),
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_time"})
+        mocks["send_text"].assert_called_once_with(
+            "27999999999",
+            "⏱ Send your time, for example 27:41 or 01:27:41. I’ll show a confirmation before saving.",
+        )
+
+    async def test_workout_submission_survives_profile_change_to_runner(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            member_data=member(participation_type="RUNNER"),
+            submission_data=submission(mode="WORKOUT", distance_text=None, time_text="Easy 5km walk"),
+        )
+
+        self.assertEqual(result, {"status": "resume_awaiting_workout_confirm"})
+        mocks["send_workout_confirm_buttons"].assert_called_once_with(
+            "27999999999", "Easy 5km walk"
         )
 
     async def test_unknown_text_opens_menu_recovery(self):

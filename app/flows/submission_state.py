@@ -8,12 +8,15 @@ AWAITING_CONFIRM = "awaiting_confirm"
 
 def resolve_pending_submission_state(member: dict, submission: dict) -> str:
     participation_type = member.get("participation_type") or "RUNNER"
+    mode = (submission.get("mode") or "").upper()
 
-    is_workout = participation_type == "WALKER" or (
-        participation_type == "BOTH"
+    # A submission's mode is authoritative once selected.  The member's
+    # participation type is only a default for an unclassified legacy row.
+    is_workout = mode == "WORKOUT" or (
+        not mode
         and (
-            submission.get("mode") == "WORKOUT"
-            or (not submission.get("distance_text") and submission.get("time_text"))
+            (not submission.get("distance_text") and submission.get("time_text"))
+            or (not submission.get("distance_text") and participation_type == "WALKER")
         )
     )
 
@@ -21,7 +24,8 @@ def resolve_pending_submission_state(member: dict, submission: dict) -> str:
         return AWAITING_WORKOUT_CONFIRM if submission.get("time_text") else AWAITING_WORKOUT
 
     if (
-        participation_type == "BOTH"
+        not mode
+        and participation_type == "BOTH"
         and not submission.get("distance_text")
         and not submission.get("time_text")
     ):

@@ -39,7 +39,7 @@ def get_runner_leaderboard(event_date=None):
             AND s.distance_text IS NOT NULL
             AND s.distance_text <> ''
             AND s.activity = 'TT'
-            AND m.participation_type IN ('RUNNER', 'BOTH')
+            AND (s.mode = 'RUN' OR s.mode IS NULL)
             AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND s.event_date = """ + date_expr + """
         ORDER BY
@@ -64,7 +64,7 @@ def get_walker_feed(event_date=None):
         WHERE
             s.status = 'COMPLETE'
             AND (s.distance_text IS NULL OR s.distance_text = '')
-            AND m.participation_type IN ('WALKER', 'BOTH')
+            AND (s.mode = 'WORKOUT' OR s.mode IS NULL)
             AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
             AND s.event_date = """ + date_expr + """
         ORDER BY s.created_at DESC
@@ -115,7 +115,7 @@ def get_overall_leaderboard(member_id=None, limit_per_distance=10):
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
-                AND m.participation_type IN ('RUNNER', 'BOTH')
+                AND (s.mode = 'RUN' OR s.mode IS NULL)
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 
@@ -176,7 +176,7 @@ def get_member_rankings(member_id):
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
-                AND m.participation_type IN ('RUNNER', 'BOTH')
+                AND (s.mode = 'RUN' OR s.mode IS NULL)
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
         ),
 

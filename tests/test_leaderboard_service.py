@@ -27,42 +27,46 @@ def fake_cursor_context(cursor, commit=False):
 
 
 class LeaderboardServiceTests(unittest.TestCase):
-    def test_tonight_leaderboard_filters_to_runner_members_and_opt_in(self):
+    def test_tonight_leaderboard_uses_submission_mode_not_current_member_preference(self):
         cursor = FakeCursor()
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
             service.get_runner_leaderboard()
 
-        self.assertIn("AND m.participation_type IN ('RUNNER', 'BOTH')", cursor.query)
+        self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
+        self.assertNotIn("m.participation_type", cursor.query)
         self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
         self.assertEqual(cursor.params, ())
 
-    def test_walker_feed_includes_walker_and_both_workouts_and_opt_in(self):
+    def test_walker_feed_uses_submission_mode_not_current_member_preference(self):
         cursor = FakeCursor()
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
             service.get_walker_feed()
 
-        self.assertIn("AND m.participation_type IN ('WALKER', 'BOTH')", cursor.query)
+        self.assertIn("AND (s.mode = 'WORKOUT' OR s.mode IS NULL)", cursor.query)
+        self.assertNotIn("m.participation_type", cursor.query)
         self.assertIn("AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE", cursor.query)
         self.assertEqual(cursor.params, ())
 
-    def test_overall_leaderboard_filters_to_runner_members(self):
+    def test_overall_leaderboard_uses_runner_submission_mode(self):
         cursor = FakeCursor()
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
             service.get_overall_leaderboard(member_id=42)
 
-        self.assertIn("AND m.participation_type IN ('RUNNER', 'BOTH')", cursor.query)
+        self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
+        self.assertNotIn("m.participation_type", cursor.query)
         self.assertEqual(cursor.params, (10, 42))
 
-    def test_member_rankings_filters_to_runner_members(self):
+    def test_member_rankings_uses_runner_submission_mode(self):
         cursor = FakeCursor()
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
             service.get_member_rankings(42)
 
-        self.assertIn("AND m.participation_type IN ('RUNNER', 'BOTH')", cursor.query)
+        self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
+        self.assertNotIn("m.participation_type", cursor.query)
         self.assertEqual(cursor.params, (42,))
 
 

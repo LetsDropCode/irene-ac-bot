@@ -280,10 +280,21 @@ def init_db():
         WHERE participation_type IS NULL;
     """)
 
+    # Infer historic activity type from submission data, never from the
+    # member's current preference. Leave empty legacy rows unclassified so the
+    # runtime can use the current preference as a default for future input.
     cur.execute("""
         UPDATE submissions
         SET mode = 'RUN'
-        WHERE mode IS NULL;
+        WHERE distance_text IN ('4', '6', '8')
+          AND COALESCE(seconds, 0) > 0;
+    """)
+
+    cur.execute("""
+        UPDATE submissions
+        SET mode = 'WORKOUT'
+        WHERE (distance_text IS NULL OR distance_text = '')
+          AND COALESCE(time_text, '') <> '';
     """)
 
     cur.execute("""

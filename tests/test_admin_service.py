@@ -110,14 +110,15 @@ class AdminServiceTests(unittest.TestCase):
             (7, 101, 42, None, "", 0, None, "26:59", 1619, "selected_submission_time"),
         )
 
-    def test_correct_runner_pb_targets_best_runner_or_both_submission(self):
+    def test_correct_runner_pb_targets_best_runner_submission_by_mode(self):
         cursor = FakeCursor(row={"id": 101})
 
         with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
             row = service.correct_runner_pb("42", "4", "26:59", 1619)
 
         self.assertEqual(row, {"id": 101})
-        self.assertIn("AND m.participation_type IN ('RUNNER', 'BOTH')", cursor.query)
+        self.assertIn("AND (s.mode = 'RUN' OR s.mode IS NULL)", cursor.query)
+        self.assertNotIn("m.participation_type", cursor.query)
         self.assertIn("ORDER BY s.seconds ASC, s.created_at ASC", cursor.query)
         self.assertEqual(cursor.params, ("4", 42, 42, "42", "42", "4", "26:59", 1619))
 
