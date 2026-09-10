@@ -107,6 +107,24 @@ def submission(**overrides):
     return data
 
 
+def self_correction(**overrides):
+    data = {
+        "id": 501,
+        "member_id": 42,
+        "submission_id": 101,
+        "mode": "RUN",
+        "distance_text": None,
+        "time_text": None,
+        "seconds": None,
+        "event_date": "2026-09-08",
+        "original_distance_text": "8",
+        "original_time_text": "43:21",
+        "original_seconds": 2601,
+    }
+    data.update(overrides)
+    return data
+
+
 class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_member_receives_irene_logo_when_public_url_is_configured(self):
         with patch.object(webhook_module, "get_member", return_value=None), patch.object(
@@ -173,6 +191,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_distance_buttons",
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
+                "send_self_correction_confirm_buttons",
                 "send_participation_buttons",
                 "send_leaderboard_visibility_buttons",
                 "send_profile_buttons",
@@ -207,6 +226,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "confirm_submission",
                 "get_completed_submission_for_current_event",
                 "get_self_correctable_tt_submission",
+                "start_member_self_correction",
+                "get_member_self_correction",
+                "save_member_self_correction_distance",
+                "save_member_self_correction_time",
+                "save_member_self_correction_workout",
+                "apply_member_self_correction",
+                "cancel_member_self_correction",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -250,6 +276,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None
+            mocks["get_member_self_correction"].return_value = None
             mocks["get_completed_submission_for_current_event"].return_value = None
             mocks["ensure_tt_open"].return_value = (True, None)
 
@@ -553,6 +580,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_distance_buttons",
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
+                "send_self_correction_confirm_buttons",
                 "send_participation_buttons",
                 "send_leaderboard_visibility_buttons",
                 "send_profile_buttons",
@@ -585,6 +613,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "confirm_submission",
                 "get_completed_submission_for_current_event",
                 "get_self_correctable_tt_submission",
+                "start_member_self_correction",
+                "get_member_self_correction",
+                "save_member_self_correction_distance",
+                "save_member_self_correction_time",
+                "save_member_self_correction_workout",
+                "apply_member_self_correction",
+                "cancel_member_self_correction",
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
@@ -628,6 +663,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None
+            mocks["get_member_self_correction"].return_value = None
             mocks["get_completed_submission_for_current_event"].return_value = None
             mocks["ensure_tt_open"].return_value = (True, None)
 
@@ -2311,43 +2347,36 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["clear_profile_state"].assert_called_once_with(42)
         mocks["send_text"].assert_called_once_with("27999999999", "✅ Name updated.")
 
-    async def test_complete_submission_edit_reopens_and_prompts_distance(self):
-        reopened = submission(status="PENDING", distance_text=None, time_text="")
+    async def test_complete_submission_edit_starts_non_destructive_correction(self):
+        correction = self_correction()
         result, mocks, _ = await self.call_webhook(
             button_payload(button_id="edit", title="Edit"),
             submission_data=submission(
                 status="COMPLETE",
-                distance_text="4",
-                time_text="27:41",
-                seconds=1661,
+                distance_text="8",
+                time_text="43:21",
+                seconds=2601,
             ),
-            reopen_submission_for_edit=reopened,
+            start_member_self_correction=correction,
         )
 
         self.assertEqual(result, {"status": "edit_existing"})
-        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
-        mocks["send_text"].assert_called_once_with(
-            "27999999999",
-            "No problem. Let’s fix your result from the start.",
-        )
+        mocks["start_member_self_correction"].assert_called_once_with(42, 101, "RUN")
+        mocks["reopen_submission_for_edit"].assert_not_called()
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
-    async def test_fix_result_command_reopens_and_prompts_distance(self):
-        reopened = submission(status="PENDING", distance_text=None, time_text="")
+    async def test_fix_result_abandon_leaves_complete_runner_unchanged(self):
+        completed = submission(status="COMPLETE", distance_text="8", time_text="43:21", seconds=2601)
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="wrong time"),
-            submission_data=reopened,
-            get_self_correctable_tt_submission=submission(
-                status="COMPLETE",
-                distance_text="4",
-                time_text="27:41",
-                seconds=1661,
-            ),
-            reopen_submission_for_edit=reopened,
+            text_payload(body="FIX RESULT"),
+            get_self_correctable_tt_submission=completed,
+            start_member_self_correction=self_correction(),
         )
 
         self.assertEqual(result, {"status": "fix_result"})
-        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["reopen_submission_for_edit"].assert_not_called()
+        mocks["apply_member_self_correction"].assert_not_called()
+        mocks["get_or_create_submission"].assert_not_called()
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
     async def test_tuesday_completed_result_can_be_fixed(self):
@@ -2358,11 +2387,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             text_payload(body="FIX RESULT"),
             get_self_correctable_tt_submission=completed,
             ensure_tt_open=(True, None),
+            start_member_self_correction=self_correction(),
         )
 
         self.assertEqual(result, {"status": "fix_result"})
         mocks["ensure_tt_open"].assert_called_once_with(submission_event_date="2026-09-08")
-        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["start_member_self_correction"].assert_called_once_with(42, 101, "RUN")
+        mocks["reopen_submission_for_edit"].assert_not_called()
         mocks["get_or_create_submission"].assert_not_called()
 
     async def test_wednesday_0800_tuesday_result_can_be_fixed(self):
@@ -2373,10 +2404,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             text_payload(body="FIX RESULT"),
             get_self_correctable_tt_submission=completed,
             ensure_tt_open=(True, None),
+            start_member_self_correction=self_correction(),
         )
 
         self.assertEqual(result, {"status": "fix_result"})
-        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["start_member_self_correction"].assert_called_once_with(42, 101, "RUN")
         mocks["get_or_create_submission"].assert_not_called()
 
     async def test_wednesday_1259_tuesday_result_can_be_fixed(self):
@@ -2387,10 +2419,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             text_payload(body="FIX RESULT"),
             get_self_correctable_tt_submission=completed,
             ensure_tt_open=(True, None),
+            start_member_self_correction=self_correction(),
         )
 
         self.assertEqual(result, {"status": "fix_result"})
-        mocks["reopen_submission_for_edit"].assert_called_once_with(101)
+        mocks["start_member_self_correction"].assert_called_once_with(42, 101, "RUN")
 
     async def test_wednesday_after_deadline_closes_self_fix(self):
         completed = submission(
@@ -2405,6 +2438,108 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "closed"})
         mocks["reopen_submission_for_edit"].assert_not_called()
         mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_active_self_correction_expires_without_changing_original_result(self):
+        correction = self_correction(distance_text="8", time_text="42:58", seconds=2578)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RESUME"),
+            get_member_self_correction=correction,
+            ensure_tt_open=(False, "⛔ The correction deadline has passed."),
+        )
+
+        self.assertEqual(result, {"status": "self_correction_expired"})
+        mocks["cancel_member_self_correction"].assert_called_once_with(501, 42)
+        mocks["apply_member_self_correction"].assert_not_called()
+        mocks["reopen_submission_for_edit"].assert_not_called()
+
+    async def test_self_correction_runner_updates_same_submission_only_after_confirm(self):
+        started = self_correction()
+        with_distance = self_correction(distance_text="8")
+        reviewed = self_correction(distance_text="8", time_text="42:58", seconds=2578)
+
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="8km", title="8km"),
+            get_member_self_correction=started,
+            save_member_self_correction_distance=with_distance,
+        )
+        self.assertEqual(result, {"status": "self_correction_awaiting_time"})
+        mocks["apply_member_self_correction"].assert_not_called()
+
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="42:58"),
+            get_member_self_correction=with_distance,
+            save_member_self_correction_time=reviewed,
+        )
+        self.assertEqual(result, {"status": "self_correction_awaiting_confirm"})
+        body = mocks["send_self_correction_confirm_buttons"].call_args.args[1]
+        self.assertIn("Was: 8km — 43:21", body)
+        self.assertIn("New: 8km — 42:58", body)
+        mocks["apply_member_self_correction"].assert_not_called()
+
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="self_correction_confirm", title="Confirm"),
+            get_member_self_correction=reviewed,
+            apply_member_self_correction=submission(
+                status="COMPLETE", distance_text="8", time_text="42:58", seconds=2578
+            ),
+        )
+        self.assertEqual(result, {"status": "self_correction_confirmed", "submission_id": 101})
+        mocks["apply_member_self_correction"].assert_called_once_with(501, 42)
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_self_correction_cancel_keeps_original_result(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="self_correction_cancel", title="Cancel"),
+            get_member_self_correction=self_correction(distance_text="8", time_text="42:58", seconds=2578),
+        )
+
+        self.assertEqual(result, {"status": "self_correction_cancelled"})
+        mocks["cancel_member_self_correction"].assert_called_once_with(501, 42)
+        mocks["apply_member_self_correction"].assert_not_called()
+        self.assertIn("original TT result is unchanged", mocks["send_text"].call_args.args[1])
+
+    async def test_duplicate_or_delayed_confirm_cannot_apply_stale_correction(self):
+        reviewed = self_correction(distance_text="8", time_text="42:58", seconds=2578)
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="confirm", title="Confirm"),
+            get_member_self_correction=reviewed,
+        )
+        self.assertEqual(result, {"status": "self_correction_awaiting_confirm"})
+        mocks["apply_member_self_correction"].assert_not_called()
+
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="self_correction_confirm", title="Confirm"),
+            get_member_self_correction=reviewed,
+            apply_member_self_correction=None,
+        )
+        self.assertEqual(result, {"status": "self_correction_already_handled"})
+        mocks["apply_member_self_correction"].assert_called_once_with(501, 42)
+
+    async def test_workout_self_correction_is_non_destructive_and_reviewed(self):
+        started = self_correction(
+            mode="WORKOUT",
+            original_distance_text=None,
+            original_time_text="45 min walk",
+            original_seconds=0,
+        )
+        reviewed = self_correction(
+            mode="WORKOUT",
+            time_text="50 min brisk walk",
+            seconds=0,
+            original_distance_text=None,
+            original_time_text="45 min walk",
+        )
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="50 min brisk walk"),
+            get_member_self_correction=started,
+            save_member_self_correction_workout=reviewed,
+        )
+
+        self.assertEqual(result, {"status": "self_correction_awaiting_confirm"})
+        body = mocks["send_self_correction_confirm_buttons"].call_args.args[1]
+        self.assertIn("Was: 45 min walk", body)
+        self.assertIn("New: 50 min brisk walk", body)
+        mocks["reopen_workout_submission_for_edit"].assert_not_called()
 
     async def test_previous_tuesday_cannot_be_fixed(self):
         result, mocks, _ = await self.call_webhook(

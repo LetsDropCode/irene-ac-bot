@@ -127,6 +127,143 @@ def get_self_correctable_tt_submission(member_id: int):
         return cur.fetchone()
 
 
+def start_member_self_correction(member_id: int, submission_id: int, mode: str):
+    """Create or resume a transient proposal without touching the result."""
+    with get_cursor() as cur:
+        cur.execute("""
+            INSERT INTO member_self_corrections (member_id, submission_id, mode)
+            SELECT %s, s.id, %s
+            FROM submissions s
+            WHERE s.id = %s
+              AND s.member_id = %s
+              AND s.status = 'COMPLETE'
+              AND s.activity = 'TT'
+              AND s.tt_code_verified = TRUE
+            ON CONFLICT (submission_id) DO UPDATE
+            SET updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        """, (member_id, mode, submission_id, member_id))
+        return cur.fetchone()
+
+
+def get_member_self_correction(member_id: int):
+    """Return a member's active proposal together with immutable original data."""
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT
+                c.id,
+                c.member_id,
+                c.submission_id,
+                c.mode,
+                c.distance_text,
+                c.time_text,
+                c.seconds,
+                s.event_date,
+                s.distance_text AS original_distance_text,
+                s.time_text AS original_time_text,
+                s.seconds AS original_seconds
+            FROM member_self_corrections c
+            JOIN submissions s ON s.id = c.submission_id
+            WHERE c.member_id = %s
+              AND s.status = 'COMPLETE'
+              AND s.tt_code_verified = TRUE
+            ORDER BY c.updated_at DESC, c.id DESC
+            LIMIT 1
+        """, (member_id,))
+        return cur.fetchone()
+
+
+def save_member_self_correction_distance(correction_id: int, member_id: int, distance: str):
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE member_self_corrections
+            SET distance_text = %s,
+                time_text = NULL,
+                seconds = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+              AND member_id = %s
+              AND mode = 'RUN'
+            RETURNING *
+        """, (distance, correction_id, member_id))
+        return cur.fetchone()
+
+
+def save_member_self_correction_time(correction_id: int, member_id: int, time_text: str, seconds: int):
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE member_self_corrections
+            SET time_text = %s,
+                seconds = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+              AND member_id = %s
+              AND mode = 'RUN'
+              AND distance_text IN ('4', '6', '8')
+            RETURNING *
+        """, (time_text, seconds, correction_id, member_id))
+        return cur.fetchone()
+
+
+def save_member_self_correction_workout(correction_id: int, member_id: int, workout: str):
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE member_self_corrections
+            SET distance_text = NULL,
+                time_text = %s,
+                seconds = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+              AND member_id = %s
+              AND mode = 'WORKOUT'
+            RETURNING *
+        """, (workout, correction_id, member_id))
+        return cur.fetchone()
+
+
+def cancel_member_self_correction(correction_id: int, member_id: int):
+    with get_cursor() as cur:
+        cur.execute("""
+            DELETE FROM member_self_corrections
+            WHERE id = %s AND member_id = %s
+            RETURNING id
+        """, (correction_id, member_id))
+        return cur.fetchone()
+
+
+def apply_member_self_correction(correction_id: int, member_id: int):
+    """Atomically apply a complete proposal and consume it exactly once."""
+    with get_cursor() as cur:
+        cur.execute("""
+            WITH proposal AS (
+                DELETE FROM member_self_corrections
+                WHERE id = %s
+                  AND member_id = %s
+                  AND (
+                    (mode = 'RUN' AND distance_text IN ('4', '6', '8')
+                     AND COALESCE(time_text, '') <> '' AND COALESCE(seconds, 0) > 0)
+                    OR
+                    (mode = 'WORKOUT' AND COALESCE(time_text, '') <> '')
+                  )
+                RETURNING *
+            )
+            UPDATE submissions s
+            SET distance_text = CASE WHEN p.mode = 'WORKOUT' THEN NULL ELSE p.distance_text END,
+                time_text = p.time_text,
+                seconds = CASE WHEN p.mode = 'WORKOUT' THEN 0 ELSE p.seconds END,
+                mode = p.mode,
+                status = 'COMPLETE',
+                confirmed = TRUE
+            FROM proposal p
+            WHERE s.id = p.submission_id
+              AND s.member_id = p.member_id
+              AND s.status = 'COMPLETE'
+              AND s.tt_code_verified = TRUE
+            RETURNING s.*
+        """, (correction_id, member_id))
+        return cur.fetchone()
+
+
 def verify_tt_code(submission_id: int, code: str):
 
     with get_cursor() as cur:

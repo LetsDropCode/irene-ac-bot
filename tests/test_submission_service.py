@@ -87,6 +87,35 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertIn("mode = 'RUN'", query)
         self.assertEqual(cursor.params[0], (101,))
 
+    def test_member_self_correction_stores_proposal_without_updating_submission(self):
+        cursor = FakeCursor(rows=[{"id": 501, "submission_id": 101}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.start_member_self_correction(42, 101, "RUN")
+
+        self.assertEqual(row["id"], 501)
+        query = cursor.queries[0]
+        self.assertIn("INSERT INTO member_self_corrections", query)
+        self.assertNotIn("UPDATE submissions", query)
+        self.assertIn("s.status = 'COMPLETE'", query)
+        self.assertEqual(cursor.params[0], (42, "RUN", 101, 42))
+
+    def test_apply_member_self_correction_updates_existing_complete_row_once(self):
+        cursor = FakeCursor(rows=[{"id": 101, "status": "COMPLETE"}])
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            row = service.apply_member_self_correction(501, 42)
+
+        self.assertEqual(row, {"id": 101, "status": "COMPLETE"})
+        query = cursor.queries[0]
+        self.assertIn("DELETE FROM member_self_corrections", query)
+        self.assertIn("UPDATE submissions", query)
+        self.assertNotIn("INSERT INTO submissions", query)
+        self.assertIn("s.status = 'COMPLETE'", query)
+        self.assertIn("s.tt_code_verified = TRUE", query)
+        self.assertIn("distance_text IN ('4', '6', '8')", query)
+        self.assertEqual(cursor.params[0], (501, 42))
+
     def test_save_workout_for_confirmation_keeps_submission_pending(self):
         cursor = FakeCursor(rows=[{"id": 101, "status": "PENDING"}])
 

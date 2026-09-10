@@ -208,6 +208,23 @@ def init_db():
         );
     """)
 
+    # A member's proposed self-correction is deliberately separate from the
+    # completed result. It is deleted on Confirm/Cancel and never represents a
+    # second result row.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS member_self_corrections (
+            id SERIAL PRIMARY KEY,
+            member_id INTEGER NOT NULL REFERENCES members(id),
+            submission_id INTEGER NOT NULL UNIQUE REFERENCES submissions(id),
+            mode TEXT NOT NULL,
+            distance_text TEXT,
+            time_text TEXT,
+            seconds INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS inbound_whatsapp_messages (
             message_id TEXT PRIMARY KEY,

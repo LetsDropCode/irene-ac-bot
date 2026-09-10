@@ -45,6 +45,7 @@ from app.whatsapp import (
     send_distance_buttons,
     send_confirm_buttons,
     send_workout_confirm_buttons,
+    send_self_correction_confirm_buttons,
     send_participation_buttons,
     send_leaderboard_visibility_buttons,
     send_profile_buttons,
@@ -78,6 +79,13 @@ from app.services.submission_service import (
     get_active_submission,
     get_completed_submission_for_current_event,
     get_self_correctable_tt_submission,
+    start_member_self_correction,
+    get_member_self_correction,
+    save_member_self_correction_distance,
+    save_member_self_correction_time,
+    save_member_self_correction_workout,
+    apply_member_self_correction,
+    cancel_member_self_correction,
     get_pending_members,
     get_tonight_unprompted_checked_in_members,
     verify_tt_code,
@@ -465,20 +473,100 @@ def _is_workout_submission(member: dict, submission: dict) -> bool:
     )
 
 
+def _format_self_correction_value(distance: str | None, time_text: str | None) -> str:
+    return f"{distance}km — {time_text}" if distance else (time_text or "Workout")
+
+
+def _send_self_correction_review(sender: str, correction: dict):
+    was = _format_self_correction_value(
+        correction.get("original_distance_text"), correction.get("original_time_text")
+    )
+    new = _format_self_correction_value(correction.get("distance_text"), correction.get("time_text"))
+    send_self_correction_confirm_buttons(
+        sender,
+        f"*Confirm correction*\n\nWas: {was}\nNew: {new}\n\nYour original result changes only after confirmation.",
+    )
+
+
+def prompt_member_self_correction(sender: str, correction: dict):
+    if correction.get("mode") == "WORKOUT":
+        if correction.get("time_text"):
+            _send_self_correction_review(sender, correction)
+            return "awaiting_confirm"
+        send_text(sender, "Send the corrected walk or workout note. Your saved result remains unchanged until confirmation.")
+        return "awaiting_workout"
+
+    if not correction.get("distance_text"):
+        send_text(sender, "Choose the corrected distance. Your saved result remains unchanged until confirmation.")
+        send_distance_buttons(sender)
+        return "awaiting_distance"
+    if not correction.get("time_text"):
+        send_text(sender, "⏱ Send the corrected time, e.g. 42:58.")
+        return "awaiting_time"
+    _send_self_correction_review(sender, correction)
+    return "awaiting_confirm"
+
+
+def handle_member_self_correction(sender: str, member: dict, correction: dict, text: str | None, button: dict | None, menu_action):
+    if menu_action == "RESUME":
+        return {"status": f"self_correction_{prompt_member_self_correction(sender, correction)}"}
+
+    btn = button.get("id", "").lower().strip() if button else ""
+    if btn == "self_correction_cancel":
+        cancel_member_self_correction(correction["id"], member["id"])
+        send_text(sender, "✅ Correction cancelled. Your original TT result is unchanged.")
+        return {"status": "self_correction_cancelled"}
+
+    if btn == "self_correction_confirm":
+        updated = apply_member_self_correction(correction["id"], member["id"])
+        if not updated:
+            send_text(sender, "✅ This correction was already handled, or it is no longer available.")
+            return {"status": "self_correction_already_handled"}
+        send_text(sender, "✅ Your TT result has been corrected.")
+        return {"status": "self_correction_confirmed", "submission_id": updated["id"]}
+
+    if correction.get("mode") == "WORKOUT":
+        if text and not correction.get("time_text") and menu_action not in {"FIX_RESULT", "SUBMIT"}:
+            updated = save_member_self_correction_workout(correction["id"], member["id"], text)
+            if updated:
+                _send_self_correction_review(sender, updated)
+                return {"status": "self_correction_awaiting_confirm"}
+        return {"status": f"self_correction_{prompt_member_self_correction(sender, correction)}"}
+
+    if btn in {"4km", "6km", "8km"}:
+        updated = save_member_self_correction_distance(
+            correction["id"], member["id"], btn.replace("km", "")
+        )
+        if updated:
+            send_text(sender, "⏱ Send the corrected time, e.g. 42:58.")
+            return {"status": "self_correction_awaiting_time"}
+
+    if correction.get("distance_text") and not correction.get("time_text"):
+        if not text or not is_valid_time(text):
+            send_text(sender, "⏱ Format: 27:41 or 01:27:41")
+            return {"status": "self_correction_bad_time"}
+        updated = save_member_self_correction_time(
+            correction["id"], member["id"], text, time_to_seconds(text)
+        )
+        if updated:
+            _send_self_correction_review(sender, updated)
+            return {"status": "self_correction_awaiting_confirm"}
+
+    return {"status": f"self_correction_{prompt_member_self_correction(sender, correction)}"}
+
+
 def start_fix_result(sender: str, member: dict, submission: dict):
     if not submission.get("tt_code_verified"):
         send_text(sender, "I don’t have a result to fix yet. Send tonight’s TT code to start.")
         return submission
 
-    if _is_workout_submission(member, submission):
-        updated = reopen_workout_submission_for_edit(submission["id"])
-        send_text(sender, "No problem. Send the corrected walk or workout note.")
-        return updated
-
-    updated = reopen_submission_for_edit(submission["id"])
-    send_text(sender, "No problem. Let’s fix your result from the start.")
-    send_distance_buttons(sender)
-    return updated
+    mode = "WORKOUT" if _is_workout_submission(member, submission) else "RUN"
+    correction = start_member_self_correction(member["id"], submission["id"], mode)
+    if not correction:
+        send_text(sender, "⚠️ I couldn't start that correction. Your original result is unchanged.")
+        return None
+    prompt_member_self_correction(sender, correction)
+    return correction
 
 
 def send_whats_new_once(sender: str, member: dict):
@@ -1145,6 +1233,17 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         start_fix_result(sender, member, completed_submission)
         return {"status": "fix_result"}
+
+    # Completed-result corrections are separate from draft submissions. The
+    # original remains COMPLETE until this proposal is explicitly confirmed.
+    correction = get_member_self_correction(member["id"])
+    if correction:
+        allowed, reason = ensure_tt_open(submission_event_date=correction.get("event_date"))
+        if not allowed:
+            cancel_member_self_correction(correction["id"], member["id"])
+            send_text(sender, reason)
+            return {"status": "self_correction_expired"}
+        return handle_member_self_correction(sender, member, correction, raw_text, button, menu_action)
 
     submission = get_resumable_submission(member["id"]) or get_active_submission(member["id"])
 

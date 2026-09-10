@@ -699,3 +699,22 @@ def send_workout_confirm_buttons(to: str, workout: str) -> None:
         },
     }
     _send(payload)
+
+
+def send_self_correction_confirm_buttons(to: str, body: str) -> None:
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "self_correction_confirm", "title": "✅ Confirm"}},
+                    {"type": "reply", "reply": {"id": "self_correction_cancel", "title": "✖ Cancel"}},
+                ]
+            },
+        },
+    }
+    _send(payload)
