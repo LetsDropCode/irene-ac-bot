@@ -1,0 +1,7 @@
+title = "Irene AC secret-scanning configuration"
+
+[allowlist]
+  description = "Synthetic test fixtures may use credential-shaped placeholders."
+  paths = [
+    '''^tests/''',
+  ]
