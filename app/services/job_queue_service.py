@@ -168,9 +168,11 @@ def retry_failed_jobs(limit: int = 10):
                 WHERE status = 'FAILED'
                 ORDER BY updated_at ASC, id ASC
                 LIMIT %s
+                FOR UPDATE SKIP LOCKED
             )
             UPDATE job_queue q
             SET status = 'PENDING',
+                attempts = 0,
                 run_after = CURRENT_TIMESTAMP,
                 locked_at = NULL,
                 last_error = NULL,
@@ -179,7 +181,11 @@ def retry_failed_jobs(limit: int = 10):
             WHERE q.id = jobs_to_retry.id
             RETURNING q.id
         """, (limit,))
-        return len(cur.fetchall())
+        retried = len(cur.fetchall())
+
+    if retried:
+        logger.info("Manual retry reset %s failed job(s) to PENDING", retried)
+    return retried
 
 
 def _claim_next_job():
