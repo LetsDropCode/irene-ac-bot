@@ -75,6 +75,10 @@ class MonthlyAttendanceReportServiceTests(unittest.TestCase):
             service.config,
             "SMTP_FROM_EMAIL",
             "bot@irenerunner.co.za",
+        ), patch.object(
+            service.config,
+            "ATTENDANCE_REPORT_RECIPIENTS",
+            ("reports@example.org", "operations@example.org"),
         ), patch.object(service, "_send_email", side_effect=lambda message: captured.append(message)):
             result = service.send_monthly_attendance_report(date(2026, 6, 30))
 
@@ -82,7 +86,7 @@ class MonthlyAttendanceReportServiceTests(unittest.TestCase):
         self.assertEqual(result["recipients"], 2)
         self.assertEqual(result["mtd_checkins"], 3)
         self.assertEqual(result["ytd_checkins"], 4)
-        self.assertEqual(captured[0]["To"], "bulllindsa@icloud.com, info@irenerunner.co.za")
+        self.assertEqual(captured[0]["To"], "reports@example.org, operations@example.org")
 
 
 if __name__ == "__main__":

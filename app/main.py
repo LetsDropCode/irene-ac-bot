@@ -3,7 +3,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.webhook import router as webhook_router
-from app.config import ENV, JOB_RUNNER_BATCH_SIZE, JOB_RUNNER_TOKEN
+from app.config import ENV, JOB_RUNNER_BATCH_SIZE, JOB_RUNNER_TOKEN, validate_configuration
 from app.db import init_db
 from app.services.health_service import get_system_health
 from app.services.job_queue_service import run_due_jobs
@@ -14,6 +14,7 @@ app.mount("/assets", StaticFiles(directory="app/static"), name="assets")
 
 @app.on_event("startup")
 def startup():
+    validate_configuration()
     init_db()
 
 app.include_router(webhook_router)
@@ -53,7 +54,7 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
     if JOB_RUNNER_TOKEN and x_job_token != JOB_RUNNER_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    if not JOB_RUNNER_TOKEN and ENV != "development":
+    if not JOB_RUNNER_TOKEN and ENV not in {"development", "test"}:
         raise HTTPException(status_code=503, detail="JOB_RUNNER_TOKEN is not configured")
 
     processed = run_due_jobs(JOB_RUNNER_BATCH_SIZE)

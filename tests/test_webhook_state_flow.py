@@ -161,6 +161,12 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         background_tasks = BackgroundTasks()
 
         with ExitStack() as stack:
+            # Production has no built-in administrators.  Declare the fixture
+            # admin explicitly so admin-routing tests do not depend on a
+            # committed phone-number default.
+            stack.enter_context(
+                patch.object(webhook_module, "ADMIN_NUMBERS", frozenset({"27722135094"}))
+            )
             patch_names = [
                 "send_image",
                 "send_text",
@@ -447,6 +453,21 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_webhook_rejects_missing_signature_in_production(self):
+        with patch.object(webhook_module, "WHATSAPP_APP_SECRET", "secret"), patch.object(
+            webhook_module, "ENV", "production"
+        ):
+            with self.assertRaises(webhook_module.HTTPException) as ctx:
+                await webhook_module.webhook(FakeRequest(text_payload(body="help")), BackgroundTasks())
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_webhook_rejects_unsigned_request_when_production_secret_is_missing(self):
+        with patch.object(webhook_module, "WHATSAPP_APP_SECRET", None), patch.object(
+            webhook_module, "ENV", "production"
+        ):
+            self.assertFalse(webhook_module.verify_webhook_signature(b"{}", None))
 
     async def test_webhook_accepts_valid_signature_when_secret_configured(self):
         payload = text_payload(body="help")

@@ -8,9 +8,8 @@ from typing import Dict, Any
 from app.services.validation import time_to_seconds
 from app.services.insight_services import seconds_to_pace
 from app.branding import SHORT_BRAND_NAME, TAGLINE, WHATSAPP_FOOTER
+from app.config import PHONE_NUMBER_ID, WHATSAPP_TOKEN
 
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 CONNECT_TIMEOUT = float(os.getenv("WHATSAPP_CONNECT_TIMEOUT", "2"))
 READ_TIMEOUT = float(os.getenv("WHATSAPP_READ_TIMEOUT", "5"))
 

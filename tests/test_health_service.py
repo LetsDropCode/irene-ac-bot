@@ -120,7 +120,7 @@ class HealthServiceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["checks"]["database"]["status"], "error")
-        self.assertIn("db unavailable", result["checks"]["database"]["detail"])
+        self.assertEqual(result["checks"]["database"]["detail"], "Database unavailable")
 
 
 if __name__ == "__main__":

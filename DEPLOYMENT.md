@@ -22,12 +22,15 @@ WHATSAPP_APP_SECRET
 JOB_RUNNER_TOKEN
 ```
 
+`ENV` is required and must be exactly `development`, `test`, or `production`.
+
 `META_APP_SECRET` can be used instead of `WHATSAPP_APP_SECRET`.
 
 Optional app settings:
 
 ```text
-ADMIN_NUMBERS=277...,278...
+# Required in production (comma-separated E.164-style numbers, no +).
+ADMIN_NUMBERS=27...,27...
 JOB_RUNNER_BATCH_SIZE=10
 WHATSAPP_CONNECT_TIMEOUT=2
 WHATSAPP_READ_TIMEOUT=5
@@ -56,7 +59,7 @@ SMTP_USERNAME
 SMTP_PASSWORD
 SMTP_FROM_EMAIL
 SMTP_USE_TLS=true
-ATTENDANCE_REPORT_RECIPIENTS=bulllindsa@icloud.com,info@irenerunner.co.za
+ATTENDANCE_REPORT_RECIPIENTS=reports@example.org,operations@example.org
 ```
 
 ## Database Startup
@@ -90,7 +93,10 @@ secret as:
 WHATSAPP_APP_SECRET=<meta app secret>
 ```
 
-In production, missing or invalid signatures are rejected.
+In production and hosted non-test environments, startup fails if the app secret,
+WhatsApp token, phone-number ID, verify token, job-runner token, or production
+admin numbers are absent. Missing or invalid signatures are rejected. Local
+unsigned-webhook bypasses are limited to explicit development/test operation.
 
 ## Health Check
 

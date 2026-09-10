@@ -1,5 +1,9 @@
+import logging
+
 from app.db import get_cursor
 from app.services.job_queue_service import get_queue_health
+
+logger = logging.getLogger(__name__)
 
 
 def get_system_health():
@@ -16,13 +20,16 @@ def get_system_health():
             """)
             row = cur.fetchone()
             queue = get_queue_health()
-    except Exception as exc:
+    except Exception:
+        # Keep the externally visible response and logs free of database
+        # connection details (which can include credentials).
+        logger.error("Health database check failed")
         return {
             "status": "error",
             "checks": {
                 "database": {
                     "status": "error",
-                    "detail": str(exc),
+                    "detail": "Database unavailable",
                 }
             },
         }
@@ -49,3 +56,4 @@ def get_system_health():
             },
         },
     }
+logger = logging.getLogger(__name__)

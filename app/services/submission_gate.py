@@ -1,5 +1,6 @@
 # app/services/submission_gate.py
 from datetime import date, datetime, time, timedelta
+import logging
 from zoneinfo import ZoneInfo
 
 from app.db import get_cursor
@@ -9,6 +10,7 @@ TT_DAY = 1  # Tuesday
 TT_OPEN = time(17, 0)
 TT_CLOSE = time(22, 30)
 NEXT_DAY_RESULT_DEADLINE = time(13, 0)
+logger = logging.getLogger(__name__)
 
 
 def _parse_time(value: str, fallback: time) -> time:
@@ -34,8 +36,9 @@ def _get_event_config(event: str):
                 LIMIT 1
             """, (event,))
             return cur.fetchone()
-    except Exception as e:
-        print("⚠️ Event config lookup failed:", str(e))
+    except Exception:
+        # Database/driver exceptions may contain connection information.
+        logger.error("Event configuration lookup failed")
         return None
 
 

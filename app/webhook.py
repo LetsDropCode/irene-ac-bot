@@ -6,7 +6,15 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.config import ADMIN_NUMBERS, ENV, PUBLIC_BASE_URL, WHATSAPP_APP_SECRET, WHATS_NEW_MESSAGE, WHATS_NEW_VERSION
+from app.config import (
+    ADMIN_NUMBERS,
+    ENV,
+    PUBLIC_BASE_URL,
+    WHATSAPP_APP_SECRET,
+    WHATS_NEW_MESSAGE,
+    WHATS_NEW_VERSION,
+    is_deployed_environment,
+)
 from app.branding import BRAND_NAME, LOGO_PATH, TAGLINE
 from app.flows.admin_flow import (
     clear_admin_edit_state_if_needed,
@@ -132,7 +140,7 @@ def _mask_phone(value: str | None) -> str:
 
 def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> bool:
     if not WHATSAPP_APP_SECRET:
-        return ENV in {"development", "test"}
+        return ENV in {"development", "test"} and not is_deployed_environment()
 
     if not signature_header or not signature_header.startswith("sha256="):
         return False
