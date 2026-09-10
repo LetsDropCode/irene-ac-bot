@@ -174,6 +174,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
                 "send_participation_buttons",
+                "send_leaderboard_visibility_buttons",
                 "send_profile_buttons",
                 "send_both_submission_buttons",
                 "send_main_menu_list",
@@ -186,6 +187,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_member_center_buttons",
                 "save_member_name",
                 "save_participation_type",
+                "set_leaderboard_visibility",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",
@@ -324,7 +326,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["send_profile_buttons"].assert_called_once()
         mocks["send_text"].assert_not_called()
 
-    async def test_profile_onboarding_completes_outside_tt_window_without_submission(self):
+    async def test_profile_onboarding_visibility_choice_is_public_and_never_creates_submission(self):
         incomplete = member(
             first_name="Unknown",
             last_name="Member",
@@ -352,9 +354,63 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             ensure_tt_open=(False, "⏱ Submissions open at *17:00*."),
         )
 
-        self.assertEqual(result, {"status": "profile_complete"})
+        self.assertEqual(result, {"status": "onboarding_await_visibility"})
         mocks["save_participation_type"].assert_called_once_with(42, "RUNNER")
+        mocks["set_profile_state"].assert_called_once_with(42, "ONBOARDING_LEADERBOARD")
+        mocks["send_leaderboard_visibility_buttons"].assert_called_once_with("27999999999")
         mocks["get_or_create_submission"].assert_not_called()
+
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="onboarding_show_results", title="Show my results"),
+            member_data=member(
+                first_name="Lindsay",
+                last_name="Bull",
+                participation_type="RUNNER",
+                profile_state="ONBOARDING_LEADERBOARD",
+                leaderboard_visibility_set=False,
+            ),
+            ensure_tt_open=(False, "⏱ Submissions open at *17:00*."),
+        )
+
+        self.assertEqual(result, {"status": "profile_complete"})
+        mocks["set_leaderboard_visibility"].assert_called_once_with(42, False)
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_profile_onboarding_visibility_choice_can_be_private(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(button_id="onboarding_keep_private", title="Keep private"),
+            member_data=member(
+                profile_state="ONBOARDING_LEADERBOARD",
+                leaderboard_visibility_set=False,
+            ),
+        )
+
+        self.assertEqual(result, {"status": "profile_complete"})
+        mocks["set_leaderboard_visibility"].assert_called_once_with(42, True)
+        self.assertIn("stay private", mocks["send_text"].call_args.args[1])
+
+    async def test_abandoned_visibility_onboarding_resumes_without_submission(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="HI"),
+            member_data=member(
+                profile_state="ONBOARDING_LEADERBOARD",
+                leaderboard_visibility_set=False,
+            ),
+        )
+
+        self.assertEqual(result, {"status": "onboarding_await_visibility"})
+        mocks["send_leaderboard_visibility_buttons"].assert_called_once_with("27999999999")
+        mocks["get_or_create_submission"].assert_not_called()
+
+    async def test_private_member_can_still_view_own_progress(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="PROGRESS"),
+            member_data=member(leaderboard_opt_out=True, leaderboard_visibility_set=True),
+            get_user_profile={"total_runs": 0, "latest": None, "pbs": [], "recent": []},
+        )
+
+        self.assertEqual(result, {"status": "progress"})
+        mocks["get_user_profile"].assert_called_once_with(42)
 
     async def test_non_tt_commands_and_greeting_never_create_submission(self):
         for command in ("HI", "PROFILE", "PROGRESS", "LEADERBOARDS", "SHOP", "LEAGUE"):
@@ -495,6 +551,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
                 "send_participation_buttons",
+                "send_leaderboard_visibility_buttons",
                 "send_profile_buttons",
                 "send_both_submission_buttons",
                 "send_main_menu_list",
@@ -506,6 +563,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_admin_member_center_buttons",
                 "save_member_name",
                 "save_participation_type",
+                "set_leaderboard_visibility",
                 "set_profile_state",
                 "clear_profile_state",
                 "reopen_submission_for_edit",

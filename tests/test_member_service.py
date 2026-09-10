@@ -61,6 +61,17 @@ class MemberServiceTests(unittest.TestCase):
         self.assertNotIn("DELETE", cursor.query.upper())
         self.assertNotIn("submissions", cursor.query.lower())
 
+    def test_explicit_visibility_choice_marks_onboarding_complete(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.set_leaderboard_visibility(42, True)
+
+        self.assertIn("leaderboard_opt_out = %s", cursor.query)
+        self.assertIn("leaderboard_visibility_set = TRUE", cursor.query)
+        self.assertIn("profile_state = NULL", cursor.query)
+        self.assertEqual(cursor.params, (True, 42))
+
 
 if __name__ == "__main__":
     unittest.main()

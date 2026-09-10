@@ -153,6 +153,11 @@ def init_db():
 
     cur.execute("""
         ALTER TABLE members
+        ADD COLUMN IF NOT EXISTS leaderboard_visibility_set BOOLEAN DEFAULT FALSE;
+    """)
+
+    cur.execute("""
+        ALTER TABLE members
         ADD COLUMN IF NOT EXISTS last_seen_whats_new_version TEXT;
     """)
 
@@ -278,6 +283,16 @@ def init_db():
         UPDATE members
         SET participation_type = 'RUNNER'
         WHERE participation_type IS NULL;
+    """)
+
+    # Preserve established members' existing visibility preference. New
+    # onboarding keeps profile_state at ONBOARDING_LEADERBOARD until a choice
+    # is made, so it is not included in this legacy backfill.
+    cur.execute("""
+        UPDATE members
+        SET leaderboard_visibility_set = TRUE
+        WHERE participation_type IS NOT NULL
+          AND profile_state IS DISTINCT FROM 'ONBOARDING_LEADERBOARD';
     """)
 
     # Infer historic activity type from submission data, never from the

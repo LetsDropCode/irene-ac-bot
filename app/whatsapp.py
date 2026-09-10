@@ -508,6 +508,38 @@ def send_participation_buttons(to: str):
     _send(payload)
 
 
+def send_leaderboard_visibility_buttons(to: str):
+    """Ask new members for a separate public-leaderboard preference."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": (
+                    "Would you like your name and TT results to appear on "
+                    "Irene AC public leaderboards?\n\n"
+                    "This is separate from storing your TT profile and results."
+                )
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {"id": "onboarding_show_results", "title": "🏆 Show my results"},
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {"id": "onboarding_keep_private", "title": "🔒 Keep private"},
+                    },
+                ]
+            },
+        },
+    }
+    _send(payload)
+
+
 # ─────────────────────────────────────────────
 # PROFILE ACTION BUTTONS
 # ─────────────────────────────────────────────

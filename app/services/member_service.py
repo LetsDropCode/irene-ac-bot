@@ -117,7 +117,8 @@ def opt_out_leaderboard(sender: str):
         cur.execute(
             """
             UPDATE members
-            SET leaderboard_opt_out = TRUE
+            SET leaderboard_opt_out = TRUE,
+                leaderboard_visibility_set = TRUE
             WHERE phone = %s
             """,
             (sender,)
@@ -130,10 +131,26 @@ def opt_in_leaderboard(sender: str):
         cur.execute(
             """
             UPDATE members
-            SET leaderboard_opt_out = FALSE
+            SET leaderboard_opt_out = FALSE,
+                leaderboard_visibility_set = TRUE
             WHERE phone = %s
             """,
             (sender,)
+        )
+
+
+def set_leaderboard_visibility(member_id: int, opt_out: bool):
+    """Store a new member's explicit public-leaderboard choice."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE members
+            SET leaderboard_opt_out = %s,
+                leaderboard_visibility_set = TRUE,
+                profile_state = NULL
+            WHERE id = %s
+            """,
+            (opt_out, member_id),
         )
 
 

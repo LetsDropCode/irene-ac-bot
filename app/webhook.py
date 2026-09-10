@@ -46,6 +46,7 @@ from app.whatsapp import (
     send_confirm_buttons,
     send_workout_confirm_buttons,
     send_participation_buttons,
+    send_leaderboard_visibility_buttons,
     send_profile_buttons,
     send_both_submission_buttons,
     send_main_menu_list,
@@ -66,6 +67,7 @@ from app.services.member_service import (
     acknowledge_popia,
     opt_out_leaderboard,
     opt_in_leaderboard,
+    set_leaderboard_visibility,
     has_seen_whats_new,
     mark_whats_new_seen,
 )
@@ -959,6 +961,10 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
     # ───────── PROFILE ─────────
     profile_state = member.get("profile_state")
 
+    if profile_state == "ONBOARDING_LEADERBOARD" and text in {"CANCEL", "CANCEL PROFILE"}:
+        send_leaderboard_visibility_buttons(sender)
+        return {"status": "onboarding_await_visibility"}
+
     if profile_state and text in {"CANCEL", "CANCEL PROFILE"}:
         clear_profile_state(member["id"])
         send_text(sender, "✅ Profile update cancelled.")
@@ -1014,8 +1020,25 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             return {"status": "onboarding_bad_type"}
 
         save_participation_type(member["id"], ptype)
-        clear_profile_state(member["id"])
-        send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
+        set_profile_state(member["id"], "ONBOARDING_LEADERBOARD")
+        send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
+        send_leaderboard_visibility_buttons(sender)
+        return {"status": "onboarding_await_visibility"}
+
+    if profile_state == "ONBOARDING_LEADERBOARD":
+        visibility_button = button.get("id", "").lower().strip() if button else ""
+        if visibility_button not in {"onboarding_show_results", "onboarding_keep_private"}:
+            send_leaderboard_visibility_buttons(sender)
+            return {"status": "onboarding_await_visibility"}
+
+        private = visibility_button == "onboarding_keep_private"
+        set_leaderboard_visibility(member["id"], private)
+        send_text(
+            sender,
+            "✅ Your TT profile is complete. "
+            + ("Your results will stay private." if private else "Your results can appear on public leaderboards.")
+            + " Type MENU anytime to explore your options.",
+        )
         send_help_menu(sender, is_admin(sender), member)
         return {"status": "profile_complete"}
 
@@ -1087,10 +1110,17 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             return {"status": "onboarding_bad_type"}
 
         save_participation_type(member["id"], ptype)
-        clear_profile_state(member["id"])
-        send_text(sender, "✅ Your TT profile is complete. Type MENU anytime to explore your options.")
-        send_help_menu(sender, is_admin(sender), member)
-        return {"status": "profile_complete"}
+        set_profile_state(member["id"], "ONBOARDING_LEADERBOARD")
+        send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
+        send_leaderboard_visibility_buttons(sender)
+        return {"status": "onboarding_await_visibility"}
+
+    # New profiles must choose visibility before accessing TT submission.
+    # Missing/NULL retains compatibility for profiles created before this step.
+    if member.get("leaderboard_visibility_set") is False:
+        set_profile_state(member["id"], "ONBOARDING_LEADERBOARD")
+        send_leaderboard_visibility_buttons(sender)
+        return {"status": "onboarding_await_visibility"}
 
     # ───────── SUBMISSION ─────────
     # Preserve a verified pending check-in from last night so members can
