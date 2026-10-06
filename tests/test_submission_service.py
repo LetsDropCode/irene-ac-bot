@@ -152,6 +152,28 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertIn("COALESCE(time_text, '') <> ''", query)
         self.assertIn("COALESCE(seconds, 0) > 0", query)
 
+    def test_confirmation_queues_followup_in_the_same_transaction(self):
+        completed = {"id": 101, "status": "COMPLETE", "distance_text": "4"}
+        cursor = FakeCursor(rows=[completed])
+        followup = {"sender": "2771", "member": {"id": 42}, "previous_best": 1800}
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)), patch.object(
+            service, "enqueue_post_confirm_messages", return_value=9
+        ) as enqueue:
+            self.assertEqual(service.confirm_submission(101, followup=followup), completed)
+
+        enqueue.assert_called_once_with("2771", {"id": 42}, completed, 1800, cursor=cursor)
+
+    def test_followup_queue_failure_aborts_confirmation_transaction(self):
+        cursor = FakeCursor(rows=[{"id": 101, "status": "COMPLETE"}])
+        followup = {"sender": "2771", "member": {"id": 42}, "previous_best": None}
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)), patch.object(
+            service, "enqueue_post_confirm_messages", side_effect=RuntimeError("queue unavailable")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "queue unavailable"):
+                service.confirm_submission(101, followup=followup)
+
     def test_self_correctable_submission_uses_the_single_current_tt_event_date(self):
         cursor = FakeCursor(rows=[{"id": 101, "event_date": "2026-09-08"}])
 

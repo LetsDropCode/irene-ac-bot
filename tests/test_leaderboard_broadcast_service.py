@@ -38,11 +38,12 @@ class LeaderboardBroadcastServiceTests(unittest.TestCase):
             service,
             "build_next_day_leaderboard_message",
             return_value="Leaderboard message",
-        ), patch.object(service, "enqueue_whatsapp_text", side_effect=lambda phone, _message: queued.append(phone) or 11):
+        ), patch.object(service, "enqueue_whatsapp_text", side_effect=lambda phone, _message, **_kwargs: queued.append(phone) or 11) as enqueue:
             result = service.send_next_day_leaderboard(date(2026, 6, 9))
 
         self.assertEqual(queued, ["2771", "2772"])
         self.assertEqual(result, {"event_date": "2026-06-09", "queued": 2, "skipped": 0})
+        self.assertEqual(enqueue.call_args_list[0].kwargs["dedupe_key"], "leaderboard:2026-06-09:2771")
 
     def test_send_next_day_leaderboard_skips_when_no_results(self):
         with patch.object(service, "get_checked_in_tt_member_phones", return_value=["2771"]), patch.object(

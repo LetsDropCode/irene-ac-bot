@@ -37,7 +37,7 @@ class MemberServiceTests(unittest.TestCase):
         self.assertEqual(row["id"], 42)
         self.assertIn("popia_acknowledged", cursor.query)
         self.assertIn("ON CONFLICT (phone)", cursor.query)
-        self.assertEqual(cursor.params, ("27999999999", "Unknown", "Member", True))
+        self.assertEqual(cursor.params, ("27999999999", "Unknown", "Member", True, True))
 
     def test_leaderboard_opt_out_does_not_delete_member_or_results(self):
         cursor = FakeCursor()

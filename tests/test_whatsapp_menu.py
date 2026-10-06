@@ -5,6 +5,39 @@ from app import whatsapp
 
 
 class WhatsAppMenuTests(unittest.TestCase):
+    def test_outside_webhook_send_is_still_queued(self):
+        with patch("app.services.job_queue_service.enqueue_whatsapp_send", return_value=11) as enqueue, patch.object(
+            whatsapp, "_send_direct"
+        ) as direct:
+            self.assertTrue(whatsapp.send_text("2771", "Campaign message"))
+
+        self.assertIsNone(enqueue.call_args.kwargs["dedupe_key"])
+        direct.assert_not_called()
+
+    def test_webhook_replies_are_queued_with_stable_keys(self):
+        with patch("app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[11, 12]) as enqueue, patch.object(
+            whatsapp, "_send_direct"
+        ) as direct:
+            with whatsapp.queue_inbound_replies("wamid.123"):
+                self.assertTrue(whatsapp.send_text("2771", "First"))
+                self.assertTrue(whatsapp.send_text("2771", "Second"))
+
+        keys = [call.kwargs["dedupe_key"] for call in enqueue.call_args_list]
+        self.assertTrue(keys[0].startswith("outbound:wamid.123:0:"))
+        self.assertTrue(keys[1].startswith("outbound:wamid.123:1:"))
+        direct.assert_not_called()
+
+    def test_failed_queue_write_does_not_advance_reply_sequence(self):
+        with patch("app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[RuntimeError("db down"), 11]) as enqueue:
+            with whatsapp.queue_inbound_replies("wamid.123"):
+                with self.assertRaises(RuntimeError):
+                    whatsapp.send_text("2771", "First")
+                self.assertTrue(whatsapp.send_text("2771", "First"))
+
+        keys = [call.kwargs["dedupe_key"] for call in enqueue.call_args_list]
+        self.assertEqual(keys[0], keys[1])
+        self.assertTrue(keys[0].startswith("outbound:wamid.123:0:"))
+
     def test_main_menu_shows_only_hide_option_for_members_sharing_results(self):
         with patch.object(whatsapp, "_send", return_value=True) as send:
             result = whatsapp.send_main_menu_list(
@@ -89,6 +122,9 @@ class WhatsAppMenuTests(unittest.TestCase):
         row_ids = [row["id"] for row in rows]
 
         self.assertIn("admin_menu", row_ids)
+        self.assertIn("menu_my_data", row_ids)
+        self.assertIn("menu_privacy", row_ids)
+        self.assertLessEqual(len(rows), 10)
         self.assertNotIn("admin_tt_code", row_ids)
 
     def test_admin_tools_menu_includes_operational_actions(self):

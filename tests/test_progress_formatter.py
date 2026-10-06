@@ -25,6 +25,10 @@ class ProgressFormatterTests(unittest.TestCase):
                     {"distance_text": "4", "seconds": 1660},
                     {"distance_text": "4", "seconds": 1720},
                 ],
+                "pace_comparison": [
+                    "Compared with your last 4 km TT: 0:40 faster.",
+                    "Rolling 3-TT pace: 5:10/km (improving by 0:10/km vs prior 3-TT window).",
+                ],
             },
         )
 
@@ -33,7 +37,9 @@ class ProgressFormatterTests(unittest.TestCase):
         self.assertIn("Latest: 4km — 27:41 (6:55/km)", message)
         self.assertIn("Next milestone: 10 activities (4 to go)", message)
         self.assertIn("4km — 27:41", message)
-        self.assertIn("Trend: 🔥 Improving", message)
+        self.assertNotIn("Trend: 🔥 Improving", message)
+        self.assertIn("Compared with your last 4 km TT: 0:40 faster.", message)
+        self.assertIn("Rolling 3-TT pace: 5:10/km", message)
 
     def test_mixed_distances_do_not_show_false_improvement(self):
         message = format_progress(

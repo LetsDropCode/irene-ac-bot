@@ -87,7 +87,10 @@ def format_progress(member: dict, data: dict) -> str:
         for pb in pbs:
             lines.append(f"{pb['distance_text']}km — {_format_seconds(pb['best_seconds'])}")
 
-    if recent:
+    comparison = data.get("pace_comparison") or []
+    if comparison:
+        lines.extend(["", "*Pace progress*", *comparison])
+    elif recent:
         lines.extend(["", f"Trend: {detect_trend(recent)}"])
 
     return "\n".join(lines).strip()

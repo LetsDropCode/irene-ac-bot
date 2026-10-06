@@ -2,6 +2,7 @@ import os
 import unittest
 from contextlib import contextmanager
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
@@ -128,7 +129,13 @@ class JobQueueServiceTests(unittest.TestCase):
                 "sender": "27999999999",
                 "member_id": 42,
                 "first_name": "Lindsay",
-                "submission": {"distance_text": "8", "time_text": "43:21", "seconds": 2601},
+                "submission": {
+                    "id": 101,
+                    "event_date": date(2026, 7, 7),
+                    "distance_text": "8",
+                    "time_text": "43:21",
+                    "seconds": 2601,
+                },
                 "previous_best": 1800,
             },
         )
@@ -144,6 +151,81 @@ class JobQueueServiceTests(unittest.TestCase):
 
         self.assertEqual(job_id, 12)
         self.assertEqual(cursor.params[0], service.JOB_WHATSAPP_SEND)
+
+    def test_deduplicated_outbound_job_returns_existing_id(self):
+        cursor = FakeCursor(row={"id": 12})
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            self.assertEqual(service.enqueue_whatsapp_send({"to": "2771"}, dedupe_key="inbound:wamid.1:0"), 12)
+
+        self.assertIn("ON CONFLICT (dedupe_key)", cursor.query)
+        self.assertEqual(cursor.params[-1], "inbound:wamid.1:0")
+
+    def test_whatsapp_job_raises_when_meta_does_not_accept_it(self):
+        with patch("app.whatsapp._send_direct", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "returned false"):
+                service._dispatch_job(service.JOB_WHATSAPP_SEND, {"payload": {"to": "2771"}})
+
+    def test_engagement_jobs_dispatch_to_eligibility_checked_services(self):
+        reminder = {"submission_id": 101, "member_id": 42, "event_date": "2026-10-06"}
+        milestone = {"member_id": 42, "event_date": "2026-10-06"}
+        with patch(
+            "app.services.incomplete_reminder_service.send_incomplete_submission_reminder"
+        ) as send_reminder, patch(
+            "app.services.engagement_service.send_attendance_milestone"
+        ) as send_milestone:
+            service._dispatch_job(service.JOB_INCOMPLETE_REMINDER, reminder)
+            service._dispatch_job(service.JOB_ATTENDANCE_MILESTONE, milestone)
+        send_reminder.assert_called_once_with(reminder)
+        send_milestone.assert_called_once_with(milestone)
+
+    def test_post_confirm_job_skips_member_after_consent_withdrawal(self):
+        cursor = FakeCursor(row=None)
+        webhook = SimpleNamespace(send_post_confirm_messages=lambda *_args: self.fail("sent after withdrawal"))
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)), patch.object(
+            service.importlib, "import_module", return_value=webhook
+        ):
+            service._dispatch_job(
+                service.JOB_POST_CONFIRM_MESSAGES,
+                {"sender": "2771", "member_id": 42, "submission": {}},
+            )
+
+        self.assertIn("popia_acknowledged = TRUE", cursor.query)
+        self.assertIn("FOR SHARE", cursor.query)
+
+    def test_claimed_broadcast_is_not_sent_after_consent_withdrawal(self):
+        consent_cursor = FakeCursor(row=None)
+        done_cursor = FakeCursor()
+        job = {
+            "id": 11,
+            "job_type": service.JOB_WHATSAPP_SEND,
+            "payload": {"payload": {"to": "2771"}},
+            "dedupe_key": "leaderboard:2026-10-06:2771",
+            "attempts": 1,
+            "max_attempts": 3,
+        }
+        with patch.object(service, "get_cursor", side_effect=[
+            fake_cursor_context(consent_cursor, commit=False),
+            fake_cursor_context(done_cursor),
+        ]), patch.object(service, "_dispatch_job") as dispatch:
+            service._run_job(job)
+
+        dispatch.assert_not_called()
+        self.assertIn("FOR SHARE", consent_cursor.query)
+        self.assertIn("SET status = 'DONE'", done_cursor.query)
+
+    def test_post_confirm_job_deduplicates_its_generated_message_on_retry(self):
+        from app import whatsapp
+
+        job = {"id": 9, "job_type": service.JOB_POST_CONFIRM_MESSAGES, "payload": {}, "attempts": 1, "max_attempts": 3}
+        with patch.object(service, "_dispatch_job", side_effect=lambda *_args: whatsapp.send_text("2771", "Result")), patch(
+            "app.services.job_queue_service.enqueue_whatsapp_send", return_value=11
+        ) as enqueue, patch.object(service, "get_cursor", side_effect=lambda: fake_cursor_context(FakeCursor())):
+            service._run_job(job)
+            service._run_job(job)
+
+        keys = [call.kwargs["dedupe_key"] for call in enqueue.call_args_list]
+        self.assertEqual(keys[0], keys[1])
+        self.assertTrue(keys[0].startswith("outbound:job:9:0:"))
 
     def test_run_due_jobs_processes_until_queue_empty(self):
         jobs = [{"id": 1, "job_type": "anything", "payload": {}, "attempts": 1, "max_attempts": 3}]

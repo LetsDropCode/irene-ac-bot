@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from contextlib import contextmanager
 from datetime import date
@@ -7,6 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from app.services import health_service as service
+from app import main
 
 
 class FakeCursor:
@@ -30,6 +32,22 @@ def fake_cursor_context(cursor, commit=False):
 
 
 class HealthServiceTests(unittest.TestCase):
+    def test_readiness_is_ready_when_database_responds(self):
+        cursor = FakeCursor({"?column?": 1})
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            result = service.get_readiness()
+
+        self.assertEqual(result, {"status": "ready", "checks": {"database": "ok"}})
+        self.assertEqual(cursor.query, "SELECT 1")
+
+    def test_readiness_reports_database_failure_without_exposing_exception(self):
+        cursor = FakeCursor(error=RuntimeError("private connection details"))
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            result = service.get_readiness()
+
+        self.assertEqual(result, {"status": "not_ready", "checks": {"database": "unavailable"}})
+        self.assertNotIn("private", str(result))
+
     def test_health_is_ok_when_database_and_event_dates_are_ready(self):
         cursor = FakeCursor({
             "sa_date": date(2026, 7, 7),
@@ -121,6 +139,32 @@ class HealthServiceTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["checks"]["database"]["status"], "error")
         self.assertEqual(result["checks"]["database"]["detail"], "Database unavailable")
+
+    def test_live_endpoint_does_not_query_dependencies(self):
+        with patch.object(main, "get_readiness") as readiness, patch.object(main, "get_system_health") as health:
+            self.assertEqual(main.live(), {"status": "alive"})
+
+        readiness.assert_not_called()
+        health.assert_not_called()
+
+    def test_ready_endpoint_returns_503_only_when_database_is_unavailable(self):
+        with patch.object(main, "get_readiness", return_value={"status": "not_ready"}):
+            response = main.ready()
+        self.assertEqual(response.status_code, 503)
+
+        with patch.object(main, "get_readiness", return_value={"status": "ready"}):
+            response = main.ready()
+        self.assertEqual(response.status_code, 200)
+
+    def test_degraded_health_is_informational_but_database_error_is_503(self):
+        with patch.object(main, "get_system_health", return_value={"status": "degraded"}):
+            response = main.health()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.body)["status"], "degraded")
+
+        with patch.object(main, "get_system_health", return_value={"status": "error"}):
+            response = main.health()
+        self.assertEqual(response.status_code, 503)
 
 
 if __name__ == "__main__":

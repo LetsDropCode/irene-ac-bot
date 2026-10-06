@@ -51,7 +51,9 @@ def send_next_day_leaderboard(event_date=None):
 
     queued = 0
     for phone in recipients:
-        if enqueue_whatsapp_text(phone, message):
+        if enqueue_whatsapp_text(
+            phone, message, dedupe_key=f"leaderboard:{event_date.isoformat()}:{phone}"
+        ):
             queued += 1
 
     return {

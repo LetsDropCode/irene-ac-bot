@@ -12,6 +12,7 @@ from fastapi import BackgroundTasks
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from app import webhook as webhook_module
+from app import whatsapp
 from app.flows import admin_flow as admin_flow_module
 
 
@@ -127,6 +128,41 @@ def self_correction(**overrides):
 
 
 class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inbound_is_processed_only_after_reply_is_queued(self):
+        events = []
+
+        def process(*_args):
+            whatsapp.send_text("2771", "Queued reply")
+            return {"status": "handled"}
+
+        with patch.object(webhook_module, "register_inbound_message", return_value=True), patch.object(
+            webhook_module, "mark_inbound_message_processed", side_effect=lambda *_args: events.append("processed")
+        ), patch.object(webhook_module, "_process_webhook_message", side_effect=process), patch(
+            "app.services.job_queue_service.enqueue_whatsapp_send", side_effect=lambda *_args, **_kwargs: events.append("queued") or 11
+        ), patch.object(webhook_module, "run_due_jobs"):
+            result = webhook_module.process_webhook_payload(
+                text_payload(body="HELP", message_id="wamid.1"), BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "handled"})
+        self.assertEqual(events, ["queued", "processed"])
+
+    async def test_queue_failure_marks_inbound_failed_for_retry(self):
+        def process(*_args):
+            whatsapp.send_text("2771", "Queued reply")
+
+        with patch.object(webhook_module, "register_inbound_message", return_value=True), patch.object(
+            webhook_module, "mark_inbound_message_processed"
+        ) as mark, patch.object(webhook_module, "_process_webhook_message", side_effect=process), patch(
+            "app.services.job_queue_service.enqueue_whatsapp_send", side_effect=RuntimeError("db down")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "db down"):
+                webhook_module.process_webhook_payload(
+                    text_payload(body="HELP", message_id="wamid.2"), BackgroundTasks()
+                )
+
+        self.assertEqual(mark.call_args.args[:2], ("wamid.2", "FAILED"))
+
     async def test_new_member_receives_irene_logo_when_public_url_is_configured(self):
         with patch.object(webhook_module, "get_member", return_value=None), patch.object(
             webhook_module, "create_member"
@@ -263,7 +299,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_whats_new_seen",
                 "opt_out_leaderboard",
                 "opt_in_leaderboard",
-                "enqueue_post_confirm_messages",
+                "withdraw_consent_and_request_erasure",
+                "cancel_erasure_request",
+                "erase_member_after_confirmation",
+                "send_member_data_summary",
+                "send_erasure_confirmation",
+                "set_engagement_preference",
+                "send_streak_summary",
                 "run_due_jobs",
                 "get_queue_health",
                 "get_failed_jobs",
@@ -354,6 +396,125 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["opt_in_leaderboard"].assert_called_once_with("27999999999")
         mocks["opt_out_leaderboard"].assert_not_called()
         self.assertIn("public leaderboards again", mocks["send_text"].call_args.args[1])
+
+    async def test_delete_my_data_withdraws_consent_before_confirmation(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="DELETE MY DATA"))
+
+        self.assertEqual(result, {"status": "await_delete_confirmation"})
+        mocks["withdraw_consent_and_request_erasure"].assert_called_once_with("27999999999")
+        mocks["erase_member_after_confirmation"].assert_not_called()
+        self.assertIn("CONFIRM DELETE", mocks["send_text"].call_args.args[1])
+
+    async def test_confirm_delete_erases_only_when_pending(self):
+        pending = member(profile_state=webhook_module.DELETE_CONFIRMATION_STATE, popia_acknowledged=False)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="CONFIRM DELETE"), member_data=pending
+        )
+
+        self.assertEqual(result, {"status": "data_erased"})
+        mocks["erase_member_after_confirmation"].assert_called_once_with("27999999999")
+        mocks["send_erasure_confirmation"].assert_called_once_with("27999999999")
+        mocks["send_text"].assert_not_called()
+
+    async def test_replayed_delete_confirmation_does_not_welcome_erased_member(self):
+        with patch.object(webhook_module, "get_member", return_value=None), patch.object(
+            webhook_module, "send_text"
+        ) as sent, patch.object(webhook_module, "send_image") as image:
+            result = webhook_module._process_webhook_message(
+                "27999999999", "CONFIRM DELETE", None, BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "data_erased"})
+        sent.assert_not_called()
+        image.assert_not_called()
+
+    async def test_cancel_delete_does_not_reconsent(self):
+        pending = member(profile_state=webhook_module.DELETE_CONFIRMATION_STATE, popia_acknowledged=False)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="CANCEL DELETE"), member_data=pending
+        )
+
+        self.assertEqual(result, {"status": "data_erasure_cancelled"})
+        mocks["cancel_erasure_request"].assert_called_once_with("27999999999")
+        mocks["erase_member_after_confirmation"].assert_not_called()
+
+    async def test_pending_deletion_blocks_member_commands(self):
+        pending = member(profile_state=webhook_module.DELETE_CONFIRMATION_STATE, popia_acknowledged=False)
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="START SHARING"), member_data=pending
+        )
+
+        self.assertEqual(result, {"status": "await_delete_confirmation"})
+        mocks["opt_in_leaderboard"].assert_not_called()
+
+    async def test_admin_can_confirm_own_deletion_before_admin_edit_state(self):
+        pending = member(profile_state=webhook_module.DELETE_CONFIRMATION_STATE, popia_acknowledged=False)
+        with patch.object(webhook_module, "ADMIN_NUMBERS", frozenset({"27999999999"})):
+            result, mocks, _ = await self.call_webhook(
+                text_payload(body="CONFIRM DELETE"), member_data=pending
+            )
+
+        self.assertEqual(result, {"status": "data_erased"})
+        mocks["erase_member_after_confirmation"].assert_called_once_with("27999999999")
+
+    async def test_member_can_request_data_summary(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="MY DATA"))
+
+        self.assertEqual(result, {"status": "member_data_summary"})
+        mocks["send_member_data_summary"].assert_called_once()
+
+    async def test_member_can_opt_into_reminders_without_enabling_milestones(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="REMINDERS ON"))
+        self.assertEqual(result, {"status": "engagement_setting_updated"})
+        mocks["set_engagement_preference"].assert_called_once_with(42, "reminders", True)
+        self.assertIn("Reminders messages are now on", mocks["send_text"].call_args.args[1])
+
+    async def test_member_can_turn_off_milestone_messages(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="MILESTONES OFF"))
+        self.assertEqual(result, {"status": "engagement_setting_updated"})
+        mocks["set_engagement_preference"].assert_called_once_with(42, "milestones", False)
+
+    async def test_member_can_view_private_streak_without_opt_in(self):
+        result, mocks, _ = await self.call_webhook(text_payload(body="MY STREAK"))
+        self.assertEqual(result, {"status": "streak_summary"})
+        mocks["send_streak_summary"].assert_called_once()
+
+    async def test_privacy_notice_is_available_before_consent(self):
+        with patch.object(webhook_module, "get_member", return_value=None), patch.object(
+            webhook_module, "send_text"
+        ) as sent, patch.object(webhook_module, "create_member") as create:
+            result = webhook_module._process_webhook_message(
+                "27999999999", "PRIVACY", None, BackgroundTasks()
+            )
+
+        self.assertEqual(result, {"status": "privacy_notice"})
+        self.assertIn("DELETE MY DATA", sent.call_args.args[1])
+        create.assert_not_called()
+
+    async def test_data_summary_includes_all_result_rows_in_chunks(self):
+        rows = [
+            {"event_date": date(2026, 10, 6), "mode": "RUN", "distance_text": "8", "time_text": "42:00", "status": "COMPLETE"},
+            {"event_date": date(2026, 9, 29), "mode": "WORKOUT", "distance_text": None, "time_text": "45 min walk", "status": "COMPLETE"},
+        ]
+        with patch.object(webhook_module, "get_member_result_history", return_value=rows), patch.object(
+            webhook_module, "send_text"
+        ) as sent:
+            webhook_module.send_member_data_summary("27999999999", member())
+
+        self.assertEqual(sent.call_count, 2)
+        self.assertIn("Phone: 27999999999", sent.call_args_list[0].args[1])
+        self.assertIn("2026-10-06: 8km — 42:00", sent.call_args_list[1].args[1])
+        self.assertIn("2026-09-29: 45 min walk", sent.call_args_list[1].args[1])
+
+    async def test_erasure_ack_does_not_create_a_new_queue_record(self):
+        with patch.object(webhook_module, "_send_direct", return_value=True) as direct, patch.object(
+            webhook_module, "send_text"
+        ) as queued:
+            self.assertTrue(webhook_module.send_erasure_confirmation("27999999999"))
+
+        direct.assert_called_once()
+        self.assertEqual(direct.call_args.args[0]["to"], "27999999999")
+        queued.assert_not_called()
 
     async def test_existing_acknowledged_member_is_not_sent_to_onboarding(self):
         result, mocks, _ = await self.call_webhook(text_payload(body="PROFILE"))
@@ -691,7 +852,6 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "mark_whats_new_seen",
                 "opt_out_leaderboard",
                 "opt_in_leaderboard",
-                "enqueue_post_confirm_messages",
                 "run_due_jobs",
                 "get_queue_health",
                 "get_failed_jobs",
@@ -2048,7 +2208,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(time_result, {"status": "confirm"})
         time_mocks["save_time"].assert_called_once_with(101, "55:00", 3300)
         self.assertEqual(confirm_result, {"status": "done"})
-        confirm_mocks["confirm_submission"].assert_called_once_with(101)
+        self.assertEqual(confirm_mocks["confirm_submission"].call_args.args, (101,))
 
     async def test_wednesday_resumable_runner_can_edit_to_a_safe_distance_state(self):
         reviewed = submission(
@@ -2775,7 +2935,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "done"})
         mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
-        mocks["enqueue_post_confirm_messages"].assert_called_once()
+        self.assertEqual(mocks["confirm_submission"].call_args.kwargs["followup"]["sender"], "27999999999")
         mocks["get_runner_leaderboard"].assert_not_called()
         self.assertEqual(len(background_tasks.tasks), 1)
 
@@ -2787,21 +2947,26 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "confirm_not_ready_awaiting_distance"})
         mocks["confirm_submission"].assert_not_called()
-        mocks["enqueue_post_confirm_messages"].assert_not_called()
         mocks["send_distance_buttons"].assert_called_once_with("27999999999")
 
-    async def test_followup_queue_failure_does_not_affect_saved_result(self):
-        completed = submission(status="COMPLETE", distance_text="4", time_text="27:41", seconds=1661)
-        result, mocks, _ = await self.call_webhook(
-            button_payload(button_id="confirm", title="Confirm"),
-            submission_data=submission(distance_text="4", time_text="27:41", seconds=1661),
-            confirm_submission=completed,
-            enqueue_post_confirm_messages=RuntimeError("coaching unavailable"),
-        )
+    async def test_confirmation_failure_is_not_reported_as_saved(self):
+        with self.assertRaisesRegex(RuntimeError, "queue unavailable"):
+            await self.call_webhook(
+                button_payload(button_id="confirm", title="Confirm"),
+                submission_data=submission(distance_text="4", time_text="27:41", seconds=1661),
+                confirm_submission=RuntimeError("queue unavailable"),
+            )
 
-        self.assertEqual(result, {"status": "done"})
-        mocks["confirm_submission"].assert_called_once_with(101)
-        mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
+    async def test_post_confirm_job_retries_if_message_cannot_be_queued(self):
+        with patch.object(webhook_module, "get_user_profile", return_value={"total_runs": 0, "recent": []}), patch.object(
+            webhook_module, "get_runner_leaderboard", return_value=[]
+        ), patch.object(webhook_module, "send_text", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "post-confirm reply"):
+                webhook_module.send_post_confirm_messages(
+                    "2771", 42, "Runner",
+                    {"distance_text": "4", "time_text": "27:41", "seconds": 0},
+                    previous_best=None,
+                )
 
     async def test_post_confirm_coaching_compares_the_submission_distance(self):
         with ExitStack() as stack:
@@ -2828,6 +2993,34 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.distance_km, "6")
         self.assertEqual(context.trend, "⚠️ Slowing down")
         self.assertEqual(context.fatigue, "😴 Possible fatigue detected")
+
+    async def test_post_confirm_reply_shows_deterministic_last_tt_and_rolling_pace(self):
+        with ExitStack() as stack:
+            send = stack.enter_context(patch.object(webhook_module, "send_text"))
+            stack.enter_context(patch.object(webhook_module, "get_runner_leaderboard", return_value=[]))
+            stack.enter_context(patch.object(webhook_module, "get_user_profile", return_value={
+                "total_runs": 4, "recent": [],
+            }))
+            stack.enter_context(patch.object(webhook_module, "coach_for_result", return_value=None))
+            stack.enter_context(patch(
+                "app.services.pace_comparison_service.get_previous_comparable_runs",
+                return_value=[
+                    {"distance_text": "4", "seconds": 1240},
+                    {"distance_text": "4", "seconds": 1280},
+                    {"distance_text": "4", "seconds": 1320},
+                ],
+            ))
+            webhook_module.send_post_confirm_messages(
+                "27999999999", 42, "Lindsay",
+                submission(
+                    status="COMPLETE", event_date=date(2026, 10, 6),
+                    distance_text="4", time_text="20:00", seconds=1200,
+                ),
+                previous_best=1240,
+            )
+        body = send.call_args.args[1]
+        self.assertIn("Compared with your last 4 km TT: 0:40 faster.", body)
+        self.assertIn("Rolling 3-TT pace: 5:10/km", body)
 
     async def test_post_confirm_followup_sends_fallback_coach_message(self):
         messages = []

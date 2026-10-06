@@ -9,8 +9,9 @@ Safe to run anytime (no TT window required).
 """
 
 import time
+import hashlib
 from app.services.member_service import get_members_needing_profile_update
-from app.whatsapp import send_text
+from app.whatsapp import queue_inbound_replies, send_text
 
 
 # ─────────────────────────────────────────────
@@ -43,7 +44,8 @@ def run_campaign(dry_run: bool = False, delay_seconds: float = 0.5):
         print("✅ No profiles need updating")
         return
 
-    sent = 0
+    queued = 0
+    campaign_id = hashlib.sha256(CAMPAIGN_MESSAGE.encode("utf-8")).hexdigest()[:16]
 
     for m in members:
         phone = m["phone"]
@@ -54,8 +56,9 @@ def run_campaign(dry_run: bool = False, delay_seconds: float = 0.5):
 
         if not dry_run:
             try:
-                send_text(phone, CAMPAIGN_MESSAGE)
-                sent += 1
+                with queue_inbound_replies(f"profile-campaign:{campaign_id}"):
+                    if send_text(phone, CAMPAIGN_MESSAGE):
+                        queued += 1
                 time.sleep(delay_seconds)
 
             except Exception as e:
@@ -63,7 +66,7 @@ def run_campaign(dry_run: bool = False, delay_seconds: float = 0.5):
 
     print("────────────────────────────")
     print(f"✅ Campaign complete")
-    print(f"📨 Messages sent: {sent}")
+    print(f"📨 Messages queued: {queued}")
     print(f"📊 Total processed: {total}")
 
 

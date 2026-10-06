@@ -4,9 +4,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.webhook import router as webhook_router
 from app.config import ENV, JOB_RUNNER_BATCH_SIZE, JOB_RUNNER_TOKEN, validate_configuration
-from app.db import init_db
-from app.services.health_service import get_system_health
+from app.migrations import require_current_schema
+from app.services.health_service import get_readiness, get_system_health
 from app.services.job_queue_service import run_due_jobs
+from app.services.incomplete_reminder_service import queue_incomplete_submission_reminders
 from app.branding import BARK, DEEP_PURPLE, LEAF_GREEN, LOGO_PATH, TURQUOISE
 
 app = FastAPI()
@@ -15,7 +16,7 @@ app.mount("/assets", StaticFiles(directory="app/static"), name="assets")
 @app.on_event("startup")
 def startup():
     validate_configuration()
-    init_db()
+    require_current_schema()
 
 app.include_router(webhook_router)
 
@@ -42,10 +43,24 @@ img{{width:116px;height:116px;object-fit:contain}} h1{{margin:12px 0 8px}} p{{co
 <div class="palette" aria-label="Irene AC colour palette"><i class="swatch" style="background:{TURQUOISE}"></i><i class="swatch" style="background:{LEAF_GREEN}"></i><i class="swatch" style="background:{DEEP_PURPLE}"></i><i class="swatch" style="background:{BARK}"></i></div>
 </main></body></html>"""
 
+@app.get("/live")
+def live():
+    return {"status": "alive"}
+
+
+@app.get("/ready")
+def ready():
+    result = get_readiness()
+    status_code = 200 if result["status"] == "ready" else 503
+    return JSONResponse(result, status_code=status_code)
+
+
 @app.get("/health")
 def health():
     result = get_system_health()
-    status_code = 200 if result["status"] == "ok" else 503
+    # Queue failures and data-quality warnings need attention, but the web
+    # process can still serve requests. Only an unavailable DB returns 503.
+    status_code = 503 if result["status"] == "error" else 200
     return JSONResponse(result, status_code=status_code)
 
 
@@ -57,8 +72,10 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
     if not JOB_RUNNER_TOKEN and ENV not in {"development", "test"}:
         raise HTTPException(status_code=503, detail="JOB_RUNNER_TOKEN is not configured")
 
+    reminder_result = queue_incomplete_submission_reminders()
     processed = run_due_jobs(JOB_RUNNER_BATCH_SIZE)
     return {
         "status": "ok",
         "processed": processed,
+        "reminder_candidates": reminder_result["queued"],
     }

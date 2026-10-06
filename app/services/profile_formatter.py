@@ -27,6 +27,11 @@ def format_profile(member, data):
         msg += "Leaderboard sharing: On\n"
         msg += "Send STOP LEADERBOARD to hide your results publicly.\n\n"
 
+    msg += f"Incomplete-result reminders: {'On' if member.get('reminders_opt_in') else 'Off'}\n"
+    msg += f"Attendance milestones: {'On' if member.get('milestones_opt_in') else 'Off'}\n"
+    msg += "Send REMINDERS ON/OFF or MILESTONES ON/OFF to change these.\n"
+    msg += "Send MY STREAK to see your private TT attendance.\n\n"
+
     msg += f"🏃 Runs: {data['total_runs']}\n\n"
 
     # PBs

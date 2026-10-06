@@ -1,6 +1,7 @@
 # app/services/submission_service.py
 from app.db import get_cursor
 from app.services.submission_gate import self_correctable_event_date
+from app.services.job_queue_service import enqueue_post_confirm_messages
 
 
 def get_or_create_submission(member_id: int):
@@ -404,7 +405,7 @@ def save_time(submission_id: int, time_text: str, seconds: int):
         return cur.fetchone()
 
 
-def confirm_submission(submission_id: int):
+def confirm_submission(submission_id: int, followup: dict | None = None):
     """Complete a reviewed runner result exactly once.
 
     The confirmation button can be delivered late, so the database—not only
@@ -427,7 +428,13 @@ def confirm_submission(submission_id: int):
             RETURNING *
         """, (submission_id,))
 
-        return cur.fetchone()
+        completed = cur.fetchone()
+        if completed and followup is not None:
+            enqueue_post_confirm_messages(
+                followup["sender"], followup["member"], completed,
+                followup["previous_best"], cursor=cur,
+            )
+        return completed
 
 def release_pending_submissions(member_id: int):
     """

@@ -31,7 +31,7 @@ def get_user_profile(member_id):
 
         # ───────── LATEST ACTIVITY ─────────
         cur.execute("""
-            SELECT distance_text, time_text, seconds, created_at
+            SELECT id, activity, mode, event_date, distance_text, time_text, seconds, created_at
             FROM submissions
             WHERE member_id = %s
             AND status = 'COMPLETE'
@@ -56,9 +56,24 @@ def get_user_profile(member_id):
         """, (member_id,))
         recent = cur.fetchall()
 
-        return {
+        profile = {
             "total_runs": total_runs,
             "pbs": pbs,
             "latest": latest,
             "recent": recent
         }
+
+    if (
+        latest and latest.get("id") and latest.get("distance_text")
+        and latest.get("seconds") and latest.get("activity") == "TT"
+        and latest.get("mode") in ("RUN", None)
+    ):
+        from app.services.pace_comparison_service import (
+            get_previous_comparable_runs,
+            pace_comparison_lines,
+        )
+        profile["pace_comparison"] = pace_comparison_lines(
+            latest,
+            get_previous_comparable_runs(member_id, latest),
+        )
+    return profile

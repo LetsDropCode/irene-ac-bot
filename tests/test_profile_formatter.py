@@ -12,6 +12,9 @@ class ProfileFormatterTests(unittest.TestCase):
 
         self.assertIn("Leaderboard sharing: On", text)
         self.assertIn("STOP LEADERBOARD", text)
+        self.assertIn("Incomplete-result reminders: Off", text)
+        self.assertIn("Attendance milestones: Off", text)
+        self.assertIn("MY STREAK", text)
         self.assertIn("Last 5 Runs", text)
 
     def test_profile_shows_opted_out_sharing_action(self):

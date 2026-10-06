@@ -2,7 +2,11 @@
 
 import logging
 import os
+import hashlib
+import json
 import requests
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Dict, Any
 
 from app.services.validation import time_to_seconds
@@ -15,6 +19,18 @@ READ_TIMEOUT = float(os.getenv("WHATSAPP_READ_TIMEOUT", "5"))
 
 _session = requests.Session()
 logger = logging.getLogger(__name__)
+_inbound_delivery = ContextVar("inbound_delivery", default=None)
+
+
+@contextmanager
+def queue_inbound_replies(message_id: str | None):
+    """Give a set of queued messages stable keys across retries."""
+    state = {"message_id": message_id, "sequence": 0}
+    token = _inbound_delivery.set(state)
+    try:
+        yield
+    finally:
+        _inbound_delivery.reset(token)
 
 
 def _mask_phone(value: str | None) -> str:
@@ -56,6 +72,27 @@ def _format_confirmation_body(distance: str, time: str) -> str:
 # INTERNAL SEND HELPER (HARD LOGGING)
 # ─────────────────────────────────────────────
 def _send(payload: Dict[str, Any]) -> bool:
+    state = _inbound_delivery.get()
+    # Every outbound path, including CLI campaigns and generated follow-ups,
+    # first persists a queue row. Context adds a stable key where available.
+    sequence = state["sequence"] if state else None
+    dedupe_key = None
+    if state and state["message_id"]:
+        payload_hash = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()[:16]
+        dedupe_key = f"outbound:{state['message_id']}:{sequence}:{payload_hash}"
+    from app.services.job_queue_service import enqueue_whatsapp_send
+
+    job_id = enqueue_whatsapp_send(payload, dedupe_key=dedupe_key)
+    if job_id is None:
+        raise RuntimeError("Could not queue WhatsApp reply")
+    if state:
+        state["sequence"] = sequence + 1
+    return True
+
+
+def _send_direct(payload: Dict[str, Any]) -> bool:
     message_type = payload.get("type")
     recipient = payload.get("to")
     logger.info(
@@ -168,6 +205,16 @@ def send_main_menu_list(to: str, admin: bool = False, member: dict | None = None
             "id": "menu_league_standings",
             "title": "League standings",
             "description": "Open The Irene League standings.",
+        },
+        {
+            "id": "menu_my_data",
+            "title": "My data",
+            "description": "See your stored profile and TT results.",
+        },
+        {
+            "id": "menu_privacy",
+            "title": "Privacy choices",
+            "description": "Read about consent, sharing and deletion.",
         },
     ]
 

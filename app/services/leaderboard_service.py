@@ -85,6 +85,7 @@ def get_checked_in_tt_member_phones(event_date):
           AND a.event_date = %s
           AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
           AND m.leaderboard_visibility_set = TRUE
+          AND m.popia_acknowledged = TRUE
         ORDER BY m.phone
         """, (event_date,))
 

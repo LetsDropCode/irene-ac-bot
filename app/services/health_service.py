@@ -6,6 +6,19 @@ from app.services.job_queue_service import get_queue_health
 logger = logging.getLogger(__name__)
 
 
+def get_readiness():
+    """Check only the database dependency needed to handle requests."""
+    try:
+        with get_cursor(commit=False) as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+    except Exception:
+        logger.error("Readiness database check failed")
+        return {"status": "not_ready", "checks": {"database": "unavailable"}}
+
+    return {"status": "ready", "checks": {"database": "ok"}}
+
+
 def get_system_health():
     try:
         with get_cursor(commit=False) as cur:

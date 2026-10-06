@@ -15,10 +15,13 @@ class JobRunnerEndpointTests(unittest.TestCase):
             main,
             "JOB_RUNNER_BATCH_SIZE",
             7,
-        ), patch.object(main, "run_due_jobs", return_value=4) as run_due_jobs:
+        ), patch.object(main, "queue_incomplete_submission_reminders", return_value={"queued": 2}) as reminders, patch.object(
+            main, "run_due_jobs", return_value=4
+        ) as run_due_jobs:
             result = main.run_jobs(x_job_token="secret")
 
-        self.assertEqual(result, {"status": "ok", "processed": 4})
+        self.assertEqual(result, {"status": "ok", "processed": 4, "reminder_candidates": 2})
+        reminders.assert_called_once_with()
         run_due_jobs.assert_called_once_with(7)
 
     def test_run_jobs_rejects_wrong_token(self):

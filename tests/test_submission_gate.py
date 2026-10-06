@@ -63,7 +63,7 @@ class SubmissionGateTests(unittest.TestCase):
             )
 
         self.assertFalse(allowed)
-        self.assertIn("deadline", reason)
+        self.assertEqual(reason, "⛔ The deadline for the 1 September TT was *13:00* today.")
 
     def test_self_correctable_event_date_selects_only_tuesday_or_its_recovery_day(self):
         with patch.object(submission_gate, "_get_event_config", return_value=None):

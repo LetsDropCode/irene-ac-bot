@@ -73,6 +73,16 @@ MENU_ACTIONS = {
     "EDIT RESULT": "FIX_RESULT",
     "EDIT MY RESULT": "FIX_RESULT",
     "9": "OPT_IN",
+    "PRIVACY": "PRIVACY",
+    "MY DATA": "MY_DATA",
+    "DELETE MY DATA": "DELETE_MY_DATA",
+    "WITHDRAW CONSENT": "DELETE_MY_DATA",
+    "MY STREAK": "MY_STREAK",
+    "STREAK": "MY_STREAK",
+    "REMINDERS ON": "REMINDERS_ON",
+    "REMINDERS OFF": "REMINDERS_OFF",
+    "MILESTONES ON": "MILESTONES_ON",
+    "MILESTONES OFF": "MILESTONES_OFF",
     "STOP LEADERBOARD": "OPT_OUT",
     "OPT OUT": "OPT_OUT",
     "START SHARING": "OPT_IN",
@@ -120,6 +130,8 @@ INTERACTIVE_ACTIONS = {
     "menu_edit_profile": "EDIT_PROFILE",
     "menu_opt_out": "OPT_OUT",
     "menu_opt_in": "OPT_IN",
+    "menu_my_data": "MY_DATA",
+    "menu_privacy": "PRIVACY",
     "admin_menu": "ADMIN_MENU",
     "admin_tt_code": "ADMIN_TT_CODE",
     "admin_tt_status": "ADMIN_TT_STATUS",
@@ -176,6 +188,8 @@ def format_help_menu(admin: bool = False) -> str:
         "7 - Irene League Standings\n"
         "8 - Stop leaderboard sharing\n"
         "9 - Start leaderboard sharing\n\n"
+        "Privacy: PRIVACY, MY DATA, DELETE MY DATA\n"
+        "Extras: MY STREAK, REMINDERS ON/OFF, MILESTONES ON/OFF\n\n"
         "Tip: you can send HELP anytime."
     )
 

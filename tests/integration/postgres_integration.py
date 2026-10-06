@@ -17,7 +17,15 @@ else:
     os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from app import db
-from app.services import job_queue_service, leaderboard_service, submission_service
+from app.migrations import require_current_schema, upgrade_database
+from app.services import (
+    engagement_service,
+    incomplete_reminder_service,
+    job_queue_service,
+    leaderboard_service,
+    privacy_service,
+    submission_service,
+)
 
 
 def _is_safe_integration_url(url: str | None) -> bool:
@@ -42,7 +50,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         self._reset_public_schema()
-        db.init_db()
+        upgrade_database()
 
     def _reset_public_schema(self):
         conn = db.get_db()
@@ -100,14 +108,95 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             member_columns = {row["column_name"] for row in cur.fetchall()}
             cur.execute("SELECT indexdef FROM pg_indexes WHERE tablename = 'submissions'")
             indexes = "\n".join(row["indexdef"] for row in cur.fetchall())
+            cur.execute("SELECT indexdef FROM pg_indexes WHERE tablename = 'job_queue'")
+            job_indexes = "\n".join(row["indexdef"] for row in cur.fetchall())
             cur.execute("SELECT event FROM event_config ORDER BY event")
             events = [row["event"] for row in cur.fetchall()]
 
         self.assertTrue({"members", "submissions", "job_queue", "schema_migrations"} <= tables)
-        self.assertTrue({"profile_state", "leaderboard_visibility_set", "leaderboard_opt_out"} <= member_columns)
+        self.assertTrue({
+            "profile_state", "leaderboard_visibility_set", "leaderboard_opt_out",
+            "reminders_opt_in", "milestones_opt_in",
+        } <= member_columns)
         self.assertIn("idx_submissions_one_pending_per_member_event_date", indexes)
+        self.assertIn("idx_job_queue_dedupe_key", job_indexes)
         self.assertIn("WHERE (status = 'PENDING'::text)", indexes)
         self.assertEqual(events, ["SUNSOCIAL", "TT", "WEDLSD"])
+
+    def test_opted_in_reminder_targets_only_unfinished_verified_result(self):
+        member = self._insert_member(
+            "27999999999", popia_acknowledged=True, reminders_opt_in=True,
+        )
+        pending = self._insert_submission(
+            member["id"], event_date=date(2026, 10, 6), status="PENDING",
+            confirmed=False,
+        )
+        rows = incomplete_reminder_service.get_incomplete_submissions(date(2026, 10, 6))
+        self.assertEqual([row["submission_id"] for row in rows], [pending["id"]])
+        with cursor() as cur:
+            cur.execute("UPDATE submissions SET status = 'COMPLETE' WHERE id = %s", (pending["id"],))
+        self.assertEqual(incomplete_reminder_service.get_incomplete_submissions(date(2026, 10, 6)), [])
+
+    def test_attendance_streak_reads_weekly_tt_dates(self):
+        member = self._insert_member("27999999999", popia_acknowledged=True)
+        with cursor() as cur:
+            for event_date in (date(2026, 9, 22), date(2026, 9, 29), date(2026, 10, 6)):
+                cur.execute(
+                    "INSERT INTO attendance (member_id, event, event_date) VALUES (%s, 'TT', %s)",
+                    (member["id"], event_date),
+                )
+        stats = engagement_service.get_attendance_stats(member["id"], today=date(2026, 10, 6))
+        self.assertEqual(stats["total"], 3)
+        self.assertEqual(stats["current_streak"], 3)
+
+    def test_confirmed_erasure_removes_member_and_related_active_data(self):
+        target = self._insert_member("27999999999", popia_acknowledged=True)
+        other = self._insert_member("27888888888", popia_acknowledged=True)
+        own_result = self._insert_submission(target["id"])
+        other_result = self._insert_submission(other["id"])
+        with cursor() as cur:
+            cur.execute(
+                "INSERT INTO attendance (member_id, event, event_date) VALUES (%s, 'TT', %s)",
+                (target["id"], date.today()),
+            )
+            cur.execute(
+                "INSERT INTO member_self_corrections (member_id, submission_id, mode) VALUES (%s, %s, 'RUN')",
+                (target["id"], own_result["id"]),
+            )
+            cur.execute(
+                "INSERT INTO admin_corrections (member_id, submission_id, admin_member_id) VALUES (%s, %s, %s)",
+                (target["id"], own_result["id"], target["id"]),
+            )
+            cur.execute(
+                "INSERT INTO admin_corrections (member_id, submission_id, admin_member_id) VALUES (%s, %s, %s)",
+                (other["id"], other_result["id"], target["id"]),
+            )
+            cur.execute(
+                "INSERT INTO inbound_whatsapp_messages (message_id, sender) VALUES ('erase-test', %s)",
+                (target["phone"],),
+            )
+            cur.execute(
+                "INSERT INTO job_queue (job_type, payload) VALUES ('whatsapp_send', %s::jsonb)",
+                ('{"payload": {"to": "27999999999", "type": "text"}}',),
+            )
+
+        self.assertTrue(privacy_service.withdraw_consent_and_request_erasure(target["phone"]))
+        self.assertTrue(privacy_service.erase_member_after_confirmation(target["phone"]))
+        with cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM members WHERE id = %s", (target["id"],))
+            self.assertEqual(cur.fetchone()["n"], 0)
+            cur.execute("SELECT COUNT(*) AS n FROM submissions WHERE member_id = %s", (target["id"],))
+            self.assertEqual(cur.fetchone()["n"], 0)
+            cur.execute("SELECT COUNT(*) AS n FROM job_queue")
+            self.assertEqual(cur.fetchone()["n"], 0)
+            cur.execute("SELECT COUNT(*) AS n FROM inbound_whatsapp_messages WHERE sender = %s", (target["phone"],))
+            self.assertEqual(cur.fetchone()["n"], 0)
+            cur.execute("SELECT sender FROM inbound_whatsapp_messages WHERE message_id = 'erase-test'")
+            self.assertIsNone(cur.fetchone()["sender"])
+            cur.execute("SELECT admin_member_id FROM admin_corrections WHERE member_id = %s", (other["id"],))
+            self.assertIsNone(cur.fetchone()["admin_member_id"])
+            cur.execute("SELECT COUNT(*) AS n FROM members WHERE id = %s", (other["id"],))
+            self.assertEqual(cur.fetchone()["n"], 1)
 
     def test_populated_legacy_migration_preserves_data_and_does_not_reclassify_onboarding(self):
         self._reset_public_schema()
@@ -145,7 +234,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             conn.close()
 
-        db.init_db()
+        upgrade_database()
 
         with cursor() as cur:
             cur.execute("SELECT phone, participation_type, leaderboard_opt_out, leaderboard_visibility_set FROM members ORDER BY phone")
@@ -200,6 +289,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             cur.execute("SELECT status FROM job_queue WHERE id = %s", (job_id,))
             self.assertEqual(cur.fetchone()["status"], "DONE")
 
+    def test_outbound_dedupe_key_returns_one_job_on_repeated_enqueue(self):
+        payload = {"messaging_product": "whatsapp", "to": "2771", "type": "text", "text": {"body": "Hi"}}
+        first = job_queue_service.enqueue_whatsapp_send(payload, dedupe_key="outbound:wamid.1:0")
+        second = job_queue_service.enqueue_whatsapp_send(payload, dedupe_key="outbound:wamid.1:0")
+        self.assertEqual(first, second)
+        with cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS count FROM job_queue WHERE dedupe_key = %s", ("outbound:wamid.1:0",))
+            self.assertEqual(cur.fetchone()["count"], 1)
+
+    def test_confirmation_rolls_back_if_followup_cannot_be_queued(self):
+        member = self._insert_member("27106")
+        submission = self._insert_submission(member["id"], status="PENDING", confirmed=False)
+        followup = {"sender": member["phone"], "member": member, "previous_best": None}
+
+        with patch.object(submission_service, "enqueue_post_confirm_messages", side_effect=RuntimeError("queue unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "queue unavailable"):
+                submission_service.confirm_submission(submission["id"], followup=followup)
+
+        with cursor() as cur:
+            cur.execute("SELECT status, confirmed FROM submissions WHERE id = %s", (submission["id"],))
+            saved = cur.fetchone()
+        self.assertEqual(saved["status"], "PENDING")
+        self.assertFalse(saved["confirmed"])
+
     def test_concurrent_confirmation_is_idempotent(self):
         member = self._insert_member("27102")
         submission = self._insert_submission(member["id"], status="PENDING", confirmed=False)
@@ -224,7 +337,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         for member in (public_member, incomplete_member, private_member):
             self._insert_submission(member["id"])
 
-        db.init_db()
+        self.assertEqual(upgrade_database(), [])
+        require_current_schema()
         rows = leaderboard_service.get_runner_leaderboard(date.today())
         self.assertEqual([row["member_id"] for row in rows], [public_member["id"]])
         with cursor() as cur:

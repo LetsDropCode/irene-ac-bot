@@ -26,13 +26,16 @@ def create_member(phone: str, popia_acknowledged: bool = False):
     with get_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO members (phone, first_name, last_name, popia_acknowledged)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO members (
+                phone, first_name, last_name, popia_acknowledged, popia_consented_at
+            )
+            VALUES (%s, %s, %s, %s,
+                CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE NULL END)
             ON CONFLICT (phone) DO UPDATE
             SET phone = EXCLUDED.phone
             RETURNING *
             """,
-            (phone, "Unknown", "Member", popia_acknowledged)
+            (phone, "Unknown", "Member", popia_acknowledged, popia_acknowledged)
         )
         return cur.fetchone()
 
@@ -137,7 +140,9 @@ def acknowledge_popia(sender: str):
         cur.execute(
             """
             UPDATE members
-            SET popia_acknowledged = TRUE
+            SET popia_acknowledged = TRUE,
+                popia_consented_at = CURRENT_TIMESTAMP,
+                popia_withdrawn_at = NULL
             WHERE phone = %s
             """,
             (sender,)

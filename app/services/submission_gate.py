@@ -98,7 +98,7 @@ def ensure_tt_open(now=None, event: str = "TT", submission_event_date: date | No
         if submission_event_date.weekday() == config["day_of_week"] and now.time() <= NEXT_DAY_RESULT_DEADLINE:
             return True, None
         return False, (
-            f"⛔ The deadline for the {submission_event_date.strftime('%-d %B')} TT was "
+            f"⛔ The deadline for the {submission_event_date.day} {submission_event_date.strftime('%B')} TT was "
             f"*{NEXT_DAY_RESULT_DEADLINE.strftime('%H:%M')}* today."
         )
 
