@@ -1570,7 +1570,12 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     {},
                 ),
                 (
-                    ("27999999999", "🚶 Send a short note about your walk or workout, e.g. 45 min walk."),
+                    (
+                        "27999999999",
+                        "🚶 *Workout selected.*\n\n"
+                        "Type your walk or workout in the message box below, then tap Send.\n"
+                        "Example: 45 min walk",
+                    ),
                     {},
                 ),
             ],
@@ -2043,7 +2048,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
         mocks["get_or_create_submission"].assert_not_called()
         mocks["send_text"].assert_called_once_with(
-            "27999999999", "🚶 Send the corrected walk or workout note."
+            "27999999999",
+            "🚶 *Edit workout.*\n\n"
+            "Type the corrected walk or workout in the message box below, then tap Send.",
         )
 
     async def test_unconfirmed_walker_workout_resumes_at_confirmation(self):
@@ -2125,7 +2132,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result, {"status": "both_workout"})
             mocks["send_text"].assert_called_once_with(
                 "27999999999",
-                "🚶 Send a short note about your walk or workout, e.g. 45 min walk.",
+                "🚶 *Workout selected.*\n\n"
+                "Type your walk or workout in the message box below, then tap Send.\n"
+                "Example: 45 min walk",
             )
 
     async def test_both_workout_is_saved_for_confirmation(self):
@@ -2284,7 +2293,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "resume_awaiting_workout"})
         mocks["send_text"].assert_called_once_with(
-            "27999999999", "🚶 Send a short note about your walk or workout, e.g. 45 min walk."
+            "27999999999",
+            "🚶 *Workout selected.*\n\n"
+            "Type your walk or workout in the message box below, then tap Send.\n"
+            "Example: 45 min walk",
         )
         mocks["send_both_submission_buttons"].assert_not_called()
 
@@ -2315,7 +2327,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["ensure_tt_open"].assert_called_once_with(submission_event_date="2026-09-08")
         mocks["reopen_workout_submission_for_edit"].assert_called_once_with(101)
         mocks["send_text"].assert_called_once_with(
-            "27999999999", "🚶 Send the corrected walk or workout note."
+            "27999999999",
+            "🚶 *Edit workout.*\n\n"
+            "Type the corrected walk or workout in the message box below, then tap Send.",
         )
 
     async def test_legacy_mode_less_both_workout_resumes_at_review(self):

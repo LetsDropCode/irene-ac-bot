@@ -59,7 +59,12 @@ def send_next_step(phone: str, participation_type: str | None):
         "Please continue with your result below.",
     )
     if participation_type == "WALKER":
-        send_text(phone, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+        send_text(
+            phone,
+            "🚶 *Workout selected.*\n\n"
+            "Type your walk or workout in the message box below, then tap Send.\n"
+            "Example: 45 min walk",
+        )
     elif participation_type == "BOTH":
         send_both_submission_buttons(phone)
     else:

@@ -138,6 +138,16 @@ logger = logging.getLogger(__name__)
 IRENE_SHOP_URL = "https://store126837536.shop.netcash.co.za/products"
 IRENE_LEAGUE_URL = "https://iac-league-web.onrender.com"
 
+WORKOUT_ENTRY_PROMPT = (
+    "🚶 *Workout selected.*\n\n"
+    "Type your walk or workout in the message box below, then tap Send.\n"
+    "Example: 45 min walk"
+)
+WORKOUT_EDIT_PROMPT = (
+    "🚶 *Edit workout.*\n\n"
+    "Type the corrected walk or workout in the message box below, then tap Send."
+)
+
 
 def is_admin(sender: str) -> bool:
     return sender in ADMIN_NUMBERS
@@ -428,7 +438,7 @@ def send_my_ranking(sender: str, member: dict):
 
 def send_submission_prompt(sender: str, participation_type: str):
     if participation_type == "WALKER":
-        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+        send_text(sender, WORKOUT_ENTRY_PROMPT)
         return "walk"
 
     if participation_type == "BOTH":
@@ -496,7 +506,10 @@ def prompt_member_self_correction(sender: str, correction: dict):
         if correction.get("time_text"):
             _send_self_correction_review(sender, correction)
             return "awaiting_confirm"
-        send_text(sender, "Send the corrected walk or workout note. Your saved result remains unchanged until confirmation.")
+        send_text(
+            sender,
+            f"{WORKOUT_EDIT_PROMPT}\n\nYour saved result remains unchanged until confirmation.",
+        )
         return "awaiting_workout"
 
     if not correction.get("distance_text"):
@@ -585,7 +598,7 @@ def prompt_for_pending_submission(sender: str, member: dict, submission: dict):
     state = resolve_pending_submission_state(member, submission)
 
     if state == AWAITING_WORKOUT:
-        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+        send_text(sender, WORKOUT_ENTRY_PROMPT)
         return state
 
     if state == AWAITING_WORKOUT_CONFIRM:
@@ -1442,7 +1455,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             send_workout_confirm_buttons(sender, submission["time_text"])
             return {"status": f"{status_prefix}workout_confirm"}
 
-        send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+        send_text(sender, WORKOUT_ENTRY_PROMPT)
         return {"status": f"{status_prefix}await_workout"}
 
     if (
@@ -1471,7 +1484,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             if btn == "submit_workout":
                 set_submission_mode(submission["id"], "WORKOUT")
                 set_profile_state(member["id"], "BOTH_WORKOUT")
-                send_text(sender, "🚶 Send a short note about your walk or workout, e.g. 45 min walk.")
+                send_text(sender, WORKOUT_ENTRY_PROMPT)
                 return {"status": "both_workout"}
 
             if btn == "submit_distance":
@@ -1497,7 +1510,7 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
             if btn == "edit":
                 reopen_workout_submission_for_edit(submission["id"])
                 clear_profile_state(member["id"])
-                send_text(sender, "🚶 Send the corrected walk or workout note.")
+                send_text(sender, WORKOUT_EDIT_PROMPT)
                 return {"status": "workout_edit"}
 
         # DISTANCE
