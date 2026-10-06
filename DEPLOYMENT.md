@@ -54,6 +54,12 @@ Coaching requests contain only distance, finish time, calculated pace, trend,
 and the deterministic fatigue signal. Responses are not stored by the OpenAI
 API (`store=false`), and provider output is limited to four short lines.
 
+Trend and fatigue signals compare only runs over the same distance in the
+five most recent valid running results. At least three matching results are
+required; otherwise the trend is "Not enough comparable runs yet" and no
+fatigue signal is supplied. Coaching uses the confirmed result's distance;
+My Progress uses the most recent run's distance.
+
 Monthly attendance email:
 
 ```text

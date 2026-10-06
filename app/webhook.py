@@ -740,8 +740,8 @@ def send_post_confirm_messages(
                 detect_fatigue,
             )
 
-            trend = detect_trend(profile["recent"])
-            fatigue = detect_fatigue(profile["recent"])
+            trend = detect_trend(profile["recent"], submission["distance_text"])
+            fatigue = detect_fatigue(profile["recent"], submission["distance_text"])
 
             # Identity, contact details, IDs, and unrelated profile history
             # cannot enter the model-facing coaching context.

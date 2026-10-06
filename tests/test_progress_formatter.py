@@ -21,9 +21,9 @@ class ProgressFormatterTests(unittest.TestCase):
                     }
                 ],
                 "recent": [
-                    {"seconds": 1600},
-                    {"seconds": 1660},
-                    {"seconds": 1720},
+                    {"distance_text": "4", "seconds": 1600},
+                    {"distance_text": "4", "seconds": 1660},
+                    {"distance_text": "4", "seconds": 1720},
                 ],
             },
         )
@@ -34,6 +34,18 @@ class ProgressFormatterTests(unittest.TestCase):
         self.assertIn("Next milestone: 10 activities (4 to go)", message)
         self.assertIn("4km — 27:41", message)
         self.assertIn("Trend: 🔥 Improving", message)
+
+    def test_mixed_distances_do_not_show_false_improvement(self):
+        message = format_progress(
+            {"first_name": "Runner"},
+            {"recent": [
+                {"distance_text": "6", "seconds": 2200},
+                {"distance_text": "8", "seconds": 2500},
+                {"distance_text": "8", "seconds": 2600},
+            ]},
+        )
+        self.assertIn("Trend: Not enough comparable runs yet.", message)
+        self.assertNotIn("Improving", message)
 
     def test_formats_progress_before_first_activity(self):
         message = format_progress(

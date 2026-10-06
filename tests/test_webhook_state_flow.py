@@ -2729,6 +2729,32 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["confirm_submission"].assert_called_once_with(101)
         mocks["send_text"].assert_called_once_with("27999999999", "TT recorded.")
 
+    async def test_post_confirm_coaching_compares_the_submission_distance(self):
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(webhook_module, "send_text"))
+            stack.enter_context(patch.object(webhook_module, "get_runner_leaderboard", return_value=[]))
+            stack.enter_context(patch.object(webhook_module, "get_user_profile", return_value={
+                "total_runs": 4,
+                "recent": [
+                    {"distance_text": "8", "seconds": 1500},
+                    {"distance_text": "6", "seconds": 2200},
+                    {"distance_text": "6", "seconds": 2000},
+                    {"distance_text": "6", "seconds": 1900},
+                ],
+            }))
+            coach = stack.enter_context(patch.object(webhook_module, "coach_for_result", return_value="Solid effort."))
+
+            webhook_module.send_post_confirm_messages(
+                "27999999999", 42, "Runner",
+                submission(status="COMPLETE", distance_text="6", time_text="36:40", seconds=2200),
+                previous_best=1900,
+            )
+
+        context = coach.call_args.args[0]
+        self.assertEqual(context.distance_km, "6")
+        self.assertEqual(context.trend, "⚠️ Slowing down")
+        self.assertEqual(context.fatigue, "😴 Possible fatigue detected")
+
     async def test_post_confirm_followup_sends_fallback_coach_message(self):
         messages = []
 
@@ -2740,7 +2766,11 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     "get_user_profile",
                     return_value={
                         "total_runs": 5,
-                        "recent": [{"seconds": 1600}, {"seconds": 1660}, {"seconds": 1720}],
+                        "recent": [
+                            {"distance_text": "4", "seconds": 1600},
+                            {"distance_text": "4", "seconds": 1660},
+                            {"distance_text": "4", "seconds": 1720},
+                        ],
                     },
                 )
             )
