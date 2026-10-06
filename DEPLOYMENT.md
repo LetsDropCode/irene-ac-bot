@@ -152,7 +152,13 @@ JOBS STATUS
 JOBS RUN
 JOBS FAILED
 JOBS RETRY
+DATE RANGE LEADERBOARD
 ```
+
+Selecting **Date range** under Admin tools → Leaderboard views prompts for an
+inclusive period. Send either `YYYY-MM-DD to YYYY-MM-DD` or the day-first
+`DD/MM/YYYY to DD/MM/YYYY` format. The bot returns each historical TT night's
+actual leaderboard separately; use the same start and end date for one Tuesday.
 
 ## Scheduled Jobs
 

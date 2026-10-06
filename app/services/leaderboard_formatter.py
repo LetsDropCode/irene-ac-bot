@@ -34,13 +34,20 @@ def format_full_leaderboard(runners, walkers, title="Tonight's TT Leaderboard"):
 
     return msg.strip()
 
-def format_overall_leaderboard(rows, viewer_member_id=None):
+def format_overall_leaderboard(
+    rows,
+    viewer_member_id=None,
+    title="Overall TT Leaderboard",
+    subtitle="Fastest PBs for 8km, 6km and 4km.",
+):
 
     if not rows:
-        return "🏆 No overall results yet."
+        if title == "Overall TT Leaderboard":
+            return "🏆 No overall results yet."
+        return f"🏆 *{title}*\nNo results found in this period."
 
-    msg = "🏆 *Overall TT Leaderboard*\n"
-    msg += "Fastest PBs for 8km, 6km and 4km.\n"
+    msg = f"🏆 *{title}*\n"
+    msg += f"{subtitle}\n"
 
     current_distance = None
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -66,6 +73,24 @@ def format_overall_leaderboard(rows, viewer_member_id=None):
         msg += f"{medal} {r['first_name']} {r['last_name']} — {time_str}{marker}\n"
 
     return msg.strip()
+
+
+def format_date_range_leaderboards(runners, walkers):
+    """Build one WhatsApp-sized message per historical TT event date."""
+    event_dates = sorted(
+        {row["event_date"] for row in runners} | {row["event_date"] for row in walkers},
+        reverse=True,
+    )
+    if not event_dates:
+        return ["🏁 No TT results found in that date range."]
+
+    messages = []
+    for event_date in event_dates:
+        event_runners = [row for row in runners if row["event_date"] == event_date]
+        event_walkers = [row for row in walkers if row["event_date"] == event_date]
+        title = f"TT Leaderboard · {event_date:%a, %d %b %Y}"
+        messages.append(format_full_leaderboard(event_runners, event_walkers, title=title))
+    return messages
 
 def format_member_rankings(member, rows):
     first_name = member.get("first_name") or "Runner"

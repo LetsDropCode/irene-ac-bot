@@ -310,7 +310,7 @@ def send_admin_menu_list(to: str) -> bool:
 
 
 def send_admin_leaderboard_menu_list(to: str) -> bool:
-    """Keep both admin leaderboard views reachable within list row limits."""
+    """Keep admin leaderboard views reachable within list row limits."""
     return _send({
         "messaging_product": "whatsapp",
         "to": to,
@@ -334,6 +334,11 @@ def send_admin_leaderboard_menu_list(to: str) -> bool:
                             "id": "admin_overall_leaderboard",
                             "title": "Overall PBs",
                             "description": "Show fastest 8km, 6km and 4km PBs.",
+                        },
+                        {
+                            "id": "admin_date_range_leaderboard",
+                            "title": "Date range",
+                            "description": "Pull past Tuesday leaderboards.",
                         },
                     ],
                 }],

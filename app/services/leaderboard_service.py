@@ -159,6 +159,66 @@ def get_overall_leaderboard(member_id=None, limit_per_distance=10):
 
         return cur.fetchall()
 
+
+def get_runner_leaderboards_for_range(start_date, end_date):
+    """Return each event's runner leaderboard within an inclusive date range."""
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+        SELECT
+            m.id AS member_id,
+            m.first_name,
+            m.last_name,
+            s.event_date,
+            s.distance_text,
+            s.time_text,
+            s.seconds,
+            RANK() OVER (
+                PARTITION BY s.event_date, s.distance_text
+                ORDER BY s.seconds ASC
+            ) AS position
+        FROM submissions s
+        JOIN members m ON m.id = s.member_id
+        WHERE
+            s.status = 'COMPLETE'
+            AND s.seconds IS NOT NULL
+            AND s.distance_text IS NOT NULL
+            AND s.distance_text <> ''
+            AND s.activity = 'TT'
+            AND (s.mode = 'RUN' OR s.mode IS NULL)
+            AND m.leaderboard_visibility_set = TRUE
+            AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+            AND s.event_date BETWEEN %s AND %s
+        ORDER BY
+            s.event_date DESC,
+            CAST(s.distance_text AS INTEGER) DESC,
+            position ASC
+        """, (start_date, end_date))
+        return cur.fetchall()
+
+
+def get_walker_feeds_for_range(start_date, end_date):
+    """Return walker activity grouped by each event in an inclusive range."""
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+        SELECT
+            m.first_name,
+            m.last_name,
+            s.event_date,
+            s.time_text,
+            s.created_at
+        FROM submissions s
+        JOIN members m ON m.id = s.member_id
+        WHERE
+            s.status = 'COMPLETE'
+            AND (s.distance_text IS NULL OR s.distance_text = '')
+            AND (s.mode = 'WORKOUT' OR s.mode IS NULL)
+            AND m.leaderboard_visibility_set = TRUE
+            AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE
+            AND s.event_date BETWEEN %s AND %s
+        ORDER BY s.event_date DESC, s.created_at DESC
+        """, (start_date, end_date))
+        return cur.fetchall()
+
 def get_member_rankings(member_id):
     with get_cursor(commit=False) as cur:
         cur.execute("""

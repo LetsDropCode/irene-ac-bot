@@ -4,6 +4,7 @@ import hmac
 import json
 import unittest
 from contextlib import ExitStack
+from datetime import date
 from unittest.mock import patch
 
 from fastapi import BackgroundTasks
@@ -239,6 +240,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
+                "get_runner_leaderboards_for_range",
+                "get_walker_feeds_for_range",
                 "get_member_rankings",
                 "get_walker_feed",
                 "get_tt_status",
@@ -665,6 +668,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_previous_best",
                 "get_runner_leaderboard",
                 "get_overall_leaderboard",
+                "get_runner_leaderboards_for_range",
+                "get_walker_feeds_for_range",
                 "get_member_rankings",
                 "get_walker_feed",
                 "get_tt_status",
@@ -1041,6 +1046,75 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "admin_leaderboards"})
         mocks["send_admin_leaderboard_menu_list"].assert_called_once_with("27722135094")
+
+    async def test_admin_date_range_button_prompts_for_dates(self):
+        result, mocks, _ = await self.call_webhook(
+            button_payload(
+                sender="27722135094",
+                button_id="admin_date_range_leaderboard",
+                title="Date range",
+            ),
+            member_data=member(phone="27722135094"),
+        )
+
+        self.assertEqual(result, {"status": "admin_leaderboard_range_prompt"})
+        mocks["set_profile_state"].assert_called_once_with(42, "ADMIN_LEADERBOARD_RANGE")
+        self.assertIn("2026-09-01 to 2026-09-30", mocks["send_text"].call_args.args[1])
+
+    async def test_admin_date_range_reply_sends_period_leaderboard(self):
+        rows = [{
+            "member_id": 7,
+            "first_name": "Ada",
+            "last_name": "Runner",
+            "distance_text": "8",
+            "time_text": "40:00",
+            "best_seconds": 2400,
+            "position": 1,
+            "event_date": date(2026, 9, 8),
+        }]
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="01/09/2026 to 30/09/2026"),
+            member_data=member(
+                phone="27722135094",
+                profile_state="ADMIN_LEADERBOARD_RANGE",
+            ),
+            get_runner_leaderboards_for_range=rows,
+            get_walker_feeds_for_range=[],
+        )
+
+        self.assertEqual(result, {
+            "status": "admin_date_range_leaderboard",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30",
+            "event_count": 1,
+        })
+        mocks["get_runner_leaderboards_for_range"].assert_called_once_with(
+            date(2026, 9, 1),
+            date(2026, 9, 30),
+        )
+        mocks["get_walker_feeds_for_range"].assert_called_once_with(
+            date(2026, 9, 1),
+            date(2026, 9, 30),
+        )
+        mocks["clear_profile_state"].assert_called_once_with(42)
+        message = mocks["send_text"].call_args.args[1]
+        self.assertIn("TT Leaderboard · Tue, 08 Sep 2026", message)
+        self.assertIn("Ada Runner", message)
+
+    async def test_admin_date_range_rejects_reversed_dates_and_keeps_state(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(sender="27722135094", body="2026-09-30 to 2026-09-01"),
+            member_data=member(
+                phone="27722135094",
+                profile_state="ADMIN_LEADERBOARD_RANGE",
+            ),
+        )
+
+        self.assertEqual(result, {"status": "admin_leaderboard_range_bad_dates"})
+        mocks["get_runner_leaderboards_for_range"].assert_not_called()
+        mocks["get_walker_feeds_for_range"].assert_not_called()
+        mocks["clear_profile_state"].assert_not_called()
+        self.assertIn("earliest date first", mocks["send_text"].call_args.args[1])
 
     async def test_admin_recover_tonight_resends_prompts(self):
         result, mocks, _ = await self.call_webhook(

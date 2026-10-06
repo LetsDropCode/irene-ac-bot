@@ -134,6 +134,7 @@ INTERACTIVE_ACTIONS = {
     "admin_leaderboards": "ADMIN_LEADERBOARDS",
     "admin_tonight_leaderboard": "TONIGHT_LEADERBOARD",
     "admin_overall_leaderboard": "OVERALL_LEADERBOARD",
+    "admin_date_range_leaderboard": "ADMIN_DATE_RANGE_LEADERBOARD",
     "admin_member_history": "ADMIN_MEMBER_HISTORY",
     "admin_member_correct": "ADMIN_MEMBER_CORRECT",
 }
@@ -143,6 +144,8 @@ INTERACTIVE_ACTIONS = {
 # unless an admin command actually collides with one.
 ADMIN_TEXT_ACTIONS = {
     "TT CODE": "ADMIN_TT_CODE",
+    "DATE RANGE LEADERBOARD": "ADMIN_DATE_RANGE_LEADERBOARD",
+    "RANGE LEADERBOARD": "ADMIN_DATE_RANGE_LEADERBOARD",
 }
 
 

@@ -1,4 +1,5 @@
-from datetime import date
+import re
+from datetime import date, datetime
 
 from app.services.admin_service import (
     correct_runner_pb,
@@ -11,6 +12,11 @@ from app.services.admin_service import (
     search_members_for_admin,
 )
 from app.services.member_service import clear_profile_state, set_profile_state
+from app.services.leaderboard_formatter import format_date_range_leaderboards
+from app.services.leaderboard_service import (
+    get_runner_leaderboards_for_range,
+    get_walker_feeds_for_range,
+)
 from app.services.validation import is_valid_time, time_to_seconds
 from app.whatsapp import (
     send_admin_confirm_correction_buttons,
@@ -165,6 +171,25 @@ def _admin_state_parts(state: str):
     return (state or "").split("|")
 
 
+def _parse_date_range(raw_text: str):
+    values = re.findall(r"\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}", raw_text or "")
+    if len(values) != 2:
+        return None
+
+    def parse(value):
+        date_format = "%d/%m/%Y" if "/" in value else "%Y-%m-%d"
+        return datetime.strptime(value, date_format).date()
+
+    try:
+        start_date, end_date = (parse(value) for value in values)
+    except ValueError:
+        return None
+
+    if start_date > end_date:
+        return None
+    return start_date, end_date
+
+
 def _format_selected_submission(row: dict) -> str:
     date_text = row.get("event_date") or "unknown date"
     distance = row.get("distance_text") or "?"
@@ -308,6 +333,34 @@ def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text
 
     parts = _admin_state_parts(state)
     state_name = parts[0]
+
+    if state_name == "ADMIN_LEADERBOARD_RANGE":
+        date_range = _parse_date_range(raw_text)
+        if not date_range:
+            send_text(
+                sender,
+                (
+                    "Send a valid start and end date with the earliest date first.\n\n"
+                    "Example: 2026-09-01 to 2026-09-30\n"
+                    "You can also use 01/09/2026 to 30/09/2026, or reply CANCEL."
+                ),
+            )
+            return {"status": "admin_leaderboard_range_bad_dates"}
+
+        start_date, end_date = date_range
+        runners = get_runner_leaderboards_for_range(start_date, end_date)
+        walkers = get_walker_feeds_for_range(start_date, end_date)
+        messages = format_date_range_leaderboards(runners, walkers)
+        clear_profile_state(admin_member["id"])
+        for index, message in enumerate(messages):
+            suffix = "\n\nType ADMIN for tools." if index == len(messages) - 1 else ""
+            send_text(sender, f"{message}{suffix}")
+        return {
+            "status": "admin_date_range_leaderboard",
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "event_count": len(messages) if runners or walkers else 0,
+        }
 
     if state_name in {"ADMIN_MEMBER_SEARCH", "ADMIN_MEMBER_SEARCH_FOR_CORRECT"}:
         query = parts[1]
@@ -630,4 +683,3 @@ def correct_admin_result(sender: str, raw_text: str, admin_member_id: int = None
         )
     _send_typed_correction_confirmation(sender, scope, identifier, state_date, distance, time_text)
     return {"status": "admin_correct_confirmation"}
-

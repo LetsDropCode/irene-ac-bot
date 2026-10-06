@@ -119,7 +119,7 @@ class WhatsAppMenuTests(unittest.TestCase):
             ["Tonight", "Members", "System", "Leaderboards"],
         )
 
-    def test_admin_leaderboard_submenu_keeps_both_views_available(self):
+    def test_admin_leaderboard_submenu_includes_date_range_view(self):
         with patch.object(whatsapp, "_send", return_value=True) as send:
             result = whatsapp.send_admin_leaderboard_menu_list("27722135094")
 
@@ -127,7 +127,11 @@ class WhatsAppMenuTests(unittest.TestCase):
         rows = send.call_args.args[0]["interactive"]["action"]["sections"][0]["rows"]
         self.assertEqual(
             [row["id"] for row in rows],
-            ["admin_tonight_leaderboard", "admin_overall_leaderboard"],
+            [
+                "admin_tonight_leaderboard",
+                "admin_overall_leaderboard",
+                "admin_date_range_leaderboard",
+            ],
         )
 
     def test_admin_pending_actions_has_follow_up_buttons(self):

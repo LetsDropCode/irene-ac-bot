@@ -72,10 +72,18 @@ class HelpFlowTests(unittest.TestCase):
         self.assertEqual(resolve_interactive_action("admin_jobs_failed"), "ADMIN_JOBS_FAILED")
         self.assertEqual(resolve_interactive_action("admin_jobs_retry"), "ADMIN_JOBS_RETRY")
         self.assertEqual(resolve_interactive_action("admin_leaderboards"), "ADMIN_LEADERBOARDS")
+        self.assertEqual(
+            resolve_interactive_action("admin_date_range_leaderboard"),
+            "ADMIN_DATE_RANGE_LEADERBOARD",
+        )
+        self.assertEqual(
+            resolve_menu_action("DATE RANGE LEADERBOARD", admin=True),
+            "ADMIN_DATE_RANGE_LEADERBOARD",
+        )
         self.assertEqual(resolve_interactive_action("admin_member_history"), "ADMIN_MEMBER_HISTORY")
         self.assertEqual(resolve_interactive_action("admin_member_correct"), "ADMIN_MEMBER_CORRECT")
 
-    def test_admin_context_only_overrides_the_real_tt_code_collision(self):
+    def test_admin_context_only_overrides_admin_specific_text_commands(self):
         # STATUS, HISTORY, PENDING, and CORRECT are already admin-only text
         # intents. The remaining audited member aliases have no conflicting
         # admin text command and deliberately retain their behavior.

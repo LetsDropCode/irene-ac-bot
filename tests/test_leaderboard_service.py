@@ -73,6 +73,26 @@ class LeaderboardServiceTests(unittest.TestCase):
         self.assertIn("AND m.leaderboard_visibility_set = TRUE", cursor.query)
         self.assertEqual(cursor.params, (42,))
 
+    def test_runner_date_range_preserves_each_event_ranking(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.get_runner_leaderboards_for_range("2026-09-01", "2026-09-30")
+
+        self.assertIn("AND s.event_date BETWEEN %s AND %s", cursor.query)
+        self.assertIn("PARTITION BY s.event_date, s.distance_text", cursor.query)
+        self.assertEqual(cursor.params, ("2026-09-01", "2026-09-30"))
+
+    def test_walker_date_range_returns_each_event_activity(self):
+        cursor = FakeCursor()
+
+        with patch.object(service, "get_cursor", return_value=fake_cursor_context(cursor)):
+            service.get_walker_feeds_for_range("2026-09-01", "2026-09-30")
+
+        self.assertIn("AND s.event_date BETWEEN %s AND %s", cursor.query)
+        self.assertIn("ORDER BY s.event_date DESC", cursor.query)
+        self.assertEqual(cursor.params, ("2026-09-01", "2026-09-30"))
+
     def test_public_broadcast_recipients_require_completed_visibility_choice(self):
         cursor = FakeCursor()
 

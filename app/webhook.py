@@ -943,8 +943,22 @@ def _process_webhook_message(sender: str, text: str | None, button: dict | None,
 
         if menu_action == "ADMIN_LEADERBOARDS":
             if not send_admin_leaderboard_menu_list(sender):
-                send_text(sender, "Reply TONIGHT LEADERBOARD or OVERALL PBs.")
+                send_text(sender, "Reply TONIGHT LEADERBOARD, OVERALL PBs, or DATE RANGE LEADERBOARD.")
             return {"status": "admin_leaderboards"}
+
+        if menu_action == "ADMIN_DATE_RANGE_LEADERBOARD":
+            set_profile_state(admin_member["id"], "ADMIN_LEADERBOARD_RANGE")
+            send_text(
+                sender,
+                (
+                    "Send the inclusive date range for past Tuesday leaderboards.\n"
+                    "Each TT night will be shown separately.\n\n"
+                    "Example: 2026-09-01 to 2026-09-30\n"
+                    "You can also use 01/09/2026 to 30/09/2026.\n"
+                    "For one Tuesday, use the same date twice."
+                ),
+            )
+            return {"status": "admin_leaderboard_range_prompt"}
 
         if menu_action == "ADMIN_TT_CODE":
             send_admin_code(sender)
