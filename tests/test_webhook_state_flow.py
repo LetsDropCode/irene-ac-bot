@@ -2744,8 +2744,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
             )
-            coach_reply = stack.enter_context(
-                patch.object(webhook_module, "coach_reply", return_value="Keep building steadily.")
+            coach_for_result = stack.enter_context(
+                patch.object(webhook_module, "coach_for_result", return_value="Keep building steadily.")
             )
             stack.enter_context(
                 patch.object(
@@ -2782,15 +2782,13 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("🥇 Badge: 4km PB", messages[0])
         self.assertIn("*Coach note*", messages[0])
         self.assertIn("Keep building steadily.", messages[0])
-        prompt = coach_reply.call_args.args[0]
-        self.assertIn("4km", prompt)
-        self.assertIn("27:41", prompt)
-        self.assertIn("pace", prompt)
-        self.assertIn("Trend:", prompt)
-        self.assertNotIn("Lindsay", prompt)
-        self.assertNotIn("27999999999", prompt)
-        self.assertNotIn("42", prompt)
-        self.assertIsInstance(prompt, str)
+        context = coach_for_result.call_args.args[0]
+        self.assertEqual(context.distance_km, "4")
+        self.assertEqual(context.time_text, "27:41")
+        self.assertEqual(context.pace, "6:55/km")
+        self.assertIn("Improving", context.trend)
+        self.assertNotIn("Lindsay", context.to_prompt())
+        self.assertNotIn("27999999999", context.to_prompt())
 
 
 if __name__ == "__main__":

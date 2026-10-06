@@ -41,7 +41,7 @@ PUBLIC_BASE_URL=https://your-public-app-domain
 
 `PUBLIC_BASE_URL` lets the bot send the Irene tree logo to first-time members. On Railway it is inferred from `RAILWAY_PUBLIC_DOMAIN` when this setting is omitted.
 
-OpenAI coaching fallback:
+Optional OpenAI coaching (the bot uses deterministic coaching when the key is omitted or the API is unavailable):
 
 ```text
 OPENAI_API_KEY
@@ -49,6 +49,10 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_MAX_TOKENS=120
 OPENAI_TIMEOUT=6
 ```
+
+Coaching requests contain only distance, finish time, calculated pace, trend,
+and the deterministic fatigue signal. Responses are not stored by the OpenAI
+API (`store=false`), and provider output is limited to four short lines.
 
 Monthly attendance email:
 

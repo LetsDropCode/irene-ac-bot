@@ -127,7 +127,7 @@ from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
 from app.services.tt_status_service import get_tt_status
 from app.services.admin_service import get_admin_dashboard
-from app.services.openai_service import coach_reply
+from app.services.openai_service import CoachingContext, coach_for_result
 from app.services.profile_service import get_user_profile
 from app.services.profile_formatter import format_profile
 from app.services.progress_formatter import format_progress
@@ -743,19 +743,17 @@ def send_post_confirm_messages(
             trend = detect_trend(profile["recent"])
             fatigue = detect_fatigue(profile["recent"])
 
-            # This is the entire model-facing context. Identity, contact
-            # details, IDs, and unrelated profile history stay outside it.
-            prompt = (
-                f"Runner completed {submission['distance_text']}km in {submission['time_text']} "
-                f"(pace {pace}). Trend: {trend}. "
+            # Identity, contact details, IDs, and unrelated profile history
+            # cannot enter the model-facing coaching context.
+            insight = coach_for_result(
+                CoachingContext(
+                    distance_km=submission["distance_text"],
+                    time_text=submission["time_text"],
+                    pace=pace,
+                    trend=trend,
+                    fatigue=fatigue,
+                )
             )
-
-            if fatigue:
-                prompt += f"{fatigue}. "
-
-            prompt += "Give short coaching feedback."
-
-            insight = coach_reply(prompt)
 
             if insight:
                 lines.extend(["", "*Coach note*", insight])
