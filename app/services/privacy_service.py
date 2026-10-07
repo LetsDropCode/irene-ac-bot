@@ -40,7 +40,7 @@ def _remove_queued_member_messages(cur, member_id: int, phone: str) -> None:
         WHERE EXISTS (
             SELECT 1 FROM submissions s
             WHERE s.member_id = %s
-              AND q.dedupe_key LIKE ('leaderboard:' || s.event_date::text || ':%')
+              AND q.dedupe_key LIKE ('leaderboard:' || s.event_date::text || ':%%')
         )
         """,
         (member_id,),

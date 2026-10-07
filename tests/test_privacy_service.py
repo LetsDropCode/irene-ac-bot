@@ -37,6 +37,7 @@ class PrivacyServiceTests(unittest.TestCase):
         self.assertEqual(cursor.statements[1][1], ("42", "27999999999", "27999999999"))
         self.assertIn("DELETE FROM job_queue", cursor.statements[1][0])
         self.assertIn("q.dedupe_key LIKE", cursor.statements[2][0])
+        self.assertIn(":%%", cursor.statements[2][0])
 
     def test_erasure_requires_pending_confirmation(self):
         cursor = RecordingCursor([None])
