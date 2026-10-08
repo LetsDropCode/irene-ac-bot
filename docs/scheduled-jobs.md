@@ -2,7 +2,13 @@
 
 ## Wednesday unfinished-result reminders
 
-Keep the existing authenticated `POST /jobs/run` schedule running regularly.
+The Railway production function `jobs-runner` calls authenticated
+`POST /jobs/run` every five minutes (`*/5 * * * *`, UTC). Its source is
+`scripts/jobs_run_cron.ts`; its `JOB_RUNNER_URL` and `JOB_RUNNER_TOKEN` variables
+reference the `web` service rather than containing copied secrets. Check the
+function's execution logs for `status: ok`, and `/health` for pending or failed
+queue jobs. Railway cron functions must exit after each call.
+
 Each run between **11:00 and 13:00 Africa/Johannesburg on Wednesday** queues
 at most one durable reminder per unfinished Tuesday submission. Delivery
 rechecks consent, the member's `REMINDERS ON` setting, the submission's pending
@@ -24,9 +30,9 @@ These are proactive WhatsApp messages, so create and obtain approval for two
 message templates in WhatsApp Manager before enabling delivery. Configure:
 
 ```text
-WHATSAPP_REMINDER_TEMPLATE_NAME=<approved reminder template name>
-WHATSAPP_MILESTONE_TEMPLATE_NAME=<approved milestone template name>
-WHATSAPP_TEMPLATE_LANGUAGE=en_US
+WHATSAPP_REMINDER_TEMPLATE_NAME=irene_tt_result_reminder
+WHATSAPP_MILESTONE_TEMPLATE_NAME=irene_tt_attendance_milestone
+WHATSAPP_TEMPLATE_LANGUAGE=en_GB
 ```
 
 The reminder template body uses one parameter (`{{1}}` = first name). Suggested
