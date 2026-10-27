@@ -822,6 +822,20 @@ def extract_whatsapp_message(payload: dict):
         elif msg.get("type") == "interactive":
             interactive = msg.get("interactive", {})
             button = interactive.get("button_reply") or interactive.get("list_reply")
+            if interactive.get("type") == "nfm_reply":
+                # Flow replies still pass through normal signature checks,
+                # idempotency, admin authorization and per-draft token checks.
+                try:
+                    flow_data = json.loads(interactive.get("nfm_reply", {}).get("response_json", "{}"))
+                except (ValueError, TypeError):
+                    flow_data = {}
+                if not isinstance(flow_data, dict):
+                    flow_data = {}
+                button = {
+                    "id": "admin_add_calendar",
+                    "flow_token": flow_data.get("flow_token"),
+                    "event_date": flow_data.get("event_date"),
+                }
 
         message_kind = "button" if button else "text" if text else "unknown"
         button_id = button.get("id") if button else None

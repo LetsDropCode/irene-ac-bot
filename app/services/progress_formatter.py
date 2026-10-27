@@ -18,15 +18,16 @@ def _format_latest(latest):
 
     distance = latest.get("distance_text")
     time_text = latest.get("time_text")
+    date_suffix = f" · {latest['event_date']}" if latest.get("event_date") else ""
 
     if distance:
         pace = seconds_to_pace(latest.get("seconds"), distance)
         detail = f"{distance}km — {time_text}"
         if pace:
             detail += f" ({pace})"
-        return detail
+        return detail + date_suffix
 
-    return time_text or "Workout logged"
+    return (time_text or "Workout logged") + date_suffix
 
 
 def _is_walker(member: dict) -> bool:

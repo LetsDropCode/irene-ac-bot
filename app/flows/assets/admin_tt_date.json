@@ -1,0 +1,42 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "TT_DATE",
+      "title": "Choose the TT date",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "max_date": {"type": "string", "__example__": "2026-10-27"}
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "tt_date_form",
+            "children": [
+              {
+                "type": "CalendarPicker",
+                "name": "event_date",
+                "label": "TT date",
+                "mode": "single",
+                "required": true,
+                "max-date": "${data.max_date}",
+                "helper-text": "Choose the actual TT date, today or earlier."
+              },
+              {
+                "type": "Footer",
+                "label": "Use this date",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {"event_date": "${form.event_date}"}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

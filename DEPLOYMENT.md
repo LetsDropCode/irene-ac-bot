@@ -240,7 +240,10 @@ actual leaderboard separately; use the same start and end date for one Tuesday.
 
 In WhatsApp, use **ADMIN → Find member → select the member → Add missed TT**.
 Alternatively, type **ADMIN SUBMIT** to start with a member search. The bot asks
-for the actual TT date (`YYYY-MM-DD` or `DD/MM/YYYY`), then **Run** or **Workout**.
+for the actual TT date, then **Run** or **Workout**. When the calendar Flow is
+configured, tap **Choose TT date** to open a full calendar inside WhatsApp.
+Typing `CALENDAR` reopens it. Typed dates (`YYYY-MM-DD` or `DD/MM/YYYY`) remain
+available when the calendar is not configured.
 Runs require 4, 6 or 8 km and a non-zero `MM:SS` or `HH:MM:SS` finish time.
 Workouts accept free text up to 500 characters, including for BOTH members.
 Review the member, date, activity and result, then tap **Confirm**. **Cancel**,
@@ -262,6 +265,39 @@ in `admin_corrections` with reason `admin_missing_tt_submission`. Admin entry
 does not send the member coaching or attendance milestone messages. Duplicate
 confirmations cannot create a second completed result. This feature uses the
 existing schema and requires no additional migration.
+
+Results appear on the selected event date's leaderboard (subject to the member's
+sharing preference). Progress totals and personal bests include backfilled
+results; latest activity and recent runs are ordered by event date, not the date
+the admin entered them. Attendance reports use the selected event date too.
+Previously sent leaderboard messages are not resent or edited.
+
+### Full calendar setup
+
+The static, one-screen Flow is defined in `app/flows/assets/admin_tt_date.json`.
+It uses the existing signed WhatsApp webhook; no data-exchange endpoint is needed.
+With `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` available, create and validate it:
+
+```sh
+venv/bin/python scripts/configure_admin_date_flow.py --waba-id YOUR_WHATSAPP_BUSINESS_ACCOUNT_ID
+```
+
+After validation, rerun with `--publish`, then set the returned
+`WHATSAPP_ADMIN_DATE_FLOW_ID` on the bot service and redeploy. The script checks
+that the account owns the bot phone number and reuses the named Flow on retries.
+It sends no messages. The picker limits selection to today or earlier in
+Africa/Johannesburg; the server validates the date again. Replies must match
+the authorized admin's current draft token and date step, so an old calendar
+cannot change a later entry.
+
+Setup status (2026-10-27): the bot's messaging/WABA ID is `4252184618398067`
+under business portfolio `806775448995714`. Calendar Flow `1654628596196144`
+passed Meta JSON validation, but publication was blocked with error `139000`.
+Flow health reports business verification incomplete (`141010`). Complete the
+portfolio's business verification in Meta Business Settings, then rerun the
+setup command with `--waba-id 4252184618398067 --publish`. Keep
+`WHATSAPP_ADMIN_DATE_FLOW_ID` unset until Meta reports `PUBLISHED`; manual date
+entry remains available in the meantime.
 
 ## Scheduled Jobs
 

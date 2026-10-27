@@ -23,6 +23,7 @@ def _env_list(name: str, default: str = "", environ=None) -> tuple[str, ...]:
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+WHATSAPP_ADMIN_DATE_FLOW_ID = os.getenv("WHATSAPP_ADMIN_DATE_FLOW_ID", "").strip()
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET") or os.getenv("META_APP_SECRET")
 # Kept for import-time compatibility. validate_configuration() requires an
 # explicit ENV before a process can start.

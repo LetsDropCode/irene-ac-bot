@@ -46,7 +46,8 @@ def format_profile(member, data):
     msg += "\n📊 *Last 5 Runs*\n"
     if data["recent"]:
         for r in data["recent"]:
-            msg += f"• {r['distance_text']} — {r['time_text']}\n"
+            date_label = f"{r['event_date']}: " if r.get("event_date") else ""
+            msg += f"• {date_label}{r['distance_text']} — {r['time_text']}\n"
     else:
         msg += "No runs yet\n"
 

@@ -8,11 +8,13 @@ import requests
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Dict, Any
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.services.validation import time_to_seconds
 from app.services.insight_services import seconds_to_pace
 from app.branding import SHORT_BRAND_NAME, TAGLINE, WHATSAPP_FOOTER
-from app.config import PHONE_NUMBER_ID, WHATSAPP_TOKEN
+from app.config import PHONE_NUMBER_ID, WHATSAPP_TOKEN, WHATSAPP_ADMIN_DATE_FLOW_ID
 
 CONNECT_TIMEOUT = float(os.getenv("WHATSAPP_CONNECT_TIMEOUT", "2"))
 READ_TIMEOUT = float(os.getenv("WHATSAPP_READ_TIMEOUT", "5"))
@@ -472,6 +474,32 @@ def send_admin_confirm_correction_buttons(to: str, body: str) -> bool:
         },
     }
     return _send(payload)
+
+
+def send_admin_date_calendar(to: str, member_name: str, flow_token: str) -> bool:
+    if not WHATSAPP_ADMIN_DATE_FLOW_ID:
+        return False
+    return _send({
+        "messaging_product": "whatsapp", "to": to, "type": "interactive",
+        "interactive": {
+            "type": "flow",
+            "body": {"text": f"*Add missed TT: {member_name}*\n\nOpen the calendar to choose the TT date. Type CANCEL anytime."},
+            "action": {
+                "name": "flow",
+                "parameters": {
+                    "flow_message_version": "3",
+                    "flow_id": WHATSAPP_ADMIN_DATE_FLOW_ID,
+                    "flow_token": flow_token,
+                    "flow_cta": "Choose TT date",
+                    "flow_action": "navigate",
+                    "flow_action_payload": {
+                        "screen": "TT_DATE",
+                        "data": {"max_date": datetime.now(ZoneInfo("Africa/Johannesburg")).date().isoformat()},
+                    },
+                },
+            },
+        },
+    })
 
 
 def send_admin_submission_buttons(to: str, body: str, choices: list[tuple[str, str]]) -> bool:

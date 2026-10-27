@@ -5,6 +5,25 @@ from app import whatsapp
 
 
 class WhatsAppMenuTests(unittest.TestCase):
+    def test_admin_calendar_uses_published_flow_and_current_sa_date(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        with patch.object(whatsapp, "WHATSAPP_ADMIN_DATE_FLOW_ID", "12345"), patch.object(whatsapp, "_send", return_value=True) as send:
+            self.assertTrue(whatsapp.send_admin_date_calendar("2771", "Test Member", "session-token"))
+        payload = send.call_args.args[0]
+        self.assertEqual(payload["interactive"]["type"], "flow")
+        params = payload["interactive"]["action"]["parameters"]
+        self.assertEqual(params["flow_id"], "12345")
+        self.assertEqual(params["flow_token"], "session-token")
+        self.assertEqual(params["flow_action_payload"], {
+            "screen": "TT_DATE", "data": {"max_date": datetime.now(ZoneInfo("Africa/Johannesburg")).date().isoformat()},
+        })
+
+    def test_unconfigured_calendar_keeps_manual_entry_available(self):
+        with patch.object(whatsapp, "WHATSAPP_ADMIN_DATE_FLOW_ID", ""), patch.object(whatsapp, "_send") as send:
+            self.assertFalse(whatsapp.send_admin_date_calendar("2771", "Test Member", "session-token"))
+        send.assert_not_called()
+
     def test_outside_webhook_send_is_still_queued(self):
         with patch("app.services.job_queue_service.enqueue_whatsapp_send", return_value=11) as enqueue, patch.object(
             whatsapp, "_send_direct"

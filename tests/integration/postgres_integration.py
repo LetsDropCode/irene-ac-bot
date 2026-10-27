@@ -1,5 +1,6 @@
 """Focused PostgreSQL integration coverage; run only against a disposable DB."""
 
+import json
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,8 @@ from app.services import (
     incomplete_reminder_service,
     job_queue_service,
     leaderboard_service,
+    profile_service,
+    monthly_attendance_report_service,
     privacy_service,
     submission_service,
 )
@@ -364,6 +367,44 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         member = self._insert_member("270002", popia_acknowledged=True)
         return admin, member
 
+    def test_backdated_admin_tt_reaches_event_leaderboard_progress_and_attendance(self):
+        admin, member = self._admin_entry_members()
+        with cursor() as cur:
+            cur.execute("UPDATE members SET leaderboard_visibility_set = TRUE, leaderboard_opt_out = FALSE WHERE id = %s", (member["id"],))
+        recent_date = date(2026, 10, 20)
+        recent = self._insert_submission(member["id"], event_date=recent_date, created_at="2026-10-20 19:00:00")
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})):
+            run = admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-06", "RUN", "26:00", "4")["submission"]
+            walk = admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-13", "WORKOUT", "Pyramid walk, 5.54km, 41:35")["submission"]
+        run_date, walk_date = run["event_date"], walk["event_date"]
+        board = leaderboard_service.get_runner_leaderboard(run_date)
+        self.assertEqual([(r["member_id"], r["time_text"]) for r in board], [(member["id"], "26:00")])
+        self.assertEqual(leaderboard_service.get_runner_leaderboard(walk_date), [])
+        self.assertEqual([r["time_text"] for r in leaderboard_service.get_runner_leaderboard(recent_date)], [recent["time_text"]])
+        self.assertEqual([r["time_text"] for r in leaderboard_service.get_walker_feed(walk_date)], [walk["time_text"]])
+        self.assertEqual(leaderboard_service.get_walker_feed(run_date), [])
+        ranged = leaderboard_service.get_runner_leaderboards_for_range(run_date, walk_date)
+        self.assertEqual([r["event_date"] for r in ranged], [run_date])
+        self.assertEqual([r["event_date"] for r in leaderboard_service.get_walker_feeds_for_range(run_date, walk_date)], [walk_date])
+        profile = profile_service.get_user_profile(member["id"])
+        self.assertEqual(profile["total_runs"], 3)
+        self.assertEqual(profile["latest"]["id"], recent["id"])
+        self.assertEqual([r["event_date"] for r in profile["recent"]], [recent_date, run_date])
+        self.assertEqual(profile["pbs"], [{"distance_text": "4", "best_seconds": 1560}])
+        attendance = monthly_attendance_report_service.fetch_attendance_rows(recent_date)
+        self.assertEqual([r["event_date"] for r in attendance], [run_date, walk_date])
+        self.assertTrue(all(r["submitted_result"] and not r["pending_result"] for r in attendance))
+        stats = engagement_service.get_attendance_stats(member["id"], today=walk_date)
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["longest_streak"], 2)
+        self.assertEqual(stats["latest_date"], walk_date)
+        # Public sharing preferences still apply to admin-entered results.
+        with cursor() as cur:
+            cur.execute("UPDATE members SET leaderboard_opt_out = TRUE WHERE id = %s", (member["id"],))
+        self.assertEqual(leaderboard_service.get_runner_leaderboard(run_date), [])
+        self.assertEqual(leaderboard_service.get_walker_feed(walk_date), [])
+        self.assertEqual(profile_service.get_user_profile(member["id"])["total_runs"], 3)
+
     def test_admin_missing_run_and_workout_save_selected_date_with_audit_and_attendance(self):
         admin, member = self._admin_entry_members()
         with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})):
@@ -474,17 +515,28 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             webhook, "ADMIN_NUMBERS", frozenset({admin["phone"]})
         ), patch.object(admin_submission_flow, "send_text"), patch.object(
             admin_submission_flow, "send_admin_submission_buttons"
-        ) as buttons:
+        ) as buttons, patch.object(admin_submission_flow, "send_admin_date_calendar", return_value=True) as calendar:
             for message, expected in (
                 ("ADMIN SUBMIT", "admin_add_search"),
                 (member["phone"], "admin_add_choose_member"),
                 ("1", "admin_add_date"),
-                ("06/10/2026", "admin_add_mode"),
-                ("WORKOUT", "admin_add_workout"),
-                ("Pyramid walk, 5.54km, 41:35", "admin_add_review"),
             ):
                 result = route_message(webhook, admin["phone"], message, None)
                 self.assertEqual(result["status"], expected)
+            token = calendar.call_args.args[2]
+            payload = {"entry": [{"changes": [{"value": {"messages": [{
+                "id": "integration-calendar", "from": admin["phone"], "type": "interactive",
+                "interactive": {"type": "nfm_reply", "nfm_reply": {"response_json": json.dumps({
+                    "flow_token": token, "event_date": "2026-10-06",
+                })}},
+            }]}}]}]}
+            _, sender, text, button = webhook.extract_whatsapp_message(payload)
+            self.assertEqual(route_message(webhook, sender, text, button)["status"], "admin_add_mode")
+            for message, expected in (
+                ("WORKOUT", "admin_add_workout"),
+                ("Pyramid walk, 5.54km, 41:35", "admin_add_review"),
+            ):
+                self.assertEqual(route_message(webhook, admin["phone"], message, None)["status"], expected)
             with cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS n FROM submissions")
                 self.assertEqual(cur.fetchone()["n"], 0)

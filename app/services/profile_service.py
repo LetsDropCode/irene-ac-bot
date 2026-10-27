@@ -35,14 +35,14 @@ def get_user_profile(member_id):
             FROM submissions
             WHERE member_id = %s
             AND status = 'COMPLETE'
-            ORDER BY created_at DESC
+            ORDER BY event_date DESC, created_at DESC, id DESC
             LIMIT 1
         """, (member_id,))
         latest = cur.fetchone()
 
         # ───────── RECENT RUNS (LAST 5) ─────────
         cur.execute("""
-            SELECT distance_text, time_text, seconds, created_at
+            SELECT distance_text, time_text, seconds, event_date, created_at
             FROM submissions
             WHERE member_id = %s
             AND status = 'COMPLETE'
@@ -51,7 +51,7 @@ def get_user_profile(member_id):
             AND distance_text IS NOT NULL
             AND distance_text <> ''
             AND (mode = 'RUN' OR mode IS NULL)
-            ORDER BY created_at DESC
+            ORDER BY event_date DESC, created_at DESC, id DESC
             LIMIT 5
         """, (member_id,))
         recent = cur.fetchall()

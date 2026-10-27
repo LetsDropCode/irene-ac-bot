@@ -18,6 +18,7 @@ class AdminSubmissionFlowTests(unittest.TestCase):
         self.admin = {"id": 7, "profile_state": None}
         self.sent = self.stack.enter_context(patch.object(flow, "send_text"))
         self.buttons = self.stack.enter_context(patch.object(flow, "send_admin_submission_buttons"))
+        self.calendar = self.stack.enter_context(patch.object(flow, "send_admin_date_calendar", return_value=False))
         self.save = self.stack.enter_context(patch.object(flow, "save_admin_submission", return_value={"status": "saved", "submission": {"id": 123}}))
         self.stack.enter_context(patch.object(flow, "set_profile_state", side_effect=self.set_state))
         self.stack.enter_context(patch.object(flow, "clear_profile_state", side_effect=lambda _id: self.set_state(_id, None)))
@@ -66,6 +67,48 @@ class AdminSubmissionFlowTests(unittest.TestCase):
     def test_cancel_does_not_save(self):
         draft = self.review()
         self.assertEqual(self.send(button=f"admin_add_cancel:{draft['token']}")["status"], "admin_add_cancelled")
+        self.save.assert_not_called()
+
+    def test_calendar_opens_for_selected_member_and_accepts_only_current_draft(self):
+        self.calendar.return_value = True
+        self.admin["profile_state"] = "ADMIN_MEMBER|42"
+        self.send(button="admin_add_tt")
+        draft = json.loads(self.admin["profile_state"][len(flow.PREFIX):])
+        self.calendar.assert_called_once_with("27000000000", "Test Member", draft["token"])
+        for token, expected in (("old-token", "admin_add_stale_calendar"), (draft["token"], "admin_add_mode")):
+            result = flow.handle_admin_submission("27000000000", self.admin, None, {
+                "id": "admin_add_calendar", "flow_token": token, "event_date": "2026-10-06",
+            }, True)
+            self.assertEqual(result["status"], expected)
+        current = json.loads(self.admin["profile_state"][len(flow.PREFIX):])
+        self.assertEqual(current["date"], "2026-10-06")
+        repeat = flow.handle_admin_submission("27000000000", self.admin, None, {
+            "id": "admin_add_calendar", "flow_token": draft["token"], "event_date": "2026-10-13",
+        }, True)
+        self.assertEqual(repeat["status"], "admin_add_stale_calendar")
+        self.save.assert_not_called()
+
+    def test_calendar_rejects_future_missing_and_invalid_dates(self):
+        self.admin["profile_state"] = "ADMIN_MEMBER|42"
+        self.send(button="admin_add_tt")
+        draft = json.loads(self.admin["profile_state"][len(flow.PREFIX):])
+        for value in ("2999-01-01", "2026-02-30", None, {}, "CANCEL"):
+            result = flow.handle_admin_submission("27000000000", self.admin, None, {
+                "id": "admin_add_calendar", "flow_token": draft["token"], "event_date": value,
+            }, True)
+            self.assertEqual(result["status"], "admin_add_bad_date")
+        self.save.assert_not_called()
+
+    def test_flow_webhook_response_is_parsed_and_non_admin_cannot_use_it(self):
+        for response in (json.dumps({"flow_token": "draft-token", "event_date": "2026-10-06"}), "not json", "[]"):
+            payload = {"entry": [{"changes": [{"value": {"messages": [{
+                "id": "test-flow-reply", "from": "27000000001", "type": "interactive",
+                "interactive": {"type": "nfm_reply", "nfm_reply": {"response_json": response}},
+            }]}}]}]}
+            _, sender, text, button = webhook.extract_whatsapp_message(payload)
+            self.assertEqual(button["id"], "admin_add_calendar")
+            with patch.object(webhook, "ADMIN_NUMBERS", frozenset()):
+                self.assertEqual(route_message(webhook, sender, text, button)["status"], "admin_add_forbidden")
         self.save.assert_not_called()
 
     def test_existing_result_is_never_reported_as_saved(self):

@@ -10,7 +10,7 @@ from app.services.admin_submission_service import (
 )
 from app.services.member_service import clear_profile_state, set_profile_state
 from app.services.validation import is_valid_time, time_to_seconds
-from app.whatsapp import send_text, send_admin_submission_buttons
+from app.whatsapp import send_text, send_admin_submission_buttons, send_admin_date_calendar
 
 PREFIX = "ADMIN_ADD_TT|"
 COMMANDS = {"ADMIN SUBMIT", "ADD TT", "ADD MISSED TT"}
@@ -20,6 +20,11 @@ def _store(admin, draft):
     set_profile_state(admin["id"], PREFIX + json.dumps(draft, ensure_ascii=False))
 
 
+def _prompt_date(sender, draft):
+    if not send_admin_date_calendar(sender, draft["name"], draft["token"]):
+        send_text(sender, f"*Add missed TT: {draft['name']}*\n\nSend the TT date as YYYY-MM-DD or DD/MM/YYYY. Choose today or a past date.\nType CANCEL anytime.")
+
+
 def _select(sender, admin, draft, member_id):
     member = get_member_for_admin_submission(member_id)
     if not member or not member.get("popia_acknowledged"):
@@ -27,7 +32,7 @@ def _select(sender, admin, draft, member_id):
         return {"status": "admin_add_member_unavailable"}
     draft.update(member_id=member_id, name=f"{member['first_name']} {member['last_name']}"[:100], step="date")
     _store(admin, draft)
-    send_text(sender, f"*Add missed TT: {draft['name']}*\n\nSend the TT date as YYYY-MM-DD or DD/MM/YYYY. Choose today or a past date.\nType CANCEL anytime.")
+    _prompt_date(sender, draft)
     return {"status": "admin_add_date"}
 
 
@@ -65,12 +70,18 @@ def handle_admin_submission(sender, admin, raw_text, button, authorized):
         send_text(sender, "That add-TT session has ended. Type ADMIN SUBMIT to start again.")
         return {"status": "admin_add_expired"}
     draft = json.loads(state[len(PREFIX):])
+    if button_id == "admin_add_calendar":
+        if draft["step"] != "date" or button.get("flow_token") != draft["token"]:
+            send_text(sender, "That calendar belongs to an earlier entry. Use the latest calendar, or type CANCEL.")
+            return {"status": "admin_add_stale_calendar"}
+        value = button.get("event_date")
+        text = value if isinstance(value, str) else ""
     if command in {"CANCEL", "CANCEL EDIT"} or button_id == f"admin_add_cancel:{draft['token']}":
         clear_profile_state(admin["id"])
         send_text(sender, "Missed TT entry cancelled. No result was changed.")
         return {"status": "admin_add_cancelled"}
     if button_id and button_id not in {
-        "admin_add_run", "admin_add_workout", f"admin_add_confirm:{draft['token']}"
+        "admin_add_run", "admin_add_workout", "admin_add_calendar", f"admin_add_confirm:{draft['token']}"
     }:
         send_text(sender, "Use the latest prompts for this entry, or type CANCEL.")
         return {"status": "admin_add_stale_button"}
@@ -92,6 +103,9 @@ def handle_admin_submission(sender, admin, raw_text, button, authorized):
             return {"status": "admin_add_bad_member"}
         return _select(sender, admin, draft, draft["candidates"][int(text) - 1])
     if step == "date":
+        if command == "CALENDAR":
+            _prompt_date(sender, draft)
+            return {"status": "admin_add_date"}
         try:
             value = datetime.strptime(text, "%d/%m/%Y" if "/" in text else "%Y-%m-%d").date().isoformat()
             validate_event_date(value)

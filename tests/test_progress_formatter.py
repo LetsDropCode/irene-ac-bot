@@ -10,6 +10,7 @@ class ProgressFormatterTests(unittest.TestCase):
             {
                 "total_runs": 6,
                 "latest": {
+                    "event_date": "2026-10-20",
                     "distance_text": "4",
                     "time_text": "27:41",
                     "seconds": 1661,
@@ -35,6 +36,7 @@ class ProgressFormatterTests(unittest.TestCase):
         self.assertIn("Lindsay, your progress", message)
         self.assertIn("TT activities: 6", message)
         self.assertIn("Latest: 4km — 27:41 (6:55/km)", message)
+        self.assertIn("· 2026-10-20", message)
         self.assertIn("Next milestone: 10 activities (4 to go)", message)
         self.assertIn("4km — 27:41", message)
         self.assertNotIn("Trend: 🔥 Improving", message)
