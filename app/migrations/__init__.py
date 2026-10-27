@@ -6,6 +6,7 @@ from app.migrations.versions import (
     v20261006_outbound_dedupe,
     v20261006_popia_lifecycle,
     v20261006_engagement_preferences,
+    v20261027_submission_mode_default,
 )
 
 MIGRATIONS = (
@@ -13,6 +14,7 @@ MIGRATIONS = (
     v20261006_outbound_dedupe,
     v20261006_popia_lifecycle,
     v20261006_engagement_preferences,
+    v20261027_submission_mode_default,
 )
 _MIGRATION_LOCK = 733120260106
 

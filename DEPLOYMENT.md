@@ -120,6 +120,13 @@ pending submissions.
 The engagement-preferences version adds separate, default-off opt-ins for
 Wednesday incomplete-result reminders and private attendance milestones.
 
+The submission-mode-default version removes a legacy `RUN` column default
+that incorrectly routes new walker check-ins into running result entry.
+New submissions explicitly start with no selected mode so walker profiles
+accept workout notes and BOTH profiles can choose their activity. Empty pending
+walker check-ins misclassified as `RUN` are repaired to `WORKOUT`; recorded
+distances, workout notes, completed results, and BOTH selections are preserved.
+
 Add future changes as new modules in `app/migrations/versions/` and list them in
 `app/migrations/__init__.py`; do not edit a version after it has been deployed.
 

@@ -23,15 +23,18 @@ def get_or_create_submission(member_id: int):
             return w
 
     with get_cursor() as cur:
+        # Legacy databases may still default mode to RUN. Explicitly leave it
+        # unselected so walkers and BOTH members reach the right entry flow.
         cur.execute("""
-            INSERT INTO submissions (member_id, activity, status, time_text, seconds, event_date)
+            INSERT INTO submissions (member_id, activity, status, time_text, seconds, event_date, mode)
             VALUES (
                 %s,
                 'TT',
                 'PENDING',
                 '',
                 0,
-                (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
+                (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date,
+                NULL
             )
             ON CONFLICT (member_id, event_date)
             WHERE status = 'PENDING'

@@ -18,6 +18,10 @@ else:
 
 from app import db
 from app.migrations import require_current_schema, upgrade_database
+from app.migrations.versions import v20261027_submission_mode_default
+from app.flows.submission_dispatch import handle_submission_message
+from app.flows.submission_state import resolve_pending_submission_state
+from app import webhook
 from app.services import (
     engagement_service,
     incomplete_reminder_service,
@@ -262,6 +266,80 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with cursor() as cur:
             cur.execute("SELECT COUNT(*) AS count FROM submissions WHERE member_id = %s AND status = 'PENDING'", (member["id"],))
             self.assertEqual(cur.fetchone()["count"], 1)
+
+    def test_legacy_run_default_does_not_block_walker_free_text_or_both_choice(self):
+        with cursor() as cur:
+            cur.execute("ALTER TABLE submissions ALTER COLUMN mode SET DEFAULT 'RUN'")
+
+        for index, (participation, expected) in enumerate((
+            ("WALKER", "awaiting_workout"),
+            ("BOTH", "awaiting_both_choice"),
+            ("RUNNER", "awaiting_distance"),
+        )):
+            with self.subTest(participation=participation):
+                member = self._insert_member(f"27800{index}", participation_type=participation)
+                row = submission_service.get_or_create_submission(member["id"])
+                self.assertIsNone(row["mode"])
+                self.assertEqual(resolve_pending_submission_state(member, row), expected)
+                if participation != "WALKER":
+                    continue
+
+                with cursor() as cur:
+                    cur.execute("UPDATE submissions SET tt_code_verified = TRUE WHERE id = %s", (row["id"],))
+                note = "Pyramid walk, 5.54km, 41:35"
+                with patch.object(webhook, "ensure_tt_open", return_value=(True, None)), patch.object(
+                    webhook, "send_workout_confirm_buttons"
+                ) as review, patch.object(webhook, "send_text"), patch.object(
+                    webhook, "send_distance_buttons"
+                ) as distances:
+                    result = handle_submission_message(webhook, member["phone"], note.upper(), note, None, None, member)
+                    self.assertEqual(result, {"status": "walker_workout_confirm"})
+                    review.assert_called_once_with(member["phone"], note.upper())
+                    distances.assert_not_called()
+                    result = handle_submission_message(webhook, member["phone"], None, None, {"id": "confirm"}, None, member)
+                    self.assertEqual(result, {"status": "workout_confirmed"})
+                saved = submission_service.get_completed_submission_for_current_event(member["id"])
+                self.assertEqual(saved["time_text"], note.upper())
+                self.assertEqual(saved["mode"], "WORKOUT")
+                self.assertIsNone(saved["distance_text"])
+
+    def test_mode_default_migration_preserves_existing_results_and_choices(self):
+        member = self._insert_member("278010", participation_type="WALKER")
+        existing = self._insert_submission(member["id"], status="PENDING", time_text="", seconds=0)
+        with cursor() as cur:
+            cur.execute("ALTER TABLE submissions ALTER COLUMN mode SET DEFAULT 'RUN'")
+            cur.execute("DELETE FROM schema_migrations WHERE name = %s", (v20261027_submission_mode_default.VERSION,))
+        self.assertEqual(upgrade_database(), [v20261027_submission_mode_default.VERSION])
+        self.assertEqual(upgrade_database(), [])
+        with cursor() as cur:
+            cur.execute("SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'submissions' AND column_name = 'mode'")
+            self.assertIsNone(cur.fetchone()["column_default"])
+            cur.execute("SELECT * FROM submissions WHERE id = %s", (existing["id"],))
+            self.assertEqual(cur.fetchone(), existing)
+
+    def test_mode_default_migration_recovers_only_empty_pending_walker_checkins(self):
+        cases = (
+            ("WALKER", "PENDING", None, "", 0, "WORKOUT"),
+            ("WALKER", "PENDING", "", "", 0, "WORKOUT"),
+            ("WALKER", "PENDING", "4", "", 0, "RUN"),
+            ("WALKER", "PENDING", None, "Saved note", 0, "RUN"),
+            ("WALKER", "COMPLETE", None, "", 0, "RUN"),
+            ("WALKER", "PENDING", None, "", 1800, "RUN"),
+            ("BOTH", "PENDING", None, "", 0, "RUN"),
+            ("RUNNER", "PENDING", None, "", 0, "RUN"),
+        )
+        originals = []
+        for index, (participation, status, distance, note, seconds, expected_mode) in enumerate(cases):
+            member = self._insert_member(f"27802{index}", participation_type=participation)
+            row = self._insert_submission(
+                member["id"], status=status, distance_text=distance, time_text=note, seconds=seconds,
+            )
+            originals.append((row, expected_mode))
+        with cursor() as cur:
+            v20261027_submission_mode_default.upgrade(cur)
+            for original, expected_mode in originals:
+                cur.execute("SELECT * FROM submissions WHERE id = %s", (original["id"],))
+                self.assertEqual(cur.fetchone(), {**original, "mode": expected_mode})
 
     def test_queue_claim_uses_postgresql_skip_locked_across_two_workers(self):
         job_id = job_queue_service.enqueue_job("integration", {"kind": "claim"})
