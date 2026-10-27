@@ -362,6 +362,60 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(claimed_by_a["id"], job_id)
         self.assertIsNone(claimed_by_b)
 
+    def test_immediate_replies_bypass_backlog_and_coaching_without_five_job_limit(self):
+        backlog = [job_queue_service.enqueue_whatsapp_text("2770", "Broadcast") for _ in range(8)]
+        coaching = job_queue_service.enqueue_job(job_queue_service.JOB_POST_CONFIRM_MESSAGES, {})
+        replies = [job_queue_service.enqueue_whatsapp_text("2771", f"Reply {i}") for i in range(7)]
+        with patch("app.whatsapp._send_direct", return_value=True) as send:
+            self.assertEqual(job_queue_service.run_reply_jobs(replies), 7)
+            self.assertEqual(job_queue_service.run_reply_jobs(replies), 0)
+
+        self.assertEqual([call.args[0]["text"]["body"] for call in send.call_args_list],
+                         [f"Reply {i}" for i in range(7)])
+        with cursor() as cur:
+            cur.execute("SELECT id, status FROM job_queue")
+            statuses = {row["id"]: row["status"] for row in cur.fetchall()}
+        self.assertTrue(all(statuses[job_id] == "PENDING" for job_id in backlog + [coaching]))
+        self.assertTrue(all(statuses[job_id] == "DONE" for job_id in replies))
+
+    def test_immediate_reply_claim_respects_locks_type_retry_time_and_attempts(self):
+        running = job_queue_service.enqueue_whatsapp_text("2771", "Already claimed")
+        self.assertEqual(job_queue_service._claim_next_job()["id"], running)
+        delayed = job_queue_service.enqueue_whatsapp_text("2771", "Retry later")
+        exhausted = job_queue_service.enqueue_whatsapp_text("2771", "Exhausted")
+        coaching = job_queue_service.enqueue_job(job_queue_service.JOB_POST_CONFIRM_MESSAGES, {})
+        locked = job_queue_service.enqueue_whatsapp_text("2771", "Locked")
+        ready = job_queue_service.enqueue_whatsapp_text("2771", "Ready")
+        with cursor() as cur:
+            cur.execute("UPDATE job_queue SET run_after = CURRENT_TIMESTAMP + INTERVAL '1 hour' WHERE id = %s", (delayed,))
+            cur.execute("UPDATE job_queue SET attempts = max_attempts WHERE id = %s", (exhausted,))
+        with cursor() as cur:
+            cur.execute("SELECT id FROM job_queue WHERE id = %s FOR UPDATE", (locked,))
+            with patch("app.whatsapp._send_direct", return_value=True) as send:
+                self.assertEqual(job_queue_service.run_reply_jobs([running, delayed, exhausted, coaching, locked, ready]), 1)
+        self.assertEqual(send.call_args.args[0]["text"]["body"], "Ready")
+        self.assertEqual(job_queue_service._claim_next_job(job_ids=[locked])["id"], locked)
+
+    def test_immediate_reply_failure_keeps_durable_scheduled_retry(self):
+        @contextmanager
+        def sa_cursor(commit=True):
+            with db.get_cursor(commit=commit) as cur:
+                cur.execute("SET LOCAL TIME ZONE 'Africa/Johannesburg'")
+                yield cur
+
+        with patch.object(job_queue_service, "get_cursor", side_effect=sa_cursor):
+            reply = job_queue_service.enqueue_whatsapp_text("2771", "Retry me")
+            with patch("app.whatsapp._send_direct", return_value=False) as send:
+                self.assertEqual(job_queue_service.run_reply_jobs([reply]), 1)
+                self.assertEqual(job_queue_service.run_reply_jobs([reply]), 0)
+            send.assert_called_once()
+            with sa_cursor() as cur:
+                cur.execute("SELECT status, attempts, run_after > CURRENT_TIMESTAMP AS delayed FROM job_queue WHERE id = %s", (reply,))
+                row = cur.fetchone()
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(row["attempts"], 1)
+        self.assertTrue(row["delayed"])
+
     def _admin_entry_members(self):
         admin = self._insert_member("270001", popia_acknowledged=True)
         member = self._insert_member("270002", popia_acknowledged=True)

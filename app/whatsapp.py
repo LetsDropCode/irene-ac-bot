@@ -26,11 +26,11 @@ _inbound_delivery = ContextVar("inbound_delivery", default=None)
 
 @contextmanager
 def queue_inbound_replies(message_id: str | None):
-    """Give a set of queued messages stable keys across retries."""
-    state = {"message_id": message_id, "sequence": 0}
+    """Collect durable reply IDs and give messages stable keys across retries."""
+    state = {"message_id": message_id, "sequence": 0, "job_ids": []}
     token = _inbound_delivery.set(state)
     try:
-        yield
+        yield state["job_ids"]
     finally:
         _inbound_delivery.reset(token)
 
@@ -91,6 +91,7 @@ def _send(payload: Dict[str, Any]) -> bool:
         raise RuntimeError("Could not queue WhatsApp reply")
     if state:
         state["sequence"] = sequence + 1
+        state["job_ids"].append(job_id)
     return True
 
 

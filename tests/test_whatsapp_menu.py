@@ -37,14 +37,26 @@ class WhatsAppMenuTests(unittest.TestCase):
         with patch("app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[11, 12]) as enqueue, patch.object(
             whatsapp, "_send_direct"
         ) as direct:
-            with whatsapp.queue_inbound_replies("wamid.123"):
+            with whatsapp.queue_inbound_replies("wamid.123") as job_ids:
                 self.assertTrue(whatsapp.send_text("2771", "First"))
                 self.assertTrue(whatsapp.send_text("2771", "Second"))
 
+        self.assertEqual(job_ids, [11, 12])
         keys = [call.kwargs["dedupe_key"] for call in enqueue.call_args_list]
         self.assertTrue(keys[0].startswith("outbound:wamid.123:0:"))
         self.assertTrue(keys[1].startswith("outbound:wamid.123:1:"))
         direct.assert_not_called()
+
+    def test_reply_collection_is_isolated_and_restores_outer_context(self):
+        with patch("app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[11, 12, 13, 14]):
+            with whatsapp.queue_inbound_replies(None) as outer:
+                whatsapp.send_text("2771", "First")
+                with whatsapp.queue_inbound_replies("job:1") as inner:
+                    whatsapp.send_text("2772", "Follow-up")
+                whatsapp.send_text("2771", "Second")
+            whatsapp.send_text("2773", "Campaign")
+        self.assertEqual(outer, [11, 13])
+        self.assertEqual(inner, [12])
 
     def test_failed_queue_write_does_not_advance_reply_sequence(self):
         with patch("app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[RuntimeError("db down"), 11]) as enqueue:

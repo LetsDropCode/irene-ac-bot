@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import sys
+from time import perf_counter
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
@@ -119,6 +120,7 @@ from app.services.job_queue_service import (
     get_queue_health,
     retry_failed_jobs,
     run_due_jobs,
+    run_reply_jobs,
 )
 from app.services.pb_service import get_previous_best
 from app.services.leaderboard_service import get_runner_leaderboard
@@ -854,6 +856,7 @@ def extract_whatsapp_message(payload: dict):
 
 
 def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
+    started = perf_counter()
     message_id, sender, text, button = extract_whatsapp_message(payload)
 
     if not sender or (not text and not button):
@@ -868,14 +871,17 @@ def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
         return {"status": "duplicate"}
 
     try:
-        with queue_inbound_replies(message_id):
+        with queue_inbound_replies(message_id) as reply_job_ids:
             result = _process_webhook_message(
                 sender,
                 text,
                 button,
                 background_tasks,
             )
-        # A scheduled worker drains the durable queue even if this process exits.
+        # Send this member's replies before older broadcasts or AI coaching.
+        # The scheduled worker still recovers replies if this process exits.
+        if reply_job_ids:
+            background_tasks.add_task(run_reply_jobs, list(reply_job_ids))
         background_tasks.add_task(run_due_jobs, 5)
     except Exception as exc:
         if message_id:
@@ -884,6 +890,10 @@ def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
 
     if message_id:
         mark_inbound_message_processed(message_id, "PROCESSED")
+    logger.info(
+        "Webhook replies queued: status=%s replies=%s elapsed_ms=%.0f",
+        result.get("status"), len(reply_job_ids), (perf_counter() - started) * 1000,
+    )
     return result
 
 

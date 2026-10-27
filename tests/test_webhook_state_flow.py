@@ -128,6 +128,32 @@ def self_correction(**overrides):
 
 
 class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_immediate_replies_run_before_general_queue_after_processing(self):
+        events = []
+        background_tasks = BackgroundTasks()
+
+        def process(*_args):
+            whatsapp.send_text("2771", "TT recorded.")
+            whatsapp.send_text("2771", "Next step")
+            return {"status": "confirmed"}
+
+        with patch.object(webhook_module, "register_inbound_message", return_value=True), patch.object(
+            webhook_module, "mark_inbound_message_processed", side_effect=lambda *_args: events.append("processed")
+        ), patch.object(webhook_module, "_process_webhook_message", side_effect=process), patch(
+            "app.services.job_queue_service.enqueue_whatsapp_send", side_effect=[11, 12]
+        ), patch.object(
+            webhook_module, "run_reply_jobs", side_effect=lambda ids: events.append(("replies", ids))
+        ), patch.object(
+            webhook_module, "run_due_jobs", side_effect=lambda limit: events.append(("general", limit))
+        ):
+            webhook_module.process_webhook_payload(
+                text_payload(body="CONFIRM", message_id="wamid.fast"), background_tasks
+            )
+            self.assertEqual(events, ["processed"])
+            await background_tasks()
+
+        self.assertEqual(events, ["processed", ("replies", [11, 12]), ("general", 5)])
+
     async def test_inbound_is_processed_only_after_reply_is_queued(self):
         events = []
 

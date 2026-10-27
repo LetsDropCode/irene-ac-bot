@@ -1,4 +1,6 @@
 # app/main.py
+import logging
+
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +17,15 @@ app.mount("/assets", StaticFiles(directory="app/static"), name="assets")
 
 @app.on_event("startup")
 def startup():
+    # Uvicorn configures its own loggers, not the application's. Emit the
+    # processing/delivery timings needed to verify live response latency.
+    app_logger = logging.getLogger("app")
+    if not app_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        app_logger.addHandler(handler)
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
     validate_configuration()
     require_current_schema()
 

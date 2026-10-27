@@ -8,6 +8,12 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
 The current `Procfile` already uses that command.
 
+Production `web` and `Postgres` run in Railway EU West (Amsterdam,
+`europe-west4-drams3a`), with one web replica. Keep the application beside its
+database: the former US West web deployment took about 1.35 seconds for each
+new connection and a trivial query to the European database. The web service
+was moved to EU West on 27 October 2026 to remove that repeated network delay.
+
 Use Python **3.13.5** locally, in CI, and for deployment. `.python-version`
 is the development/CI selector; `runtime.txt` retains the deployment selector.
 The unit suite checks that the two files match. Install from the pinned
@@ -202,9 +208,18 @@ The detailed health check covers:
 Durable background work is stored in `job_queue`.
 All WhatsApp replies and campaign messages are persisted there before they are
 sent. The runner must remain scheduled for members to receive messages; a webhook
-also requests an immediate short drain after it queues its replies. Repeated
+first requests an immediate delivery pass for its own replies, then a short
+general drain. This keeps menus and confirmations from waiting behind older
+broadcasts or coaching jobs. Both passes use the same atomic claims, deduplication
+and retry rules as the scheduled runner. Repeated
 webhook deliveries and repeated next-day leaderboard runs reuse their existing
 outbound jobs rather than creating duplicates.
+
+Application INFO logging is enabled at startup. Logs include
+`Webhook replies queued` (message processing time) and
+`Immediate reply pass` (delivery attempt time), with elapsed milliseconds and
+reply counts. Delivery attempt time measures submission to Meta, not arrival
+on the member's phone.
 
 Run pending jobs with:
 

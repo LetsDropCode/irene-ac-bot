@@ -2,7 +2,8 @@ import importlib
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from time import perf_counter
+from datetime import datetime
 from typing import Any
 
 from psycopg2.extras import Json
@@ -96,6 +97,27 @@ def run_due_jobs(limit: int = 10):
             break
         _run_job(job)
         processed += 1
+    return processed
+
+
+def run_reply_jobs(job_ids: list[int]):
+    """Deliver this conversation's replies before draining unrelated work.
+
+    Use the normal atomic claim and retry path. Completed jobs, jobs claimed
+    by another worker, and retries that are not due remain untouched.
+    """
+    started = perf_counter()
+    processed = 0
+    for _ in range(len(job_ids)):
+        job = _claim_next_job(job_ids=job_ids)
+        if not job:
+            break
+        _run_job(job)
+        processed += 1
+    logger.info(
+        "Immediate reply pass: requested=%s processed=%s elapsed_ms=%.0f",
+        len(job_ids), processed, (perf_counter() - started) * 1000,
+    )
     return processed
 
 
@@ -215,15 +237,21 @@ def retry_failed_jobs(limit: int = 10):
     return retried
 
 
-def _claim_next_job():
+def _claim_next_job(job_ids: list[int] | None = None):
+    reply_filter = ""
+    params = None
+    if job_ids is not None:
+        reply_filter = "AND id = ANY(%s) AND job_type = %s"
+        params = (job_ids, JOB_WHATSAPP_SEND)
     with get_cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             WITH next_job AS (
                 SELECT id
                 FROM job_queue
                 WHERE status = 'PENDING'
                   AND run_after <= CURRENT_TIMESTAMP
                   AND attempts < max_attempts
+                  {reply_filter}
                 ORDER BY run_after ASC, id ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -236,7 +264,7 @@ def _claim_next_job():
             FROM next_job
             WHERE q.id = next_job.id
             RETURNING q.*
-        """)
+        """, params)
         return cur.fetchone()
 
 
@@ -280,17 +308,17 @@ def _run_job(job: dict):
 
 def _mark_job_failed(job: dict, exc: Exception):
     next_status = "FAILED" if job["attempts"] >= job["max_attempts"] else "PENDING"
-    run_after = datetime.utcnow() + timedelta(minutes=min(job["attempts"], 5))
+    retry_minutes = min(job["attempts"], 5)
 
     with get_cursor() as cur:
         cur.execute("""
             UPDATE job_queue
             SET status = %s,
-                run_after = %s,
+                run_after = CURRENT_TIMESTAMP + (%s * INTERVAL '1 minute'),
                 last_error = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-        """, (next_status, run_after, str(exc), job["id"]))
+        """, (next_status, retry_minutes, str(exc), job["id"]))
 
 
 def _dispatch_job(job_type: str, payload: dict):
