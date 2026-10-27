@@ -41,23 +41,20 @@ class SubmissionServiceTests(unittest.TestCase):
         self.assertNotIn("INSERT", cursor.queries[0])
 
     def test_get_or_create_submission_uses_event_date_and_pending_conflict_guard(self):
-        select_cursor = FakeCursor(rows=[None])
-        insert_cursor = FakeCursor(rows=[{"id": 101, "member_id": 42}])
+        cursor = FakeCursor(rows=[None, {"id": 101, "member_id": 42}])
 
         with patch.object(
             service,
             "get_cursor",
-            side_effect=[
-                fake_cursor_context(select_cursor, commit=False),
-                fake_cursor_context(insert_cursor),
-            ],
+            return_value=fake_cursor_context(cursor),
         ):
             row = service.get_or_create_submission(42)
 
         self.assertEqual(row, {"id": 101, "member_id": 42})
-        self.assertIn("event_date =", select_cursor.queries[0])
-        self.assertIn("ON CONFLICT (member_id, event_date)", insert_cursor.queries[0])
-        self.assertIn("WHERE status = 'PENDING'", insert_cursor.queries[0])
+        self.assertIn("FOR UPDATE", cursor.queries[0])
+        self.assertIn("event_date =", cursor.queries[1])
+        self.assertIn("ON CONFLICT (member_id, event_date)", cursor.queries[2])
+        self.assertIn("WHERE status = 'PENDING'", cursor.queries[2])
 
     def test_editing_distance_clears_old_time_and_sets_run_mode(self):
         cursor = FakeCursor(rows=[{"id": 101}])

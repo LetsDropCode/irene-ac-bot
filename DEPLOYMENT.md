@@ -236,6 +236,33 @@ inclusive period. Send either `YYYY-MM-DD to YYYY-MM-DD` or the day-first
 `DD/MM/YYYY to DD/MM/YYYY` format. The bot returns each historical TT night's
 actual leaderboard separately; use the same start and end date for one Tuesday.
 
+## Admin Entry of a Missed TT
+
+In WhatsApp, use **ADMIN → Find member → select the member → Add missed TT**.
+Alternatively, type **ADMIN SUBMIT** to start with a member search. The bot asks
+for the actual TT date (`YYYY-MM-DD` or `DD/MM/YYYY`), then **Run** or **Workout**.
+Runs require 4, 6 or 8 km and a non-zero `MM:SS` or `HH:MM:SS` finish time.
+Workouts accept free text up to 500 characters, including for BOTH members.
+Review the member, date, activity and result, then tap **Confirm**. **Cancel**,
+`CANCEL`, `MENU`, or `ADMIN` exits without saving the draft.
+
+Only numbers in `ADMIN_NUMBERS` can use this flow, with authorization repeated
+at the database-write boundary. The admin needs a member profile for the audit
+record, and the target member must have consented to storing their results.
+The selected date can be today or a past TT date; the normal member submission
+deadline and TT-code requirement do not block this admin-only backfill.
+Future dates are rejected. The admin must select the actual event date.
+
+Confirmation creates a completed result or completes an existing pending row
+for that member/date. A completed result is never replaced: use **Correct result**
+for that. Attendance is recorded for the selected date with source
+`whatsapp_admin`; existing attendance is preserved. The same transaction records
+the admin, result, previous draft values (if any), new values and audit timestamp
+in `admin_corrections` with reason `admin_missing_tt_submission`. Admin entry
+does not send the member coaching or attendance milestone messages. Duplicate
+confirmations cannot create a second completed result. This feature uses the
+existing schema and requires no additional migration.
+
 ## Scheduled Jobs
 
 See [docs/scheduled-jobs.md](docs/scheduled-jobs.md) for scheduler details.

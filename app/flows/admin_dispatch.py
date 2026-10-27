@@ -1,12 +1,19 @@
 """Admin command routing for the WhatsApp conversation."""
 
 from types import ModuleType
+from app.flows.admin_submission_flow import handle_admin_submission
 
 
 def handle_admin_message(actions: ModuleType, sender: str, text: str | None, raw_text: str | None, button: dict | None, menu_action: str | None, admin_sender: bool):
     # ───────── ADMIN ─────────
+    if not admin_sender:
+        return handle_admin_submission(sender, None, raw_text, button, False)
     if admin_sender:
         admin_member = actions.get_member(sender)
+        if menu_action != "ADMIN_MENU":
+            result = handle_admin_submission(sender, admin_member, raw_text, button, True)
+            if result is not None:
+                return result
         admin_state_text = text
         admin_state_raw_text = raw_text
 

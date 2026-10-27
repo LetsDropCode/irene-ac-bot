@@ -89,7 +89,7 @@ def _format_member_center(row: dict) -> str:
         f"Checked in today: {checked_in}\n"
         f"Today: {status} · {result}\n"
         f"Hidden from leaderboard: {hidden}\n\n"
-        "Choose the next admin action."
+        "Choose the next admin action, or type ADMIN for tools."
     )
 
 
@@ -99,7 +99,7 @@ def _send_member_center(sender: str, admin_member: dict, row: dict):
     if not send_admin_member_center_buttons(sender, body):
         send_text(
             sender,
-            f"{body}\n\nReply HISTORY, CORRECT, or ADMIN.",
+            f"{body}\n\nReply HISTORY, CORRECT, ADD TT, or ADMIN.",
         )
 
 
@@ -396,7 +396,7 @@ def handle_admin_edit_state(sender: str, admin_member: dict, raw_text: str, text
                 set_profile_state(admin_member["id"], f"ADMIN_HISTORY|{member_id}")
             return {"status": "admin_correct_history", "count": count}
 
-        send_text(sender, "Choose History, Correct result, or Admin tools.")
+        send_text(sender, "Choose History, Correct result, or Add missed TT. Type ADMIN for tools.")
         return {"status": "admin_member_await_action"}
 
     if state_name == "ADMIN_CONFIRM_TYPED":

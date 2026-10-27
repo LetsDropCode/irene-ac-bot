@@ -310,7 +310,7 @@ def send_admin_menu_list(to: str) -> bool:
                             {
                                 "id": "admin_find",
                                 "title": "Find member",
-                                "description": "Find a member for history or corrections.",
+                                "description": "History, corrections or add a missed TT.",
                             },
                             {
                                 "id": "admin_correct",
@@ -474,6 +474,19 @@ def send_admin_confirm_correction_buttons(to: str, body: str) -> bool:
     return _send(payload)
 
 
+def send_admin_submission_buttons(to: str, body: str, choices: list[tuple[str, str]]) -> bool:
+    return _send({
+        "messaging_product": "whatsapp", "to": to, "type": "interactive",
+        "interactive": {
+            "type": "button", "body": {"text": body},
+            "action": {"buttons": [
+                {"type": "reply", "reply": {"id": reply_id, "title": title}}
+                for reply_id, title in choices
+            ]},
+        },
+    })
+
+
 def send_admin_member_center_buttons(to: str, body: str) -> bool:
     payload = {
         "messaging_product": "whatsapp",
@@ -486,7 +499,7 @@ def send_admin_member_center_buttons(to: str, body: str) -> bool:
                 "buttons": [
                     {"type": "reply", "reply": {"id": "admin_member_history", "title": "History"}},
                     {"type": "reply", "reply": {"id": "admin_member_correct", "title": "Correct result"}},
-                    {"type": "reply", "reply": {"id": "admin_menu", "title": "Admin tools"}},
+                    {"type": "reply", "reply": {"id": "admin_add_tt", "title": "Add missed TT"}},
                 ],
             },
         },

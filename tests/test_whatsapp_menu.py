@@ -195,7 +195,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertEqual(button_ids, [
             "admin_member_history",
             "admin_member_correct",
-            "admin_menu",
+            "admin_add_tt",
         ])
 
     def test_confirm_buttons_include_pace_and_clear_action_copy(self):

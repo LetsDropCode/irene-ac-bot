@@ -5,8 +5,10 @@ from app.services.job_queue_service import enqueue_post_confirm_messages
 
 
 def get_or_create_submission(member_id: int):
-    with get_cursor(commit=False) as cur:
-
+    with get_cursor() as cur:
+        # Use the same member lock as admin missed-TT entry so concurrent
+        # creation cannot add a second row after an admin has saved a result.
+        cur.execute("SELECT id FROM members WHERE id = %s FOR UPDATE", (member_id,))
         cur.execute("""
             SELECT *
             FROM submissions
@@ -22,7 +24,6 @@ def get_or_create_submission(member_id: int):
         if w:
             return w
 
-    with get_cursor() as cur:
         # Legacy databases may still default mode to RUN. Explicitly leave it
         # unselected so walkers and BOTH members reach the right entry flow.
         cur.execute("""

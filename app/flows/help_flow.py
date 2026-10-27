@@ -203,6 +203,7 @@ def format_help_menu(admin: bool = False) -> str:
         "TT STATUS\n"
         "PENDING\n"
         "CORRECT <member id or phone> <4|6|8> <time>\n"
+        "ADMIN SUBMIT — add a missed TT for a specific date\n"
         "RECOVER TONIGHT\n"
         "JOBS STATUS / JOBS RUN / JOBS FAILED / JOBS RETRY"
     )

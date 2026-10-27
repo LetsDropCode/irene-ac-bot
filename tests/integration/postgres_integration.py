@@ -16,13 +16,16 @@ if INTEGRATION_DATABASE_URL:
 else:
     os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
-from app import db
+from app import db, config
 from app.migrations import require_current_schema, upgrade_database
 from app.migrations.versions import v20261027_submission_mode_default
 from app.flows.submission_dispatch import handle_submission_message
+from app.flows.webhook_dispatch import route_message
+from app.flows import admin_submission_flow
 from app.flows.submission_state import resolve_pending_submission_state
 from app import webhook
 from app.services import (
+    admin_submission_service,
     engagement_service,
     incomplete_reminder_service,
     job_queue_service,
@@ -267,7 +270,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             cur.execute("SELECT COUNT(*) AS count FROM submissions WHERE member_id = %s AND status = 'PENDING'", (member["id"],))
             self.assertEqual(cur.fetchone()["count"], 1)
 
-    def test_legacy_run_default_does_not_block_walker_free_text_or_both_choice(self):
+    def test_legacy_run_default_does_not_block_walker_or_both_free_text(self):
         with cursor() as cur:
             cur.execute("ALTER TABLE submissions ALTER COLUMN mode SET DEFAULT 'RUN'")
 
@@ -281,7 +284,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 row = submission_service.get_or_create_submission(member["id"])
                 self.assertIsNone(row["mode"])
                 self.assertEqual(resolve_pending_submission_state(member, row), expected)
-                if participation != "WALKER":
+                if participation == "RUNNER":
                     continue
 
                 with cursor() as cur:
@@ -292,8 +295,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ) as review, patch.object(webhook, "send_text"), patch.object(
                     webhook, "send_distance_buttons"
                 ) as distances:
+                    if participation == "BOTH":
+                        result = handle_submission_message(
+                            webhook, member["phone"], None, None,
+                            {"id": "submit_workout"}, None, member,
+                        )
+                        self.assertEqual(result, {"status": "both_workout"})
                     result = handle_submission_message(webhook, member["phone"], note.upper(), note, None, None, member)
-                    self.assertEqual(result, {"status": "walker_workout_confirm"})
+                    prefix = "both" if participation == "BOTH" else "walker"
+                    self.assertEqual(result, {"status": f"{prefix}_workout_confirm"})
                     review.assert_called_once_with(member["phone"], note.upper())
                     distances.assert_not_called()
                     result = handle_submission_message(webhook, member["phone"], None, None, {"id": "confirm"}, None, member)
@@ -348,6 +358,147 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         self.assertEqual(claimed_by_a["id"], job_id)
         self.assertIsNone(claimed_by_b)
+
+    def _admin_entry_members(self):
+        admin = self._insert_member("270001", popia_acknowledged=True)
+        member = self._insert_member("270002", popia_acknowledged=True)
+        return admin, member
+
+    def test_admin_missing_run_and_workout_save_selected_date_with_audit_and_attendance(self):
+        admin, member = self._admin_entry_members()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})):
+            for event_date, mode, note, distance in (
+                ("2026-10-06", "RUN", "27:41", "4"),
+                ("2026-10-13", "WORKOUT", "Pyramid walk, 5.54km, 41:35", None),
+            ):
+                result = admin_submission_service.save_admin_submission(admin["phone"], member["id"], event_date, mode, note, distance)
+                row = result["submission"]
+                self.assertEqual(result["status"], "saved")
+                self.assertEqual(row["event_date"], date.fromisoformat(event_date))
+                self.assertEqual(row["mode"], mode)
+                self.assertEqual(row["time_text"], note)
+                self.assertEqual(row["status"], "COMPLETE")
+                self.assertTrue(row["tt_code_verified"])
+                self.assertTrue(row["confirmed"])
+                with cursor() as cur:
+                    cur.execute("SELECT * FROM attendance WHERE member_id = %s AND event_date = %s", (member["id"], event_date))
+                    self.assertEqual(cur.fetchone()["source"], "whatsapp_admin")
+                    cur.execute("SELECT * FROM admin_corrections WHERE submission_id = %s", (row["id"],))
+                    audit = cur.fetchone()
+                    self.assertEqual(audit["admin_member_id"], admin["id"])
+                    self.assertEqual(audit["reason"], "admin_missing_tt_submission")
+                    self.assertEqual(audit["new_time_text"], note)
+                    self.assertIsNone(audit["old_time_text"])
+            with cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS n FROM job_queue")
+                self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_admin_missing_tt_completes_pending_row_and_never_overwrites_complete(self):
+        admin, member = self._admin_entry_members()
+        pending = self._insert_submission(member["id"], event_date=date(2026, 10, 6), status="PENDING", confirmed=False, time_text="", seconds=0)
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})):
+            saved = admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-06", "RUN", "27:41", "6")
+            self.assertEqual(saved["submission"]["id"], pending["id"])
+            again = admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-06", "WORKOUT", "Walk")
+            self.assertEqual(again, {"status": "exists"})
+        with cursor() as cur:
+            cur.execute("SELECT * FROM submissions WHERE id = %s", (pending["id"],))
+            self.assertEqual(cur.fetchone(), saved["submission"])
+            cur.execute("SELECT * FROM admin_corrections WHERE submission_id = %s", (pending["id"],))
+            audits = cur.fetchall()
+            self.assertEqual(len(audits), 1)
+            self.assertEqual(audits[0]["old_distance_text"], "4")
+
+    def test_admin_missing_tt_rejects_non_admin_future_date_invalid_result_and_withdrawn_consent(self):
+        admin, member = self._admin_entry_members()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})):
+            with self.assertRaises(PermissionError):
+                admin_submission_service.save_admin_submission(member["phone"], member["id"], "2026-10-06", "RUN", "27:41", "4")
+            for event_date, mode, note, distance in (
+                ("2999-01-01", "RUN", "27:41", "4"),
+                ("2026-10-06", "RUN", "00:00", "4"),
+                ("2026-10-06", "RUN", "27:41", "5"),
+                ("2026-10-06", "WORKOUT", "", None),
+            ):
+                with self.assertRaises(ValueError):
+                    admin_submission_service.save_admin_submission(admin["phone"], member["id"], event_date, mode, note, distance)
+            with cursor() as cur:
+                cur.execute("UPDATE members SET popia_acknowledged = FALSE WHERE id = %s", (member["id"],))
+            with self.assertRaises(ValueError):
+                admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-06", "RUN", "27:41", "4")
+        with cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM submissions")
+            self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_concurrent_admin_submissions_save_only_one_result(self):
+        admin, member = self._admin_entry_members()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: admin_submission_service.save_admin_submission(
+                admin["phone"], member["id"], "2026-10-06", "RUN", "27:41", "4"), range(2)))
+        self.assertEqual(sorted(result["status"] for result in results), ["exists", "saved"])
+        with cursor() as cur:
+            for table in ("submissions", "attendance", "admin_corrections"):
+                cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
+                self.assertEqual(cur.fetchone()["n"], 1)
+
+    def test_admin_save_and_member_checkin_cannot_create_duplicate_rows(self):
+        admin, member = self._admin_entry_members()
+        with cursor() as cur:
+            cur.execute("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date AS today")
+            today = cur.fetchone()["today"].isoformat()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})), ThreadPoolExecutor(max_workers=2) as pool:
+            save = pool.submit(admin_submission_service.save_admin_submission, admin["phone"], member["id"], today, "RUN", "27:41", "4")
+            checkin = pool.submit(submission_service.get_or_create_submission, member["id"])
+            result = save.result()
+            row = checkin.result()
+            self.assertEqual(result["submission"]["id"], row["id"])
+        with cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM submissions WHERE member_id = %s", (member["id"],))
+            self.assertEqual(cur.fetchone()["n"], 1)
+
+    def test_admin_save_rolls_back_result_if_audit_fails(self):
+        admin, member = self._admin_entry_members()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})), patch.object(
+            admin_submission_service, "_record_admin_correction", side_effect=RuntimeError("audit unavailable")
+        ):
+            with self.assertRaises(RuntimeError):
+                admin_submission_service.save_admin_submission(admin["phone"], member["id"], "2026-10-06", "RUN", "27:41", "4")
+        with cursor() as cur:
+            for table in ("submissions", "attendance", "admin_corrections"):
+                cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
+                self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_admin_whatsapp_journey_uses_persisted_draft_and_saves_only_on_confirm(self):
+        admin, member = self._admin_entry_members()
+        with patch.object(config, "ADMIN_NUMBERS", frozenset({admin["phone"]})), patch.object(
+            webhook, "ADMIN_NUMBERS", frozenset({admin["phone"]})
+        ), patch.object(admin_submission_flow, "send_text"), patch.object(
+            admin_submission_flow, "send_admin_submission_buttons"
+        ) as buttons:
+            for message, expected in (
+                ("ADMIN SUBMIT", "admin_add_search"),
+                (member["phone"], "admin_add_choose_member"),
+                ("1", "admin_add_date"),
+                ("06/10/2026", "admin_add_mode"),
+                ("WORKOUT", "admin_add_workout"),
+                ("Pyramid walk, 5.54km, 41:35", "admin_add_review"),
+            ):
+                result = route_message(webhook, admin["phone"], message, None)
+                self.assertEqual(result["status"], expected)
+            with cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS n FROM submissions")
+                self.assertEqual(cur.fetchone()["n"], 0)
+            confirm_id = buttons.call_args.args[2][0][0]
+            result = route_message(webhook, admin["phone"], None, {"id": confirm_id})
+            self.assertEqual(result["status"], "admin_add_saved")
+            repeated = route_message(webhook, admin["phone"], None, {"id": confirm_id})
+            self.assertEqual(repeated["status"], "admin_add_expired")
+            with cursor() as cur:
+                cur.execute("SELECT * FROM submissions WHERE id = %s", (result["submission_id"],))
+                row = cur.fetchone()
+                self.assertEqual(row["member_id"], member["id"])
+                self.assertEqual(row["event_date"], date(2026, 10, 6))
+                self.assertEqual(row["time_text"], "Pyramid walk, 5.54km, 41:35")
 
     def test_manual_retry_reenters_claim_and_done_lifecycle(self):
         job_id = job_queue_service.enqueue_job("integration", {"kind": "retry"}, max_attempts=3)
