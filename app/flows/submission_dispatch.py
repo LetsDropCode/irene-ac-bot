@@ -125,7 +125,8 @@ def handle_submission_message(actions: ModuleType, sender: str, text: str | None
             actions.logger.exception("Attendance failed for member_id=%s: %s", member["id"], e)
 
         first_name = member.get("first_name") or "there"
-        actions.send_text(sender, f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result.")
+        actions.send_text(sender, f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result."
+                          + actions.monthly_goal_suffix(member["id"]))
         actions.send_whats_new_once(sender, member)
         prompt_status = actions.send_submission_prompt(sender, member["participation_type"])
         return {"status": f"code_ok_{prompt_status}"}
@@ -201,7 +202,8 @@ def handle_submission_message(actions: ModuleType, sender: str, text: str | None
         first_name = member.get("first_name") or "there"
         actions.send_text(
             sender,
-            f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result.",
+            f"✅ Welcome back, {first_name}! You’re checked in. Let’s capture your TT result."
+            + actions.monthly_goal_suffix(member["id"]),
         )
         actions.send_whats_new_once(sender, member)
         prompt_status = actions.send_submission_prompt(sender, member["participation_type"])

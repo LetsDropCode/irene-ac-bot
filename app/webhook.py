@@ -137,12 +137,16 @@ from app.services.leaderboard_service import get_walker_feed
 from app.services.leaderboard_formatter import format_overall_leaderboard
 from app.services.leaderboard_formatter import format_member_rankings
 from app.services.leaderboard_formatter import format_full_leaderboard
-from app.services.tt_status_service import get_tt_status
+from app.services.tt_status_service import get_tt_status, format_event_summary
 from app.services.admin_service import get_admin_dashboard
 from app.services.openai_service import CoachingContext, coach_for_result
 from app.services.profile_service import get_user_profile
 from app.services.profile_formatter import format_profile
 from app.services.progress_formatter import format_progress
+from app.services.monthly_engagement_service import (
+    get_monthly_goal, format_goal_line, get_monthly_recap,
+    format_monthly_recap, recap_messages_available,
+)
 from app.services.engagement_service import (
     format_streak_summary,
     get_attendance_stats,
@@ -249,34 +253,7 @@ def send_admin_tools_menu(sender: str):
 
 
 def _format_admin_dashboard(data: dict, code: str) -> str:
-    summary = data.get("summary") or {}
-    pending = data.get("pending") or []
-    last_submission = summary.get("last_submission_at")
-    if last_submission:
-        last_submission = last_submission.strftime("%H:%M")
-    else:
-        last_submission = "none yet"
-
-    pending_names = "None"
-    if pending:
-        pending_names = ", ".join(
-            f"{row['first_name']} {row['last_name']}"
-            for row in pending
-        )
-
-    return (
-        "📋 *Admin Dashboard*\n\n"
-        f"TT code: *{code}*\n"
-        f"Checked in: {summary.get('checked_in') or 0}\n"
-        f"Submitted: {summary.get('submitted') or 0}\n"
-        f"Pending: {summary.get('pending') or 0}\n"
-        f"Runners / Walkers / Both: "
-        f"{summary.get('runners') or 0} / "
-        f"{summary.get('walkers') or 0} / "
-        f"{summary.get('both') or 0}\n"
-        f"Last submission: {last_submission}\n\n"
-        f"Top pending: {pending_names}"
-    )
+    return f"📋 *Admin Dashboard*\n\nTT code: *{code}*\n" + format_event_summary(data)
 
 
 def send_admin_dashboard(sender: str):
@@ -419,7 +396,28 @@ def send_user_profile(sender: str, member: dict):
 
 def send_user_progress(sender: str, member: dict):
     data = get_user_profile(member["id"])
-    send_text(sender, f"{format_progress(member, data)}\n\nType MENU to go back.")
+    send_text(sender, f"{format_progress(member, data)}{monthly_goal_suffix(member['id'])}\n\n"
+              "MY RECAP — last month's summary. Type MENU to go back.")
+
+
+def monthly_goal_suffix(member_id: int):
+    """An extra line in an existing reply must not break the check-in flow."""
+    try:
+        return "\n" + format_goal_line(get_monthly_goal(member_id))
+    except Exception:
+        logger.exception("Monthly goal summary failed")
+        return ""
+
+
+def send_monthly_goal(sender: str, member: dict):
+    send_text(sender, format_goal_line(get_monthly_goal(member["id"])) +
+              "\n\nAim for 3 TTs each calendar month, at your own pace. "
+              "Every TT check-in counts, whether you walk or run. "
+              "Weeks don't need to be consecutive.\nMY RECAP — last month's summary.")
+
+
+def send_personal_monthly_recap(sender: str, member: dict):
+    send_text(sender, format_monthly_recap(get_monthly_recap(member["id"])))
 
 
 def send_season_welcome_once(sender: str, member: dict | None):
@@ -1009,6 +1007,7 @@ def send_member_data_summary(sender: str, member: dict):
         f"Consent: {'yes' if member.get('popia_acknowledged') else 'no'}\n\n"
         f"Reminders: {'on' if member.get('reminders_opt_in') else 'off'}\n"
         f"Milestones: {'on' if member.get('milestones_opt_in') else 'off'}\n"
+        f"Monthly recaps: {'on' if member.get('recaps_opt_in') else 'off'}\n"
         f"Profile created: {display_timestamp(member.get('created_at'))}\n"
         f"Consent recorded: {display_timestamp(member.get('popia_consented_at'))}\n"
         f"Consent withdrawn: {display_timestamp(member.get('popia_withdrawn_at'))}\n\n"
