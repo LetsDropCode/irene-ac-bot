@@ -1,14 +1,22 @@
 """One compact, attendance-based event summary for both admin entry points."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.db import get_cursor
 from app.services.engagement_service import MILESTONES, SA_TZ
 from app.services.monthly_engagement_service import MONTHLY_GOAL
 
 
+def latest_tt_date(now=None):
+    now = now or datetime.now(SA_TZ)
+    if isinstance(now, datetime):
+        now = now.replace(tzinfo=SA_TZ) if now.tzinfo is None else now.astimezone(SA_TZ)
+        now = now.date()
+    return now - timedelta(days=(now.weekday() - 1) % 7)
+
+
 def get_event_summary(event_date=None):
-    event_date = event_date or datetime.now(SA_TZ).date()
+    event_date = event_date or latest_tt_date()
     with get_cursor(commit=False) as cur:
         cur.execute("""
             SELECT m.id, m.first_name, m.last_name, m.participation_type,
@@ -73,7 +81,7 @@ def format_event_summary(data):
         "Runners / Walkers / Both: "
         f"{summary.get('runners') or 0} / {summary.get('walkers') or 0} / {summary.get('both') or 0}",
         f"First recorded TTs: {summary.get('first_timers') or 0}",
-        f"Monthly goals reached today: {summary.get('monthly_goals_reached') or 0}",
+        f"Monthly goals reached at this TT: {summary.get('monthly_goals_reached') or 0}",
         f"Attendance milestones: {milestone_names}",
         f"Last submission: {last.strftime('%H:%M') if last else 'none yet'}", "",
         f"Top pending: {names}", "Send PENDING for follow-up tools.",

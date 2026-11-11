@@ -1,4 +1,5 @@
 from app.db import get_cursor
+from psycopg2.extras import Json
 
 
 def _record_admin_correction(cur, row: dict, admin_member_id: int = None, reason: str = None):
@@ -16,9 +17,9 @@ def _record_admin_correction(cur, row: dict, admin_member_id: int = None, reason
             new_distance_text,
             new_time_text,
             new_seconds,
-            reason
+            reason, before_state, after_revision
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         admin_member_id,
         row["id"],
@@ -30,6 +31,8 @@ def _record_admin_correction(cur, row: dict, admin_member_id: int = None, reason
         row.get("time_text"),
         row.get("seconds"),
         reason,
+        Json(row["old_state"]) if row.get("old_state") is not None else None,
+        row.get("revision"),
     ))
 
 
@@ -161,6 +164,9 @@ def correct_submission_by_id(
         WITH target AS (
             SELECT
                 s.id,
+                jsonb_build_object('distance_text', s.distance_text, 'time_text', s.time_text,
+                    'seconds', s.seconds, 'mode', s.mode, 'status', s.status,
+                    'confirmed', s.confirmed) AS old_state,
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
@@ -168,6 +174,7 @@ def correct_submission_by_id(
             FROM submissions s
             WHERE s.id = %s
               AND s.status != 'CANCELLED'
+            FOR UPDATE OF s
         ),
         updated AS (
             UPDATE submissions s
@@ -186,6 +193,8 @@ def correct_submission_by_id(
                 s.time_text,
                 s.seconds,
                 target.event_date,
+                s.revision,
+                target.old_state,
                 target.old_distance_text,
                 target.old_time_text,
                 target.old_seconds
@@ -216,6 +225,9 @@ def correct_submission_time_by_id(
         WITH target AS (
             SELECT
                 s.id,
+                jsonb_build_object('distance_text', s.distance_text, 'time_text', s.time_text,
+                    'seconds', s.seconds, 'mode', s.mode, 'status', s.status,
+                    'confirmed', s.confirmed) AS old_state,
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
@@ -223,6 +235,7 @@ def correct_submission_time_by_id(
             FROM submissions s
             WHERE s.id = %s
               AND s.status != 'CANCELLED'
+            FOR UPDATE OF s
         ),
         updated AS (
             UPDATE submissions s
@@ -239,6 +252,8 @@ def correct_submission_time_by_id(
                 s.time_text,
                 s.seconds,
                 target.event_date,
+                s.revision,
+                target.old_state,
                 target.old_distance_text,
                 target.old_time_text,
                 target.old_seconds
@@ -278,6 +293,9 @@ def correct_runner_time(
         WITH target AS (
             SELECT
                 s.id,
+                jsonb_build_object('distance_text', s.distance_text, 'time_text', s.time_text,
+                    'seconds', s.seconds, 'mode', s.mode, 'status', s.status,
+                    'confirmed', s.confirmed) AS old_state,
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds
@@ -292,6 +310,7 @@ def correct_runner_time(
               )
             ORDER BY s.created_at DESC
             LIMIT 1
+            FOR UPDATE OF s
         ),
         updated AS (
             UPDATE submissions s
@@ -309,6 +328,8 @@ def correct_runner_time(
                 s.distance_text,
                 s.time_text,
                 s.seconds,
+                s.revision,
+                target.old_state,
                 target.old_distance_text,
                 target.old_time_text,
                 target.old_seconds
@@ -357,6 +378,9 @@ def correct_runner_time_on_date(
         WITH target AS (
             SELECT
                 s.id,
+                jsonb_build_object('distance_text', s.distance_text, 'time_text', s.time_text,
+                    'seconds', s.seconds, 'mode', s.mode, 'status', s.status,
+                    'confirmed', s.confirmed) AS old_state,
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
@@ -371,6 +395,7 @@ def correct_runner_time_on_date(
               )
             ORDER BY s.created_at DESC
             LIMIT 1
+            FOR UPDATE OF s
         ),
         updated AS (
             UPDATE submissions s
@@ -388,6 +413,8 @@ def correct_runner_time_on_date(
                 s.time_text,
                 s.seconds,
                 target.event_date,
+                s.revision,
+                target.old_state,
                 target.old_distance_text,
                 target.old_time_text,
                 target.old_seconds
@@ -436,6 +463,9 @@ def correct_runner_pb(
         WITH target AS (
             SELECT
                 s.id,
+                jsonb_build_object('distance_text', s.distance_text, 'time_text', s.time_text,
+                    'seconds', s.seconds, 'mode', s.mode, 'status', s.status,
+                    'confirmed', s.confirmed) AS old_state,
                 s.distance_text AS old_distance_text,
                 s.time_text AS old_time_text,
                 s.seconds AS old_seconds,
@@ -456,6 +486,7 @@ def correct_runner_pb(
               )
             ORDER BY s.seconds ASC, s.created_at ASC
             LIMIT 1
+            FOR UPDATE OF s
         ),
         updated AS (
             UPDATE submissions s
@@ -474,6 +505,8 @@ def correct_runner_pb(
                 s.time_text,
                 s.seconds,
                 s.created_at,
+                s.revision,
+                target.old_state,
                 target.old_distance_text,
                 target.old_time_text,
                 target.old_seconds,

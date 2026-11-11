@@ -257,9 +257,12 @@ def _format_admin_dashboard(data: dict, code: str) -> str:
 
 
 def send_admin_dashboard(sender: str):
-    code = generate_tt_code("TT")
+    from app.services.tt_status_service import latest_tt_date
+    from app.services.engagement_service import SA_TZ
+    from datetime import datetime
+    code = generate_tt_code("TT") if latest_tt_date() == datetime.now(SA_TZ).date() else "Use TT CODE on event day"
     data = get_admin_dashboard()
-    send_text(sender, _format_admin_dashboard(data, code))
+    send_text(sender, _format_admin_dashboard(data, code) + "\nTT STATUS — browse events · CHANGES — recent corrections")
 
 
 def send_admin_code(sender: str):

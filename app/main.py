@@ -11,6 +11,7 @@ from app.services.health_service import get_readiness, get_system_health
 from app.services.job_queue_service import run_due_jobs
 from app.services.incomplete_reminder_service import queue_incomplete_submission_reminders
 from app.services.monthly_engagement_service import queue_monthly_recaps
+from app.services.monthly_email_schedule_service import queue_monthly_attendance_email
 from app.branding import BARK, DEEP_PURPLE, LEAF_GREEN, LOGO_PATH, TURQUOISE
 
 app = FastAPI()
@@ -86,10 +87,12 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
 
     reminder_result = queue_incomplete_submission_reminders()
     recap_result = queue_monthly_recaps()
+    email_result = queue_monthly_attendance_email()
     processed = run_due_jobs(JOB_RUNNER_BATCH_SIZE)
     return {
         "status": "ok",
         "processed": processed,
         "reminder_candidates": reminder_result["queued"],
         "recap_candidates": recap_result["queued"],
+        "monthly_email_candidates": email_result["queued"],
     }

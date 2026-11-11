@@ -292,8 +292,8 @@ def send_admin_menu_list(to: str) -> bool:
                             },
                             {
                                 "id": "admin_tt_status",
-                                "title": "TT status",
-                                "description": "Checked in, submitted and pending.",
+                                "title": "Latest TT",
+                                "description": "Browse events, results and outstanding entries.",
                             },
                             {
                                 "id": "admin_pending",
@@ -301,9 +301,9 @@ def send_admin_menu_list(to: str) -> bool:
                                 "description": "Checked-in members still pending.",
                             },
                             {
-                                "id": "admin_recover_tonight",
-                                "title": "Resend prompts",
-                                "description": "Prompt checked-in members with no result.",
+                                "id": "admin_recent_changes",
+                                "title": "Recent changes",
+                                "description": "Who changed a result, with guarded undo.",
                             },
                         ],
                     },
@@ -834,3 +834,18 @@ def send_onboarding_actions(to: str, checkin_available: bool = False):
             "REMINDERS ON. Attendance celebrations: MILESTONES ON. Both start off."},
             "action": {"buttons": buttons}},
     })
+
+
+def send_admin_workflow_buttons(to, body, buttons):
+    return _send({"messaging_product": "whatsapp", "to": to, "type": "interactive",
+                  "interactive": {"type": "button", "body": {"text": body}, "action": {
+                      "buttons": [{"type": "reply", "reply": {"id": key, "title": label}}
+                                  for key, label in buttons]}}})
+
+
+def send_admin_workflow_list(to, body, rows):
+    return _send({"messaging_product": "whatsapp", "to": to, "type": "interactive",
+                  "interactive": {"type": "list", "body": {"text": body}, "action": {
+                      "button": "Choose", "sections": [{"title": "Admin options", "rows": [
+                          {"id": key, "title": title, "description": description}
+                          for key, title, description in rows]}]}}})

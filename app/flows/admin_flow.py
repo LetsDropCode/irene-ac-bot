@@ -89,7 +89,7 @@ def _format_member_center(row: dict) -> str:
         f"Checked in today: {checked_in}\n"
         f"Today: {status} · {result}\n"
         f"Hidden from leaderboard: {hidden}\n\n"
-        "Choose the next admin action, or type ADMIN for tools."
+        "Send CHANGES for this member’s corrections, or choose an action below."
     )
 
 

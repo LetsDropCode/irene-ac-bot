@@ -81,7 +81,7 @@ class AdminServiceTests(unittest.TestCase):
         self.assertIn("INSERT INTO admin_corrections", audit_query)
         self.assertEqual(
             audit_params,
-            (7, 101, 42, "4", "27:41", 1661, "6", "42:00", 2520, "selected_submission"),
+            (7, 101, 42, "4", "27:41", 1661, "6", "42:00", 2520, "selected_submission", None, None),
         )
 
     def test_correct_submission_time_by_id_keeps_distance_unchanged(self):
@@ -107,7 +107,7 @@ class AdminServiceTests(unittest.TestCase):
         self.assertIn("INSERT INTO admin_corrections", audit_query)
         self.assertEqual(
             audit_params,
-            (7, 101, 42, None, "", 0, None, "26:59", 1619, "selected_submission_time"),
+            (7, 101, 42, None, "", 0, None, "26:59", 1619, "selected_submission_time", None, None),
         )
 
     def test_correct_runner_pb_targets_best_runner_submission_by_mode(self):

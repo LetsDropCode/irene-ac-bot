@@ -356,7 +356,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             v20261027_submission_mode_default.upgrade(cur)
             for original, expected_mode in originals:
                 cur.execute("SELECT * FROM submissions WHERE id = %s", (original["id"],))
-                self.assertEqual(cur.fetchone(), {**original, "mode": expected_mode})
+                self.assertEqual(cur.fetchone(), {**original, "mode": expected_mode,
+                    "revision": original["revision"] + int(original["mode"] != expected_mode)})
 
     def test_legacy_not_null_mode_migration_restores_both_checkin_entry_paths(self):
         existing_member = self._insert_member("278030")
