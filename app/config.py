@@ -38,6 +38,7 @@ ATTENDANCE_REPORT_RECIPIENTS = _env_list(
     "ATTENDANCE_REPORT_RECIPIENTS",
     ",".join(DEFAULT_ATTENDANCE_REPORT_RECIPIENTS),
 )
+ATTENDANCE_REPORT_ENABLED = os.getenv("ATTENDANCE_REPORT_ENABLED", "false").strip().lower() in {"true", "1", "yes"}
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME") or os.getenv("SMTP_USER")

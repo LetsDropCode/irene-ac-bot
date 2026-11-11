@@ -323,6 +323,16 @@ def _mark_job_failed(job: dict, exc: Exception):
 
 
 def _dispatch_job(job_type: str, payload: dict):
+    if job_type == "monthly_attendance_email":
+        from app.services.monthly_email_schedule_service import deliver_monthly_attendance_email
+        deliver_monthly_attendance_email(payload)
+        return
+
+    if job_type == "admin_pending_prompt":
+        from app.services.admin_workflow_service import deliver_member_prompt
+        deliver_member_prompt(payload)
+        return
+
     if job_type == JOB_MONTHLY_RECAP:
         from app.services.monthly_engagement_service import send_monthly_recap
         send_monthly_recap(payload)

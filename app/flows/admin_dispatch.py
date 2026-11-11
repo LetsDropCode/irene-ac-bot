@@ -2,6 +2,7 @@
 
 from types import ModuleType
 from app.flows.admin_submission_flow import handle_admin_submission
+from app.flows.admin_workflow_flow import handle_admin_workflow
 
 
 def handle_admin_message(actions: ModuleType, sender: str, text: str | None, raw_text: str | None, button: dict | None, menu_action: str | None, admin_sender: bool):
@@ -10,6 +11,9 @@ def handle_admin_message(actions: ModuleType, sender: str, text: str | None, raw
         return handle_admin_submission(sender, None, raw_text, button, False)
     if admin_sender:
         admin_member = actions.get_member(sender)
+        result = handle_admin_workflow(actions, sender, text, button, menu_action, admin_member)
+        if result is not None:
+            return result
         if menu_action != "ADMIN_MENU":
             result = handle_admin_submission(sender, admin_member, raw_text, button, True)
             if result is not None:

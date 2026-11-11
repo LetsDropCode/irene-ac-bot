@@ -493,3 +493,37 @@ ENV=test python -m unittest discover -s tests
 ENV=test INTEGRATION_DATABASE_URL=<disposable-test-database-url> \
   python -m unittest discover -s tests/integration -p '*_integration.py'
 ```
+
+## Admin workflow upgrade
+
+Apply `2026-11-11-admin-undo-v1` before starting this release. It adds a revision
+counter to submissions and restorable snapshots/revisions to correction audits.
+A database trigger advances the revision on every result update, including
+member self-corrections. Existing results and historical audit entries are
+preserved; historical corrections without a snapshot cannot be undone.
+
+- **Latest TT / TT STATUS:** defaults to the most recent Tuesday in South
+  Africa, with Previous TT / Next TT controls and a date-specific pending list.
+  Empty Tuesdays remain viewable; navigation cannot advance into the future.
+- **PENDING:** select a member by stable ID from a paginated list, inspect the
+  unfinished step, open the existing member record, or confirm a single prompt
+  resend. The admin menu stays within ten rows; Recent changes replaces the
+  old bulk-resend shortcut. The legacy typed recovery command is unchanged.
+- **Resend prompt:** limited to a verified unfinished result, the active TT
+  submission/recovery window and a member message within the previous 24 hours.
+  The job is deduplicated per member/event and rechecks consent, result status,
+  deadlines and the WhatsApp reply window before sending. It asks the member
+  to reply RESUME to reopen the appropriate entry step. Pending/sent automated
+  reminders prevent another prompt. Status distinguishes recorded processing
+  from confirmed API acceptance for new admin prompts.
+- **CHANGES / Recent changes:** view actor, timestamp, event date and before/
+  after values. Typing CHANGES inside a member's command centre filters their
+  history. Undo requires a fresh confirmation and an unchanged revision,
+  restores distance/time/seconds/mode/status/confirmation, and records a new
+  audit entry. It cannot undo an older legacy audit or an undo entry, erase a
+  newly added missed TT, or overwrite a later edit. Conflicting newer pending
+  entries also block restoration. Previously delivered messages are not recalled.
+
+The monthly attendance email now has an optional trigger in `/jobs/run`.
+Leave `ATTENDANCE_REPORT_ENABLED=false` until SMTP and recipients are configured.
+See [Scheduled Jobs](docs/scheduled-jobs.md#automatic-monthly-email-trigger-admin-workflow-upgrade).

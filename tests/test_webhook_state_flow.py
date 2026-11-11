@@ -1058,7 +1058,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "admin_menu"})
         dashboard = mocks["send_text"].call_args.args[1]
         self.assertIn("Admin Dashboard", dashboard)
-        self.assertIn("TT code: *1234*", dashboard)
+        self.assertIn("TT code:", dashboard)
+        self.assertIn("TT STATUS — browse events", dashboard)
         self.assertIn("Top pending: Asha Runner", dashboard)
         mocks["send_admin_menu_list"].assert_called_once_with("27722135094")
 
@@ -1139,18 +1140,14 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         mocks["clear_profile_state"].assert_called_once_with(7)
         mocks["send_admin_menu_list"].assert_called_once_with("27722135094")
 
-    async def test_admin_status_command_returns_status_with_tools_hint(self):
-        result, mocks, _ = await self.call_webhook(
-            text_payload(sender="27722135094", body="status"),
-            member_data=member(phone="27722135094"),
-            get_tt_status="TT status body",
-        )
-
+    async def test_admin_status_command_opens_event_navigation(self):
+        with patch("app.flows.admin_workflow_flow.show_event") as show:
+            result, mocks, _ = await self.call_webhook(
+                text_payload(sender="27722135094", body="status"),
+                member_data=member(phone="27722135094"),
+            )
         self.assertEqual(result, {"status": "status"})
-        mocks["send_text"].assert_called_once_with(
-            "27722135094",
-            "TT status body\n\nType ADMIN for tools.",
-        )
+        show.assert_called_once_with("27722135094")
 
     async def test_admin_jobs_status_returns_queue_summary(self):
         result, mocks, _ = await self.call_webhook(
@@ -1380,24 +1377,14 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mocks["send_text"].call_args.args[0], "27722135094")
         self.assertIn("Resent tonight", mocks["send_text"].call_args.args[1])
 
-    async def test_admin_pending_uses_action_buttons(self):
-        result, mocks, _ = await self.call_webhook(
-            text_payload(sender="27722135094", body="pending"),
-            member_data=member(phone="27722135094"),
-            get_pending_members=[
-                {
-                    "first_name": "Lindsay",
-                    "last_name": "Bull",
-                    "phone": "27999999999",
-                },
-            ],
-        )
-
+    async def test_admin_pending_opens_member_selection(self):
+        with patch("app.flows.admin_workflow_flow.show_pending", return_value=1) as show:
+            result, mocks, _ = await self.call_webhook(
+                text_payload(sender="27722135094", body="pending"),
+                member_data=member(phone="27722135094"),
+            )
         self.assertEqual(result, {"status": "pending_list"})
-        mocks["send_admin_pending_actions"].assert_called_once()
-        body = mocks["send_admin_pending_actions"].call_args.args[1]
-        self.assertIn("Lindsay Bull", body)
-        mocks["send_text"].assert_not_called()
+        show.assert_called_once_with("27722135094")
 
     async def test_admin_find_member_lookup(self):
         result, mocks, _ = await self.call_webhook(

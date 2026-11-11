@@ -70,7 +70,7 @@ and have not opted out of leaderboard sharing.
 
 ## Monthly TT attendance dashboard
 
-Run this at the end of every month after the final TT check-ins have closed:
+Manual report command (use only when requested; the automatic trigger described below replaces a separate monthly email cron):
 
 ```sh
 venv/bin/python scripts/send_monthly_attendance_report.py
@@ -203,3 +203,45 @@ ownership, includes six sample values, and reuses an existing matching
 template without editing or resubmitting it. Meta determines the final
 category and approval status. Configure the template name only after the
 script reports `APPROVED` for `en_GB`.
+
+## Automatic monthly email trigger (admin workflow upgrade)
+
+The existing authenticated `/jobs/run` runner now supports the monthly
+attendance email. It is **off by default**. No extra cron service is needed.
+On days 1–3, from 14:00 to 20:00 Africa/Johannesburg, it queues one report for
+the last day of the previous calendar month. The delay accommodates the final
+Tuesday's Wednesday result deadline; the additional days allow catch-up.
+
+Before enabling, configure the `web` service with:
+
+```text
+ATTENDANCE_REPORT_ENABLED=false
+SMTP_HOST=<mail provider host>
+SMTP_PORT=587
+SMTP_USERNAME=<mail account>
+SMTP_PASSWORD=<provider credential>
+SMTP_FROM_EMAIL=<approved sender>
+SMTP_USE_TLS=true
+ATTENDANCE_REPORT_RECIPIENTS=<existing approved recipient list>
+```
+
+Set `ATTENDANCE_REPORT_ENABLED=true` only when the sender and recipients are
+ready. Missing host/sender/recipients or incomplete login settings prevent
+queueing. The existing SMTP implementation also supports a trusted relay
+without username/password. The standalone report script remains available
+for an explicitly requested manual send; its `--dry-run` builds without sending.
+Do not keep a separate monthly cron alongside the built-in trigger.
+
+The job type is `monthly_attendance_email`; its unique key contains the report
+end date. Completed jobs prevent a second scheduled send for that month.
+Delivery rechecks enablement, configuration and report age. Errors use the
+existing retries and appear in `JOBS FAILED`; `DONE` records SMTP acceptance,
+not final inbox delivery. A process crash after SMTP accepts the email but
+before job completion is recorded can still cause a repeated send on retry.
+A job skipped after disabling or expiry stays completed; re-enabling does not
+retroactively send that report.
+
+Production configuration inspection on 11 November 2026 found the five-minute
+Railway job runner, no monthly email cron in Railway or the local crontab,
+one report recipient, and no SMTP host, sender or login configuration. No email
+was sent during inspection. The new trigger must remain off until configured.

@@ -174,7 +174,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertIn("admin_tt_code", row_ids)
         self.assertIn("admin_tt_status", row_ids)
         self.assertIn("admin_pending", row_ids)
-        self.assertIn("admin_recover_tonight", row_ids)
+        self.assertIn("admin_recent_changes", row_ids)
         self.assertIn("admin_find", row_ids)
         self.assertIn("admin_correct", row_ids)
         self.assertIn("admin_jobs_status", row_ids)

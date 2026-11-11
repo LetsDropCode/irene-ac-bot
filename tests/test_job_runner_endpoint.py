@@ -17,14 +17,15 @@ class JobRunnerEndpointTests(unittest.TestCase):
             7,
         ), patch.object(main, "queue_incomplete_submission_reminders", return_value={"queued": 2}) as reminders, patch.object(
             main, "queue_monthly_recaps", return_value={"queued": 3}
-        ) as recaps, patch.object(
+        ) as recaps, patch.object(main, "queue_monthly_attendance_email", return_value={"queued": 1}) as email, patch.object(
             main, "run_due_jobs", return_value=4
         ) as run_due_jobs:
             result = main.run_jobs(x_job_token="secret")
 
-        self.assertEqual(result, {"status": "ok", "processed": 4, "reminder_candidates": 2, "recap_candidates": 3})
+        self.assertEqual(result, {"status": "ok", "processed": 4, "reminder_candidates": 2, "recap_candidates": 3, "monthly_email_candidates": 1})
         reminders.assert_called_once_with()
         recaps.assert_called_once_with()
+        email.assert_called_once_with()
         run_due_jobs.assert_called_once_with(7)
 
     def test_run_jobs_rejects_wrong_token(self):
