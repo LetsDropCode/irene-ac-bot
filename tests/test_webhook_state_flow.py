@@ -287,6 +287,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_active_submission",
                 "ensure_tt_open",
                 "mark_attendance",
+                "monthly_goal_suffix",
                 "save_distance",
                 "save_time",
                 "save_workout_for_confirmation",
@@ -334,6 +335,9 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "send_erasure_confirmation",
                 "set_engagement_preference",
                 "send_streak_summary",
+                "send_monthly_goal",
+                "send_personal_monthly_recap",
+                "recap_messages_available",
                 "run_due_jobs",
                 "get_queue_health",
                 "get_failed_jobs",
@@ -349,6 +353,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 if hasattr(secondary, name):
                     stack.enter_context(patch.object(secondary, name, mock))
                 mocks[name] = mock
+            mocks["monthly_goal_suffix"].return_value = ""
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None
@@ -506,6 +511,58 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         result, mocks, _ = await self.call_webhook(text_payload(body="MY STREAK"))
         self.assertEqual(result, {"status": "streak_summary"})
         mocks["send_streak_summary"].assert_called_once()
+
+    async def test_private_member_can_request_monthly_views_without_message_opt_in(self):
+        for command, status, action in (
+            ("MY GOAL", "monthly_goal", "send_monthly_goal"),
+            ("MY RECAP", "monthly_recap", "send_personal_monthly_recap"),
+        ):
+            with self.subTest(command=command):
+                result, mocks, _ = await self.call_webhook(
+                    text_payload(body=command),
+                    member_data=member(leaderboard_opt_out=True, recaps_opt_in=False),
+                )
+                self.assertEqual(result, {"status": status})
+                mocks[action].assert_called_once()
+                mocks["set_engagement_preference"].assert_not_called()
+
+    async def test_recaps_have_separate_opt_in_and_off_always_works(self):
+        for command, available, enabled in (("RECAPS ON", True, True), ("RECAPS OFF", False, False)):
+            with self.subTest(command=command):
+                result, mocks, _ = await self.call_webhook(
+                    text_payload(body=command), recap_messages_available=available,
+                )
+                self.assertEqual(result, {"status": "engagement_setting_updated"})
+                mocks["set_engagement_preference"].assert_called_once_with(42, "recaps", enabled)
+
+    async def test_recaps_cannot_be_enabled_before_template_is_configured(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="RECAPS ON"), recap_messages_available=False,
+        )
+        self.assertEqual(result, {"status": "recaps_unavailable"})
+        mocks["set_engagement_preference"].assert_not_called()
+
+    async def test_monthly_views_require_consent(self):
+        for command in ("MY GOAL", "MY RECAP", "RECAPS ON"):
+            with self.subTest(command=command):
+                result, mocks, _ = await self.call_webhook(
+                    text_payload(body=command), member_data=member(popia_acknowledged=False),
+                )
+                self.assertEqual(result, {"status": "popia"})
+                mocks["send_monthly_goal"].assert_not_called()
+                mocks["send_personal_monthly_recap"].assert_not_called()
+                mocks["set_engagement_preference"].assert_not_called()
+
+    async def test_goal_is_in_existing_checkin_reply_for_walkers(self):
+        result, mocks, _ = await self.call_webhook(
+            text_payload(body="9793"), member_data=member(participation_type="WALKER"),
+            submission_data=submission(tt_code_verified=False),
+            is_valid_tt_code=lambda _code: True,
+            verify_tt_code=submission(tt_code_verified=True),
+            monthly_goal_suffix="\n🎯 November goal: 2 of 3 TT check-ins",
+        )
+        self.assertEqual(result, {"status": "code_ok_walk"})
+        self.assertIn("November goal: 2 of 3", mocks["send_text"].call_args_list[0].args[1])
 
     async def test_privacy_notice_is_available_before_consent(self):
         with patch.object(webhook_module, "get_member", return_value=None), patch.object(
@@ -842,6 +899,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 "get_active_submission",
                 "ensure_tt_open",
                 "mark_attendance",
+                "monthly_goal_suffix",
                 "save_distance",
                 "save_time",
                 "save_workout_for_confirmation",
@@ -897,6 +955,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
                 if hasattr(secondary, name):
                     stack.enter_context(patch.object(secondary, name, mock))
                 mocks[name] = mock
+            mocks["monthly_goal_suffix"].return_value = ""
             mocks["has_seen_whats_new"].return_value = True
             mocks["register_inbound_message"].return_value = True
             mocks["get_resumable_submission"].return_value = None

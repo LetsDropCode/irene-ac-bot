@@ -94,6 +94,14 @@ SMTP_USE_TLS=true
 ATTENDANCE_REPORT_RECIPIENTS=reports@example.org,operations@example.org
 ```
 
+Monthly engagement:
+
+`MY GOAL`, `MY RECAP` and the improved admin summary need no extra service.
+Automatic recaps default to off and use the existing job runner. Configure
+`WHATSAPP_MONTHLY_RECAP_TEMPLATE_NAME` only after the six-parameter template
+is approved; see [Scheduled Jobs](docs/scheduled-jobs.md#personal-monthly-recap-optional)
+for template copy, scheduling and member commands.
+
 ## Database Migrations
 
 The web process does not change the schema at startup. Before starting a new

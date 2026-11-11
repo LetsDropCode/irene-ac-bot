@@ -9,6 +9,7 @@ from app.migrations.versions import (
     v20261027_submission_mode_default,
     v20261027_submission_mode_nullable,
     v20261111_season_welcome,
+    v20261111_monthly_recaps,
 )
 
 MIGRATIONS = (
@@ -19,6 +20,7 @@ MIGRATIONS = (
     v20261027_submission_mode_default,
     v20261027_submission_mode_nullable,
     v20261111_season_welcome,
+    v20261111_monthly_recaps,
 )
 _MIGRATION_LOCK = 733120260106
 

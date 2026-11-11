@@ -16,6 +16,7 @@ JOB_POST_CONFIRM_MESSAGES = "post_confirm_messages"
 JOB_WHATSAPP_SEND = "whatsapp_send"
 JOB_INCOMPLETE_REMINDER = "incomplete_submission_reminder"
 JOB_ATTENDANCE_MILESTONE = "attendance_milestone"
+JOB_MONTHLY_RECAP = "monthly_recap"
 # All current job handlers are bounded network calls. A five-minute lease is
 # deliberately generous, while still allowing a worker crash to self-heal.
 STALE_RUNNING_AFTER_SECONDS = int(os.getenv("JOB_STALE_RUNNING_AFTER_SECONDS", "300"))
@@ -322,6 +323,11 @@ def _mark_job_failed(job: dict, exc: Exception):
 
 
 def _dispatch_job(job_type: str, payload: dict):
+    if job_type == JOB_MONTHLY_RECAP:
+        from app.services.monthly_engagement_service import send_monthly_recap
+        send_monthly_recap(payload)
+        return
+
     if job_type == JOB_INCOMPLETE_REMINDER:
         from app.services.incomplete_reminder_service import send_incomplete_submission_reminder
         send_incomplete_submission_reminder(payload)

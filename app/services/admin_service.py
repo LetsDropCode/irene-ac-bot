@@ -34,52 +34,8 @@ def _record_admin_correction(cur, row: dict, admin_member_id: int = None, reason
 
 
 def get_admin_dashboard():
-    with get_cursor(commit=False) as cur:
-        cur.execute("""
-        SELECT
-            COUNT(*) FILTER (WHERE s.tt_code_verified = TRUE) AS checked_in,
-            COUNT(*) FILTER (WHERE s.status = 'COMPLETE') AS submitted,
-            COUNT(*) FILTER (
-                WHERE s.status = 'PENDING'
-                  AND s.tt_code_verified = TRUE
-            ) AS pending,
-            COUNT(*) FILTER (
-                WHERE s.tt_code_verified = TRUE
-                  AND m.participation_type = 'RUNNER'
-            ) AS runners,
-            COUNT(*) FILTER (
-                WHERE s.tt_code_verified = TRUE
-                  AND m.participation_type = 'WALKER'
-            ) AS walkers,
-            COUNT(*) FILTER (
-                WHERE s.tt_code_verified = TRUE
-                  AND m.participation_type = 'BOTH'
-            ) AS both,
-            MAX(s.created_at) FILTER (WHERE s.status = 'COMPLETE') AS last_submission_at
-        FROM submissions s
-        JOIN members m ON m.id = s.member_id
-        WHERE s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
-        """)
-        summary = cur.fetchone()
-
-        cur.execute("""
-        SELECT
-            m.first_name,
-            m.last_name
-        FROM submissions s
-        JOIN members m ON m.id = s.member_id
-        WHERE s.status = 'PENDING'
-          AND s.tt_code_verified = TRUE
-          AND s.event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date
-        ORDER BY s.created_at ASC
-        LIMIT 5
-        """)
-        pending = cur.fetchall()
-
-    return {
-        "summary": summary,
-        "pending": pending,
-    }
+    from app.services.tt_status_service import get_event_summary
+    return get_event_summary()
 
 
 def search_members_for_admin(query: str):

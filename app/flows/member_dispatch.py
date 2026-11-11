@@ -24,8 +24,8 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
             "Send MY DATA for a summary of your stored profile and results, "
             "EDIT PROFILE or FIX RESULT to correct details, STOP LEADERBOARD "
             "to hide public results, or DELETE MY DATA to withdraw consent "
-            "and erase your bot records after confirmation. Optional REMINDERS "
-            "and MILESTONES messages are off until you opt in."
+            "and erase your bot records after confirmation. Optional REMINDERS"
+            ", MILESTONES and monthly RECAPS messages are off until you opt in."
         )
         return {"status": "privacy_notice"}
 
@@ -175,14 +175,28 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
         actions.send_streak_summary(sender, member)
         return {"status": "streak_summary"}
 
+    if menu_action == "MONTHLY_GOAL":
+        actions.send_monthly_goal(sender, member)
+        return {"status": "monthly_goal"}
+
+    if menu_action == "MONTHLY_RECAP":
+        actions.send_personal_monthly_recap(sender, member)
+        return {"status": "monthly_recap"}
+
     engagement_actions = {
         "REMINDERS_ON": ("reminders", True),
         "REMINDERS_OFF": ("reminders", False),
         "MILESTONES_ON": ("milestones", True),
         "MILESTONES_OFF": ("milestones", False),
+        "RECAPS_ON": ("recaps", True),
+        "RECAPS_OFF": ("recaps", False),
     }
     if menu_action in engagement_actions:
         preference, enabled = engagement_actions[menu_action]
+        if preference == "recaps" and enabled and not actions.recap_messages_available():
+            actions.send_text(sender, "Automatic monthly recaps aren't available yet. "
+                              "Send MY RECAP anytime for your last completed month's summary.")
+            return {"status": "recaps_unavailable"}
         if not actions.set_engagement_preference(member["id"], preference, enabled):
             actions.send_text(sender, "I couldn't update that setting. Please try again.")
             return {"status": "engagement_setting_failed"}

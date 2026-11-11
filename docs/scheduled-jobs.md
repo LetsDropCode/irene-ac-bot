@@ -114,3 +114,92 @@ If the scheduler runs on the first day of the next month instead, use:
 ```sh
 venv/bin/python scripts/send_monthly_attendance_report.py --previous-month
 ```
+
+## Personal monthly recap (optional)
+
+No new cron is needed: authenticated `POST /jobs/run` also queues personal
+recaps on days **1–3 of each month, 14:00–20:00 Africa/Johannesburg**. The
+three-day window permits catch-up after a short outage. Waiting until 14:00
+lets a final Tuesday result be completed before Wednesday's 13:00 cutoff.
+The recap covers the **previous calendar month**, including December at a
+January rollover.
+
+Apply the `2026-11-11-monthly-recaps-v1` migration before deploying this release.
+It adds only `members.recaps_opt_in`, defaulting to false for everyone.
+
+Members use:
+
+- `MY GOAL`: progress toward three TT check-ins in the current month. Missing
+  a week does not reset progress. The goal also appears in the check-in reply
+  and `MY PROGRESS`; it creates no additional message.
+- `MY RECAP`: the last completed month's check-ins, completed activities,
+  recorded kilometres, goal outcome and any improved running PBs.
+- `RECAPS ON` / `RECAPS OFF`: a separate preference for automatic recaps.
+  These commands do not change reminder or milestone preferences.
+
+Walkers and runners count equally toward the goal. Recorded distance is
+summed only from structured 4/6/8 km results; free-text walks are never
+estimated. PB comparisons use the same running distance against the best
+completed TT before the recap month. Attendance and results are counted
+separately, so an unfinished result does not lose its attendance credit.
+
+On-demand views work without a template. To enable automatic delivery, obtain
+approval in WhatsApp Manager for this six-parameter template and configure:
+
+```text
+WHATSAPP_MONTHLY_RECAP_TEMPLATE_NAME=irene_tt_monthly_recap
+WHATSAPP_TEMPLATE_LANGUAGE=en_GB
+```
+
+Suggested template body (match the approved language):
+
+```text
+Your requested Irene AC TT monthly summary for {{1}}.
+TT check-ins: {{2}}
+Completed activities: {{3}}
+Recorded distance: {{4}} km (free-text walks are not estimated).
+Monthly goal of 3 check-ins: {{5}}
+Personal best update: {{6}}
+Reply RECAPS OFF to stop monthly summaries.
+```
+
+Parameters are month/year, attendance count, completed activities, recorded
+kilometres, goal outcome, and PB highlights (or a note that no new timed running best was recorded).
+
+Without the template setting, the scheduler skips recaps and `RECAPS ON`
+explains that automatic recaps are not yet available. No free-form proactive
+fallback is used. Only consented, opted-in members with at least one TT
+check-in in the recap month are eligible, regardless of public leaderboard
+visibility. Empty months do not generate messages.
+
+Queue keys are unique per member and calendar month. Delivery rechecks consent
+and opt-in under a member lock. `RECAPS OFF` removes pending/failed recap jobs;
+consent withdrawal removes all member jobs. Retries after day 3 or for an old
+month are discarded. Failed sends use the existing queue retry and health
+reporting. As with other outbound jobs, a crash after WhatsApp accepts a
+message but before the queue records completion can cause a repeated send.
+
+## Compact admin event summary
+
+`TT STATUS` and the `ADMIN` dashboard share the same current-date summary:
+check-ins, submitted results, outstanding results, participation types, first
+recorded TTs, attendance milestones and monthly goals reached that day.
+Outstanding results include check-ins without a submission row. Completed
+walk/workout notes count as submissions. The first five outstanding members
+and first three milestones are shown, with an overflow count and a link to
+the existing `PENDING` tools. This is an on-demand view, with no new admin
+notifications or configuration.
+
+Submit or check the recap template using the bot's production credentials:
+
+```sh
+railway run --service web --environment production --no-local \
+  venv/bin/python scripts/configure_monthly_recap_template.py \
+  --waba-id 4252184618398067 --submit
+```
+
+Omit `--submit` for a read-only status check. The script verifies account
+ownership, includes six sample values, and reuses an existing matching
+template without editing or resubmitting it. Meta determines the final
+category and approval status. Configure the template name only after the
+script reports `APPROVED` for `en_GB`.

@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.db import get_cursor
-from app.services.job_queue_service import JOB_ATTENDANCE_MILESTONE, JOB_INCOMPLETE_REMINDER
+from app.services.job_queue_service import JOB_ATTENDANCE_MILESTONE, JOB_INCOMPLETE_REMINDER, JOB_MONTHLY_RECAP
 from app.services.proactive_template_service import proactive_template_payload
 
 SA_TZ = ZoneInfo("Africa/Johannesburg")
@@ -12,6 +12,7 @@ MILESTONES = (1, 5, 10, 25, 50, 100)
 PREFERENCES = {
     "reminders": "reminders_opt_in",
     "milestones": "milestones_opt_in",
+    "recaps": "recaps_opt_in",
 }
 
 
@@ -29,7 +30,9 @@ def set_engagement_preference(member_id: int, preference: str, enabled: bool) ->
         if cur.fetchone() is None:
             return False
         if not enabled:
-            job_type = JOB_INCOMPLETE_REMINDER if preference == "reminders" else JOB_ATTENDANCE_MILESTONE
+            job_type = {"reminders": JOB_INCOMPLETE_REMINDER,
+                        "milestones": JOB_ATTENDANCE_MILESTONE,
+                        "recaps": JOB_MONTHLY_RECAP}[preference]
             cur.execute(
                 """
                 DELETE FROM job_queue
