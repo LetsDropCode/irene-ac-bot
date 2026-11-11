@@ -7,6 +7,8 @@ from app.migrations.versions import (
     v20261006_popia_lifecycle,
     v20261006_engagement_preferences,
     v20261027_submission_mode_default,
+    v20261027_submission_mode_nullable,
+    v20261111_season_welcome,
 )
 
 MIGRATIONS = (
@@ -15,6 +17,8 @@ MIGRATIONS = (
     v20261006_popia_lifecycle,
     v20261006_engagement_preferences,
     v20261027_submission_mode_default,
+    v20261027_submission_mode_nullable,
+    v20261111_season_welcome,
 )
 _MIGRATION_LOCK = 733120260106
 

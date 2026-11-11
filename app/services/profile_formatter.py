@@ -32,15 +32,16 @@ def format_profile(member, data):
     msg += "Send REMINDERS ON/OFF or MILESTONES ON/OFF to change these.\n"
     msg += "Send MY STREAK to see your private TT attendance.\n\n"
 
-    msg += f"🏃 Runs: {data['total_runs']}\n\n"
+    msg += f"🏃 Lifetime activities: {data['total_runs']}\n"
+    msg += "MY SEASON — this year · MY HISTORY — previous results\n\n"
 
     # PBs
-    msg += "🥇 *Personal Bests*\n"
+    msg += "🥇 *All-time Personal Bests*\n"
     if data["pbs"]:
         for pb in data["pbs"]:
             msg += f"{pb['distance_text']}km — {_format_seconds(pb['best_seconds'])}\n"
     else:
-        msg += "No PBs yet\n"
+        msg += "Your first timed run will set your personal best.\n"
 
     # Recent runs
     msg += "\n📊 *Last 5 Runs*\n"
@@ -49,6 +50,6 @@ def format_profile(member, data):
             date_label = f"{r['event_date']}: " if r.get("event_date") else ""
             msg += f"• {date_label}{r['distance_text']} — {r['time_text']}\n"
     else:
-        msg += "No runs yet\n"
+        msg += "Your first timed run will appear here. Walks are in MY HISTORY.\n"
 
     return msg.strip()

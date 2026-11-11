@@ -251,6 +251,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
             patch_names = [
                 "send_image",
                 "send_text",
+                "send_season_welcome_once",
+                "send_onboarding_next_steps",
                 "send_distance_buttons",
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
@@ -806,6 +808,8 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         with ExitStack() as stack:
             patch_names = [
                 "send_text",
+                "send_season_welcome_once",
+                "send_onboarding_next_steps",
                 "send_distance_buttons",
                 "send_confirm_buttons",
                 "send_workout_confirm_buttons",
@@ -2039,7 +2043,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_progress_command_sends_personal_progress(self):
         result, mocks, _ = await self.call_webhook(
-            text_payload(body="3"),
+            text_payload(body="MY PROGRESS"),
             get_user_profile={
                 "total_runs": 6,
                 "latest": {
@@ -2293,7 +2297,10 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "workout_confirmed"})
         mocks["confirm_workout_submission"].assert_called_once_with(101)
         mocks["confirm_submission"].assert_not_called()
-        mocks["send_text"].assert_called_once_with("27999999999", "🚶 Workout logged! Well done.")
+        mocks["send_text"].assert_called_once()
+        self.assertEqual(mocks["send_text"].call_args.args[0], "27999999999")
+        self.assertIn("Workout logged! Well done.", mocks["send_text"].call_args.args[1])
+        self.assertIn("MY HISTORY", mocks["send_text"].call_args.args[1])
 
     async def test_walker_workout_edit_clears_only_the_workout_note(self):
         reopened = submission(distance_text=None, time_text="", seconds=0, mode="WORKOUT")
@@ -3099,7 +3106,7 @@ class WebhookStateFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Time: 27:41", messages[0])
         self.assertIn("Pace: 6:55/km", messages[0])
         self.assertIn("- PB by 2:19", messages[0])
-        self.assertIn("Season TTs: 5", messages[0])
+        self.assertIn("Lifetime TT activities: 5", messages[0])
         self.assertIn("Tonight's 4 km position: #2", messages[0])
         self.assertIn("🎉 Milestone: 5 TTs logged", messages[0])
         self.assertIn("🥇 Badge: 4km PB", messages[0])

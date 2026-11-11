@@ -85,7 +85,7 @@ class ProgressFormatterTests(unittest.TestCase):
         )
 
         self.assertIn("Lindsay, your walking progress", message)
-        self.assertIn("Activities logged: 6", message)
+        self.assertIn("Lifetime activities logged: 6", message)
         self.assertIn("Latest: Easy social walk", message)
         self.assertIn("Next milestone: 10 walks (4 to go)", message)
         self.assertIn("Great consistency", message)

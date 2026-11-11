@@ -86,7 +86,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         self.assertEqual(interactive["header"]["text"], "🌳 Irene AC")
         self.assertIn("Serious about our frun", interactive["body"]["text"])
         self.assertIn("menu_submit", row_ids)
-        self.assertIn("menu_progress", row_ids)
+        self.assertIn("menu_season", row_ids)
         self.assertIn("menu_leaderboard", row_ids)
         self.assertIn("menu_shop", row_ids)
         self.assertIn("menu_league_standings", row_ids)
@@ -126,6 +126,7 @@ class WhatsAppMenuTests(unittest.TestCase):
 
         self.assertEqual(row_ids, [
             "leaderboard_tonight",
+            "leaderboard_season",
             "leaderboard_overall",
             "leaderboard_my_ranking",
         ])
@@ -153,7 +154,7 @@ class WhatsAppMenuTests(unittest.TestCase):
         row_ids = [row["id"] for row in rows]
 
         self.assertIn("admin_menu", row_ids)
-        self.assertIn("menu_my_data", row_ids)
+        self.assertIn("menu_history", row_ids)
         self.assertIn("menu_privacy", row_ids)
         self.assertLessEqual(len(rows), 10)
         self.assertNotIn("admin_tt_code", row_ids)

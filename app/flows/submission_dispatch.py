@@ -273,7 +273,9 @@ def handle_submission_message(actions: ModuleType, sender: str, text: str | None
                     actions.send_text(sender, "✅ Already confirmed.")
                     return {"status": "already_confirmed"}
                 actions.clear_profile_state(member["id"])
-                actions.send_text(sender, "🚶 Workout logged! Well done.")
+                actions.send_text(sender, "🚶 Workout logged! Well done.\n\n"
+                                  "Find your saved walk in MY HISTORY. MY SEASON tracks this year's activities. "
+                                  "Optional attendance celebrations: MILESTONES ON.")
                 return {"status": "workout_confirmed"}
 
             if btn == "edit":

@@ -248,3 +248,11 @@ def get_members_needing_profile_update():
             """
         )
         return cur.fetchall()
+
+
+def mark_season_seen(member_id: int, year: int):
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE members SET last_seen_season = %s WHERE id = %s AND popia_acknowledged = TRUE",
+            (year, member_id),
+        )

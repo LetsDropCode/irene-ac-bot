@@ -133,6 +133,12 @@ accept workout notes and BOTH profiles can choose their activity. Empty pending
 walker check-ins misclassified as `RUN` are repaired to `WORKOUT`; recorded
 distances, workout notes, completed results, and BOTH selections are preserved.
 
+The submission-mode-nullable version also removes the legacy `NOT NULL`
+constraint on `submissions.mode`. Without it, a database adopted from the old
+schema rejects every new check-in before the bot can send its next prompt.
+This is a schema-only repair; existing submissions are unchanged. Members
+whose code previously failed can resend it while check-in is open.
+
 Add future changes as new modules in `app/migrations/versions/` and list them in
 `app/migrations/__init__.py`; do not edit a version after it has been deployed.
 
@@ -429,3 +435,53 @@ If a deploy fails:
 
 If any secrets were ever committed to Git history, rotate them. `.gitignore` prevents
 future local files from being tracked, but it does not remove old secrets from history.
+
+## Calendar-year TT seasons (November 2026)
+
+Run `python -m app.migrations upgrade` before starting this release. The new
+`2026-11-11-season-welcome-v1` migration adds only `members.last_seen_season`.
+It does not reset, move, delete, or reclassify submissions, attendance, PBs,
+profiles, consent, or sharing preferences. Existing pending migrations still
+run in their registered order.
+
+The active TT season is calculated on each request from the current year in
+`Africa/Johannesburg`. At 00:00 SAST on 1 January 2027 it becomes 2027; the same
+rule applies every January. There is no rollover cron job or annual reset.
+Season queries use the event date, including for backdated entries and
+corrections. The first eligible member interaction each year queues a season
+welcome. This is an inbound reply, not a scheduled broadcast.
+
+Member commands:
+
+- `MY SEASON` (also menu option 3): current-year check-ins, completed TT
+  activities, walks/workouts, and season bests.
+- `SEASON 2026`: a specific year's summary.
+- `MY HISTORY`: list years containing the member's results or check-ins.
+- `MY HISTORY 2026`: browse that year's results, eight entries per page.
+- `MY HISTORY 2026 PAGE 2`: continue browsing. Check-ins without a completed
+  result are labelled separately. Long workout previews link to `MY DATA`.
+- `MY PBS`: personal bests across every year. `OVERALL PBS` and `MY RANKING`
+  retain their all-time leaderboard behaviour.
+- `SEASON LEADERBOARD` or `SEASON LEADERBOARD 2026`: public season rankings.
+- `MY PROGRESS` and `MY STREAK`: lifetime progress and attendance; weekly
+  streaks continue across the year boundary.
+- `HOW TT WORKS`: onboarding and first-result instructions.
+
+Private history always uses the requesting member's ID. Public season views
+retain the existing explicit sharing checks. Administrators should use
+`MY HISTORY <year>` for their own seasons: `HISTORY <member id or phone>`
+remains their existing member lookup command.
+
+Onboarding accepts Runner/Walker/Both and PUBLIC/PRIVATE as typed replies as
+well as buttons, resumes saved steps, and offers first-TT guidance after setup.
+Reminder and milestone opt-ins remain optional and off by default.
+
+Regression checks include the South African midnight boundary, fresh-year
+empty views, backdated results, preserved all-time PBs, private history,
+pagination, legacy walker records, cross-year streaks and additive migrations:
+
+```sh
+ENV=test python -m unittest discover -s tests
+ENV=test INTEGRATION_DATABASE_URL=<disposable-test-database-url> \
+  python -m unittest discover -s tests/integration -p '*_integration.py'
+```

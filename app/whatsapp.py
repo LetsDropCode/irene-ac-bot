@@ -190,14 +190,14 @@ def send_main_menu_list(to: str, admin: bool = False, member: dict | None = None
             "description": "View or edit your details.",
         },
         {
-            "id": "menu_progress",
-            "title": "My progress",
-            "description": "See your latest activity, PBs and milestones.",
+            "id": "menu_season",
+            "title": "My season",
+            "description": "This calendar year: attendance and season bests.",
         },
         {
             "id": "menu_leaderboard",
             "title": "Leaderboards",
-            "description": "Choose tonight, overall PBs or my ranking.",
+            "description": "Tonight, season bests, all-time PBs and rankings.",
         },
         {
             "id": "menu_shop",
@@ -210,14 +210,14 @@ def send_main_menu_list(to: str, admin: bool = False, member: dict | None = None
             "description": "Open The Irene League standings.",
         },
         {
-            "id": "menu_my_data",
-            "title": "My data",
-            "description": "See your stored profile and TT results.",
+            "id": "menu_history",
+            "title": "My history",
+            "description": "Browse your TT results by calendar year.",
         },
         {
             "id": "menu_privacy",
             "title": "Privacy choices",
-            "description": "Read about consent, sharing and deletion.",
+            "description": "Consent, sharing, MY DATA and deletion.",
         },
     ]
 
@@ -561,6 +561,11 @@ def send_leaderboard_menu_list(to: str) -> bool:
                                 "description": "Tonight's TT results.",
                             },
                             {
+                                "id": "leaderboard_season",
+                                "title": "Season leaderboard",
+                                "description": "This year's bests; type SEASON LEADERBOARD 2026 for a past year.",
+                            },
+                            {
                                 "id": "leaderboard_overall",
                                 "title": "Overall PBs",
                                 "description": "Fastest 8km, 6km and 4km PBs.",
@@ -568,7 +573,7 @@ def send_leaderboard_menu_list(to: str) -> bool:
                             {
                                 "id": "leaderboard_my_ranking",
                                 "title": "My ranking",
-                                "description": "Your PB rank for each distance.",
+                                "description": "Your all-time PB rank for each distance.",
                             },
                         ],
                     }
@@ -589,7 +594,7 @@ def send_participation_buttons(to: str):
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": "How do you usually participate?"},
+            "body": {"text": "How do you usually participate? Tap a button or type Runner, Walker or Both."},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "RUNNER", "title": "🏃 Runner"}},
@@ -614,7 +619,8 @@ def send_leaderboard_visibility_buttons(to: str):
                 "text": (
                     "Would you like your name and TT results to appear on "
                     "Irene AC public leaderboards?\n\n"
-                    "This is separate from storing your TT profile and results."
+                    "This is separate from storing your TT profile and results. "
+                    "Tap a button or type PUBLIC or PRIVATE. You can change this later."
                 )
             },
             "action": {
@@ -812,3 +818,19 @@ def send_self_correction_confirm_buttons(to: str, body: str) -> None:
         },
     }
     _send(payload)
+
+
+def send_onboarding_actions(to: str, checkin_available: bool = False):
+    buttons = [
+        {"type": "reply", "reply": {"id": "menu_how_tt_works", "title": "How TT works"}},
+        {"type": "reply", "reply": {"id": "menu_profile", "title": "My profile"}},
+    ]
+    if checkin_available:
+        buttons.append({"type": "reply", "reply": {"id": "menu_submit", "title": "Check in"}})
+    return _send({
+        "messaging_product": "whatsapp", "to": to, "type": "interactive",
+        "interactive": {"type": "button", "body": {"text":
+            "Ready for your first TT? Choose a next step. Optional unfinished-result reminders: "
+            "REMINDERS ON. Attendance celebrations: MILESTONES ON. Both start off."},
+            "action": {"buttons": buttons}},
+    })

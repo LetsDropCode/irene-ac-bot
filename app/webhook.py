@@ -54,6 +54,7 @@ from app.whatsapp import (
     send_participation_buttons,
     send_leaderboard_visibility_buttons,
     send_profile_buttons,
+    send_onboarding_actions,
     send_both_submission_buttons,
     send_main_menu_list,
     send_leaderboard_menu_list,
@@ -62,6 +63,11 @@ from app.whatsapp import (
     send_admin_pending_actions,
 )
 
+from app.services.season_service import (
+    current_season, get_season_summary, get_member_seasons, get_member_history,
+    format_season_summary, format_history,
+)
+from app.services.profile_formatter import _format_seconds
 from app.services.event_code_service import generate_tt_code
 from app.services.member_service import (
     get_member,
@@ -79,6 +85,7 @@ from app.services.member_service import (
     complete_onboarding_visibility,
     has_seen_whats_new,
     mark_whats_new_seen,
+    mark_season_seen,
 )
 
 from app.services.submission_service import (
@@ -195,6 +202,7 @@ def verify_webhook_signature(raw_body: bytes, signature_header: str | None) -> b
 
 
 def send_help_menu(sender: str, admin: bool = False, member: dict | None = None):
+    send_season_welcome_once(sender, member)
     if not send_main_menu_list(sender, admin, member):
         send_text(sender, format_help_menu(admin))
 
@@ -213,6 +221,7 @@ def send_leaderboards_menu(sender: str):
                 "🏆 *Leaderboards*\n\n"
                 "Reply with:\n"
                 "Tonight leaderboard\n"
+                "Season leaderboard (add a year for past seasons)\n"
                 "Overall PBs\n"
                 "My ranking\n\n"
                 "Type MENU to go back."
@@ -411,6 +420,84 @@ def send_user_profile(sender: str, member: dict):
 def send_user_progress(sender: str, member: dict):
     data = get_user_profile(member["id"])
     send_text(sender, f"{format_progress(member, data)}\n\nType MENU to go back.")
+
+
+def send_season_welcome_once(sender: str, member: dict | None):
+    year = current_season()
+    if (not member or not member.get("popia_acknowledged")
+        or not member.get("participation_type")
+        or not member.get("first_name") or member.get("first_name") == "Unknown"
+        or member.get("leaderboard_visibility_set") is False
+        or member.get("profile_state")
+        or member.get("last_seen_season") == year):
+        return False
+    if send_text(sender, f"🌳 Welcome to the {year} TT season!\n"
+                 "Each season runs from 1 January to 31 December. "
+                 "Your previous results and all-time PBs are still available.\n"
+                 "Send MY SEASON for this year's progress, MY HISTORY for previous years, "
+                 "or MY PBS for all-time personal bests.") is False:
+        return False
+    mark_season_seen(member["id"], year)
+    member["last_seen_season"] = year
+    return True
+
+
+def send_member_season(sender: str, member: dict, year=None):
+    send_text(sender, format_season_summary(get_season_summary(member["id"], year)))
+
+
+def send_member_history(sender: str, member: dict, year=None, page=1):
+    if year is None:
+        years = get_member_seasons(member["id"])
+        if not years:
+            send_text(sender, "📚 Your first TT check-in or completed result will appear here. "
+                      "Send HOW TT WORKS to get started.")
+            return
+        # Text keeps every historical year accessible without list-row limits.
+        send_text(sender, "📚 *Your TT seasons*\n\n" + "\n".join(
+            f"• {value} — send MY HISTORY {value}" for value in years
+        ) + "\n\nMY SEASON — current season · MY PBS — all-time personal bests")
+        return
+    rows, has_more = get_member_history(member["id"], year, page)
+    send_text(sender, format_history(year, page, rows, has_more))
+
+
+def send_personal_bests(sender: str, member: dict):
+    data = get_user_profile(member["id"])
+    lines = ["🥇 *Your all-time personal bests*", ""]
+    lines.extend(f"{pb['distance_text']}km — {_format_seconds(pb['best_seconds'])}" for pb in data["pbs"])
+    if not data["pbs"]:
+        lines.append("Your first timed run will set your personal best. Walks remain in MY HISTORY.")
+    lines.extend(["", "These cover every season. Send MY SEASON for this year's bests or MY HISTORY for results."])
+    send_text(sender, "\n".join(lines))
+
+
+def send_season_leaderboard(sender: str, member: dict, year=None):
+    year = current_season() if year is None else year
+    rows = get_overall_leaderboard(member["id"], year=year)
+    send_text(sender, format_overall_leaderboard(
+        rows, member["id"], title=f"{year} TT Season Leaderboard",
+        subtitle="Season bests for 8km, 6km and 4km. ← you marks your season ranking.",
+    ) + "\n\nSend SEASON LEADERBOARD followed by a year for past seasons. "
+        "OVERALL PBS shows all-time rankings. MENU to go back.")
+
+
+def send_tt_introduction(sender: str):
+    send_text(sender, "🌳 *How TT works*\n\n"
+              "1. At TT, get the event code and send it here to check in.\n"
+              "2. After your run, choose your distance and enter your time (for example 27:41). "
+              "Walkers can record their walk or workout; Both lets you choose each time.\n"
+              "3. Check the details and tap Confirm to save.\n\n"
+              "MY SEASON tracks this calendar year. MY HISTORY keeps previous results, "
+              "and MY PBS shows all-time personal bests.\n"
+              "You can set up your profile anytime. Send SUBMIT to check TT availability, "
+              "or MENU for options. Optional reminders: REMINDERS ON. "
+              "Optional attendance celebrations: MILESTONES ON.")
+
+
+def send_onboarding_next_steps(sender: str):
+    allowed, _ = ensure_tt_open()
+    send_onboarding_actions(sender, checkin_available=allowed)
 
 
 def send_streak_summary(sender: str, member: dict):
@@ -745,7 +832,7 @@ def send_post_confirm_messages(
 
     progress = []
     if profile.get("total_runs"):
-        progress.append(f"Season TTs: {profile['total_runs']}")
+        progress.append(f"Lifetime TT activities: {profile['total_runs']}")
 
     rows = get_runner_leaderboard()
     position = _find_runner_position(
@@ -796,7 +883,11 @@ def send_post_confirm_messages(
     except Exception:
         logger.error("Insight engine failed")
 
-    lines.extend(["", "Type MENU for more options, or MY PROGRESS to see your history."])
+    if profile.get("total_runs") == 1:
+        lines.extend(["", "Your first TT is in the books! Find it anytime in MY HISTORY. "
+                      "MY SEASON tracks this year; MY PBS keeps your all-time bests. "
+                      "Optional unfinished-result reminders: REMINDERS ON."])
+    lines.extend(["", "Type MENU for more options, MY SEASON for this year, or MY HISTORY for past results."])
     if send_text(sender, "\n".join(lines)) is False:
         raise RuntimeError("WhatsApp post-confirm reply was not accepted")
 

@@ -3,6 +3,7 @@
 import json
 import os
 import unittest
+from psycopg2.errors import NotNullViolation
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date
@@ -19,7 +20,10 @@ else:
 
 from app import db, config
 from app.migrations import require_current_schema, upgrade_database
-from app.migrations.versions import v20261027_submission_mode_default
+from app.migrations.versions import (
+    v20261027_submission_mode_default,
+    v20261027_submission_mode_nullable,
+)
 from app.flows.submission_dispatch import handle_submission_message
 from app.flows.webhook_dispatch import route_message
 from app.flows import admin_submission_flow
@@ -353,6 +357,72 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             for original, expected_mode in originals:
                 cur.execute("SELECT * FROM submissions WHERE id = %s", (original["id"],))
                 self.assertEqual(cur.fetchone(), {**original, "mode": expected_mode})
+
+    def test_legacy_not_null_mode_migration_restores_both_checkin_entry_paths(self):
+        existing_member = self._insert_member("278030")
+        existing = self._insert_submission(existing_member["id"])
+        returning = self._insert_member("278031", participation_type="RUNNER")
+        with cursor() as cur:
+            cur.execute("ALTER TABLE submissions ALTER COLUMN mode SET NOT NULL")
+            cur.execute("DELETE FROM schema_migrations WHERE name = %s", (v20261027_submission_mode_nullable.VERSION,))
+            cur.execute("""
+                INSERT INTO event_codes (event, code, event_date)
+                VALUES ('TT', '5444', (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Johannesburg')::date)
+            """)
+
+        # Reproduce the production failure: validation succeeds, but creating
+        # the check-in fails before any welcome or activity prompt is sent.
+        with self.assertRaises(NotNullViolation):
+            submission_service.get_or_create_submission(returning["id"])
+
+        self.assertEqual(upgrade_database(), [v20261027_submission_mode_nullable.VERSION])
+        self.assertEqual(upgrade_database(), [])
+        with cursor() as cur:
+            cur.execute("SELECT * FROM submissions WHERE id = %s", (existing["id"],))
+            self.assertEqual(cur.fetchone(), existing)
+
+        for via_menu in (False, True):
+            for index, (participation, expected_status, expected_prompt) in enumerate((
+                ("RUNNER", "distance", "send_distance_buttons"),
+                ("WALKER", "walk", "send_text"),
+                ("BOTH", "both_choice", "send_both_submission_buttons"),
+            )):
+                with self.subTest(via_menu=via_menu, participation=participation):
+                    member = self._insert_member(
+                        f"27804{int(via_menu)}{index}", participation_type=participation,
+                    )
+                    with patch.object(webhook, "ensure_tt_open", return_value=(True, None)), patch.object(
+                        webhook, "send_text"
+                    ) as text_reply, patch.object(webhook, "send_distance_buttons") as distances, patch.object(
+                        webhook, "send_both_submission_buttons"
+                    ) as choices, patch.object(webhook, "send_whats_new_once"):
+                        if via_menu:
+                            result = handle_submission_message(webhook, member["phone"], None, None, None, "SUBMIT", member)
+                            self.assertEqual(result, {"status": "await_code"})
+                            text_reply.assert_called_once()
+                            self.assertIsNone(submission_service.get_active_submission(member["id"]))
+                            text_reply.reset_mock()
+
+                        result = handle_submission_message(webhook, member["phone"], "5444", "5444", None, None, member)
+                        self.assertEqual(result, {"status": f"code_ok_{expected_status}"})
+                        self.assertIn("You’re checked in", text_reply.call_args_list[0].args[1])
+                        if expected_prompt == "send_text":
+                            self.assertIn("Workout selected", text_reply.call_args_list[-1].args[1])
+                            distances.assert_not_called()
+                            choices.assert_not_called()
+                        elif expected_prompt == "send_distance_buttons":
+                            distances.assert_called_once_with(member["phone"])
+                            choices.assert_not_called()
+                        else:
+                            choices.assert_called_once_with(member["phone"])
+                            distances.assert_not_called()
+
+                    saved = submission_service.get_active_submission(member["id"])
+                    self.assertTrue(saved["tt_code_verified"])
+                    self.assertIsNone(saved["mode"])
+                    with cursor() as cur:
+                        cur.execute("SELECT COUNT(*) AS count FROM attendance WHERE member_id = %s", (member["id"],))
+                        self.assertEqual(cur.fetchone()["count"], 1)
 
     def test_queue_claim_uses_postgresql_skip_locked_across_two_workers(self):
         job_id = job_queue_service.enqueue_job("integration", {"kind": "claim"})

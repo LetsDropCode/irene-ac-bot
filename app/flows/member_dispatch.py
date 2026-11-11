@@ -1,9 +1,13 @@
 """Consent, onboarding, profile, and member menu routing."""
 
 from types import ModuleType
+from app.flows.season_flow import handle_season_message
 
 
 def handle_member_message(actions: ModuleType, sender: str, text: str | None, raw_text: str | None, button: dict | None, menu_action: str | None, member: dict | None):
+    ptype = button.get("id") if button else {
+        "RUNNER": "RUNNER", "RUN": "RUNNER", "WALKER": "WALKER", "WALK": "WALKER", "BOTH": "BOTH",
+    }.get(text)
     # Erasure removes inbound idempotency rows too. A retried confirmation must
     # remain silent instead of generating a fresh welcome/outbound PII record.
     if not member and text == "CONFIRM DELETE":
@@ -75,7 +79,7 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
     if not member:
         if text == "OK":
             member = actions.create_member(sender, popia_acknowledged=True)
-            actions.send_text(sender, "✅ Thanks. Please send your *first and last name* so I can set up your TT profile.")
+            actions.send_text(sender, "✅ *Step 1 of 3 — Your name*\nSend your first and last name (for example, Lindsay Bull). You can pause and continue later.")
             return {"status": "popia_ack"}
 
         if text in {"STOP", "NO", "NO THANKS", "DECLINE"}:
@@ -97,6 +101,8 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
             sender,
             (
                 f"🌳 *Welcome to Irene AC TT*\n_{actions.TAGLINE}._\n\n"
+                "Record your results, track your progress and see your personal bests. "
+                "Setup takes three short steps: name, participation and sharing.\n\n"
                 "Reply *OK* to create your TT profile and allow the bot to store "
                 "your profile and TT results.\n\n"
                 "Reply *NO THANKS* to leave without creating a profile. "
@@ -142,7 +148,14 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
     if not member.get("popia_acknowledged"):
         if text == "OK":
             actions.acknowledge_popia(sender)
-            actions.send_text(sender, "✅ Thanks. Please send your *first and last name* so I can set up your TT profile.")
+            if (member.get("first_name") not in {None, "", "Unknown"}
+                and member.get("last_name") and member.get("participation_type")
+                and member.get("leaderboard_visibility_set") is not False):
+                actions.send_text(sender, "✅ Welcome back. Your existing profile and results are still here. "
+                                  "Send MY SEASON for this year or MY HISTORY for previous results.")
+                actions.send_help_menu(sender, actions.is_admin(sender), dict(member, popia_acknowledged=True))
+            else:
+                actions.send_text(sender, "✅ Consent saved. Send HI to continue your saved profile setup.")
             return {"status": "popia_ack"}
 
         actions.send_text(
@@ -155,6 +168,8 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
             ),
         )
         return {"status": "popia"}
+
+    actions.send_season_welcome_once(sender, member)
 
     if menu_action == "MY_STREAK":
         actions.send_streak_summary(sender, member)
@@ -184,6 +199,10 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
     if profile_state == "ONBOARDING_LEADERBOARD" and text in {"CANCEL", "CANCEL PROFILE"}:
         actions.send_leaderboard_visibility_buttons(sender)
         return {"status": "onboarding_await_visibility"}
+
+    if profile_state == "ONBOARDING_PARTICIPATION" and text in {"CANCEL", "CANCEL PROFILE"}:
+        actions.send_text(sender, "Your setup is saved. Come back anytime and choose Runner, Walker or Both to continue.")
+        return {"status": "onboarding_paused"}
 
     if profile_state and text in {"CANCEL", "CANCEL PROFILE"}:
         actions.clear_profile_state(member["id"])
@@ -215,11 +234,10 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
         return {"status": "profile_name_updated"}
 
     if profile_state == "EDIT_PARTICIPATION":
-        if not button:
+        if not ptype:
             actions.send_participation_buttons(sender)
             return {"status": "profile_await_type"}
 
-        ptype = button.get("id")
         if ptype not in {"RUNNER", "WALKER", "BOTH"}:
             actions.send_participation_buttons(sender)
             return {"status": "profile_bad_type"}
@@ -230,22 +248,24 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
         return {"status": "profile_type_updated"}
 
     if profile_state == "ONBOARDING_PARTICIPATION":
-        if not button:
+        if not ptype:
             actions.send_participation_buttons(sender)
             return {"status": "onboarding_await_type"}
 
-        ptype = button.get("id")
         if ptype not in {"RUNNER", "WALKER", "BOTH"}:
             actions.send_participation_buttons(sender)
             return {"status": "onboarding_bad_type"}
 
         actions.save_onboarding_participation_and_advance(member["id"], ptype)
-        actions.send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
+        actions.send_text(sender, "✅ Participation saved. *Step 3 of 3 — Your sharing choice*")
         actions.send_leaderboard_visibility_buttons(sender)
         return {"status": "onboarding_await_visibility"}
 
     if profile_state == "ONBOARDING_LEADERBOARD":
-        visibility_button = button.get("id", "").lower().strip() if button else ""
+        visibility_button = button.get("id", "").lower().strip() if button else {
+            "PUBLIC": "onboarding_show_results", "SHOW MY RESULTS": "onboarding_show_results",
+            "PRIVATE": "onboarding_keep_private", "KEEP PRIVATE": "onboarding_keep_private",
+        }.get(text, "")
         if visibility_button not in {"onboarding_show_results", "onboarding_keep_private"}:
             actions.send_leaderboard_visibility_buttons(sender)
             return {"status": "onboarding_await_visibility"}
@@ -261,10 +281,15 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
             sender,
             "✅ Your TT profile is complete. "
             + ("Your results will stay private." if private else "Your results can appear on public leaderboards.")
-            + " Type MENU anytime to explore your options.",
+            + "\n\nAt TT, send the event code to check in, then record and confirm your result. "
+            "Your profile stays with you across seasons. Type HOW TT WORKS for a quick guide.",
         )
-        actions.send_help_menu(sender, actions.is_admin(sender), member)
+        actions.send_onboarding_next_steps(sender)
         return {"status": "profile_complete"}
+
+    season_result = handle_season_message(actions, sender, member, text if not button else None, menu_action)
+    if season_result is not None:
+        return season_result
 
     if menu_action in {"PROFILE", "EDIT_PROFILE"}:
         actions.send_user_profile(sender, member)
@@ -298,42 +323,37 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
         actions.send_irene_league_standings(sender)
         return {"status": "league_standings"}
 
-    if text in {"SEASON", "SEASON PB", "SEASON PBS"}:
-        actions.send_text(sender, "Season PBs has been replaced by Overall PBs.")
-        actions.send_leaderboards_menu(sender)
-        return {"status": "leaderboards_menu"}
-
     if (
         not member.get("first_name")
         or not member.get("last_name")
         or member["first_name"] == "Unknown"
     ):
-        if not raw_text or len(raw_text.split()) < 2:
-            actions.send_text(sender, "👋 Welcome. Please send your *first and last name* to set up your TT profile.")
+        if (not raw_text or len(raw_text.split()) < 2 or menu_action
+            or text in {"CANCEL", "CANCEL PROFILE", "NO THANKS"}):
+            actions.send_text(sender, "👋 *Step 1 of 3 — Your name*\nPlease send your first and last name to continue setup.")
             return {"status": "await_name"}
 
         parts = raw_text.split()
         actions.save_onboarding_name_and_advance(member["id"], parts[0], " ".join(parts[1:]))
 
-        actions.send_text(sender, "✅ Profile created. Now choose how you usually take part.")
+        actions.send_text(sender, "✅ Name saved. *Step 2 of 3 — How you take part*\nChoose Runner, Walker or Both. You can change this later.")
         actions.send_participation_buttons(sender)
         return {"status": "profile_done"}
 
     # Older profiles may have a saved name but no participation type. Completing
     # that profile is available at all times and never starts a TT submission.
     if not member.get("participation_type"):
-        if not button:
+        if not ptype:
             actions.set_profile_state(member["id"], "ONBOARDING_PARTICIPATION")
             actions.send_participation_buttons(sender)
             return {"status": "onboarding_await_type"}
 
-        ptype = button.get("id")
         if ptype not in {"RUNNER", "WALKER", "BOTH"}:
             actions.send_participation_buttons(sender)
             return {"status": "onboarding_bad_type"}
 
         actions.save_onboarding_participation_and_advance(member["id"], ptype)
-        actions.send_text(sender, "✅ Participation saved. Choose whether to share your TT results publicly.")
+        actions.send_text(sender, "✅ Participation saved. *Step 3 of 3 — Your sharing choice*")
         actions.send_leaderboard_visibility_buttons(sender)
         return {"status": "onboarding_await_visibility"}
 

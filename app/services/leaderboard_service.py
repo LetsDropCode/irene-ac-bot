@@ -3,6 +3,7 @@
 from datetime import date
 
 from app.db import get_cursor
+from app.services.season_service import season_bounds
 
 
 def _event_date_filter(event_date):
@@ -91,8 +92,14 @@ def get_checked_in_tt_member_phones(event_date):
 
         return [row["phone"] for row in cur.fetchall()]
 
-def get_overall_leaderboard(member_id=None, limit_per_distance=10):
-    params = [limit_per_distance]
+def get_overall_leaderboard(member_id=None, limit_per_distance=10, year=None):
+    # Omitted year deliberately retains the original all-time PB leaderboard.
+    season_filter = ""
+    params = []
+    if year is not None:
+        season_filter = "AND s.event_date >= %s AND s.event_date < %s"
+        params.extend(season_bounds(year))
+    params.append(limit_per_distance)
 
     viewer_filter = ""
     if member_id is not None:
@@ -119,6 +126,7 @@ def get_overall_leaderboard(member_id=None, limit_per_distance=10):
                 AND s.distance_text IS NOT NULL
                 AND s.distance_text <> ''
                 AND s.activity = 'TT'
+                {season_filter}
                 AND (s.mode = 'RUN' OR s.mode IS NULL)
                 AND m.leaderboard_visibility_set = TRUE
                 AND COALESCE(m.leaderboard_opt_out, FALSE) = FALSE

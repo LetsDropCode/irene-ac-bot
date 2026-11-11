@@ -22,11 +22,14 @@ MENU_ACTIONS = {
     "2": "PROFILE",
     "PROFILE": "PROFILE",
     "MY PROFILE": "PROFILE",
-    "3": "PROGRESS",
+    "3": "SEASON",
     "PROGRESS": "PROGRESS",
     "MY PROGRESS": "PROGRESS",
     "STATS": "PROGRESS",
     "MY STATS": "PROGRESS",
+    "MY PBS": "MY_PBS",
+    "MY ALL-TIME PBS": "MY_PBS",
+    "HOW TT WORKS": "HOW_TT_WORKS",
     "4": "LEADERBOARDS",
     "LEADERBOARD": "LEADERBOARDS",
     "LEADERBOARDS": "LEADERBOARDS",
@@ -121,6 +124,11 @@ INTERACTIVE_ACTIONS = {
     "menu_submit": "SUBMIT",
     "menu_profile": "PROFILE",
     "menu_progress": "PROGRESS",
+    "menu_season": "SEASON",
+    "menu_history": "MEMBER_HISTORY",
+    "menu_my_pbs": "MY_PBS",
+    "menu_how_tt_works": "HOW_TT_WORKS",
+    "leaderboard_season": "SEASON_LEADERBOARD",
     "menu_leaderboard": "LEADERBOARDS",
     "leaderboard_tonight": "TONIGHT_LEADERBOARD",
     "leaderboard_overall": "OVERALL_LEADERBOARD",
@@ -166,6 +174,15 @@ def is_help_command(text: str) -> bool:
 
 
 def resolve_menu_action(text: str, admin: bool = False):
+    if text:
+        if text == "MY HISTORY" or text.startswith("MY HISTORY ") or (
+            not admin and (text == "HISTORY" or text.startswith("HISTORY "))
+        ):
+            return "MEMBER_HISTORY"
+        if text.startswith(("SEASON LEADERBOARD", "SEASON PB")):
+            return "SEASON_LEADERBOARD"
+        if text in {"SEASON", "MY SEASON"} or text.startswith(("SEASON ", "MY SEASON ")):
+            return "SEASON"
     if admin and text in ADMIN_TEXT_ACTIONS:
         return ADMIN_TEXT_ACTIONS[text]
     return MENU_ACTIONS.get(text)
@@ -181,13 +198,15 @@ def format_help_menu(admin: bool = False) -> str:
         "Reply with a number or command:\n\n"
         "1 - Submit TT result\n"
         "2 - My profile\n"
-        "3 - My progress\n"
+        "3 - My season\n"
         "4 - Leaderboards\n"
         "5 - Overall PBs\n"
         "6 - The Irene Shop\n"
         "7 - Irene League Standings\n"
         "8 - Stop leaderboard sharing\n"
         "9 - Start leaderboard sharing\n\n"
+        "Seasons: MY SEASON, MY HISTORY, MY PBS, SEASON LEADERBOARD\n"
+        "Getting started: HOW TT WORKS\n"
         "Privacy: PRIVACY, MY DATA, DELETE MY DATA\n"
         "Extras: MY STREAK, REMINDERS ON/OFF, MILESTONES ON/OFF\n\n"
         "Tip: you can send HELP anytime."

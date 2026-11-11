@@ -38,7 +38,7 @@ def _format_walker_progress(first_name: str, total: int, latest) -> str:
     lines = [
         f"🚶 *{first_name}, your walking progress*",
         "",
-        f"Activities logged: {total}",
+        f"Lifetime activities logged: {total}",
         f"Latest: {_format_latest(latest)}",
     ]
 
@@ -72,7 +72,7 @@ def format_progress(member: dict, data: dict) -> str:
     lines = [
         f"📈 *{first_name}, your progress*",
         "",
-        f"TT activities: {total}",
+        f"Lifetime TT activities: {total}",
         f"Latest: {_format_latest(latest)}",
     ]
 
@@ -84,7 +84,7 @@ def format_progress(member: dict, data: dict) -> str:
         lines.append("Next milestone: keep building that legacy")
 
     if pbs:
-        lines.extend(["", "🥇 *PBs*"])
+        lines.extend(["", "🥇 *All-time PBs*"])
         for pb in pbs:
             lines.append(f"{pb['distance_text']}km — {_format_seconds(pb['best_seconds'])}")
 
