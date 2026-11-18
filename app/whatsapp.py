@@ -8,12 +8,13 @@ import requests
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Dict, Any
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from app.services.validation import time_to_seconds
 from app.services.insight_services import seconds_to_pace
 from app.branding import SHORT_BRAND_NAME, TAGLINE, WHATSAPP_FOOTER
+from app import config
+from app.meta_api import graph_base_url, MetaSendError, response_error
+from app.native_messages import reply_buttons, selection_list
 from app.config import PHONE_NUMBER_ID, WHATSAPP_TOKEN, WHATSAPP_ADMIN_DATE_FLOW_ID
 
 CONNECT_TIMEOUT = float(os.getenv("WHATSAPP_CONNECT_TIMEOUT", "2"))
@@ -21,6 +22,18 @@ READ_TIMEOUT = float(os.getenv("WHATSAPP_READ_TIMEOUT", "5"))
 
 _session = requests.Session()
 logger = logging.getLogger(__name__)
+_outbound_job_id = ContextVar("outbound_job_id", default=None)
+
+
+@contextmanager
+def outbound_job(job_id):
+    token = _outbound_job_id.set(job_id)
+    try:
+        yield
+    finally:
+        _outbound_job_id.reset(token)
+
+
 _inbound_delivery = ContextVar("inbound_delivery", default=None)
 
 
@@ -35,6 +48,20 @@ def queue_inbound_replies(message_id: str | None):
         _inbound_delivery.reset(token)
 
 
+def current_reply_key():
+    state = _inbound_delivery.get()
+    if state and state["message_id"]:
+        return f"{state['message_id']}:{state['sequence']}"
+    return None
+
+
+def collect_reply_job(job_id):
+    state = _inbound_delivery.get()
+    if state:
+        state["job_ids"].append(job_id)
+        state["sequence"] += 1
+
+
 def _mask_phone(value: str | None) -> str:
     if not value:
         return "unknown"
@@ -44,7 +71,7 @@ def _mask_phone(value: str | None) -> str:
 
 
 def _graph_url() -> str:
-    return f"https://graph.facebook.com/v22.0/{PHONE_NUMBER_ID}/messages"
+    return f"{graph_base_url(config.WHATSAPP_GRAPH_API_VERSION)}/{PHONE_NUMBER_ID}/messages"
 
 
 def _format_confirmation_body(distance: str, time: str) -> str:
@@ -110,13 +137,16 @@ def _send_direct(payload: Dict[str, Any]) -> bool:
             bool(WHATSAPP_TOKEN),
             bool(PHONE_NUMBER_ID),
         )
-        return False
+        raise MetaSendError("configuration", permanent=True)
 
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json",
     }
 
+    job_id = _outbound_job_id.get()
+    if config.WHATSAPP_DELIVERY_STATUS_ENABLED and job_id is not None:
+        payload = {**payload, "biz_opaque_callback_data": f"job:{job_id}"}
     try:
         response = _session.post(
             _graph_url(),
@@ -125,24 +155,27 @@ def _send_direct(payload: Dict[str, Any]) -> bool:
             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
         )
 
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            data = {}
         if not response.ok:
-            logger.warning(
-                "WhatsApp send failed: status=%s to=%s",
-                response.status_code,
-                _mask_phone(recipient),
-            )
-        else:
-            logger.info(
-                "WhatsApp send succeeded: status=%s to=%s",
-                response.status_code,
-                _mask_phone(recipient),
-            )
-
-        return response.ok
-
-    except requests.RequestException as e:
-        logger.exception("WhatsApp send exception to=%s: %s", _mask_phone(recipient), e)
-        return False
+            raise response_error(response.status_code, data)
+        logger.info("WhatsApp API accepted message: type=%s", message_type)
+        if config.WHATSAPP_DELIVERY_STATUS_ENABLED and job_id is not None:
+            from app.services.delivery_status_service import record_acceptance
+            try:
+                messages = data.get("messages", []) if isinstance(data, dict) else []
+                for message in messages:
+                    record_acceptance(job_id, message.get("id"))
+            except Exception:
+                # The send succeeded. A diagnostic write failure must never
+                # retry the message; signed callbacks can repair correlation.
+                logger.error("Could not record API acceptance; awaiting status callback")
+        return True
+    except requests.RequestException:
+        # Exception strings may contain URLs, headers or echoed request data.
+        raise MetaSendError("network") from None
 
 
 # ─────────────────────────────────────────────
@@ -178,6 +211,8 @@ def send_image(to: str, image_url: str, caption: str | None = None) -> bool:
 # ─────────────────────────────────────────────
 def send_main_menu_list(to: str, admin: bool = False, member: dict | None = None) -> bool:
     """Send the member menu using the already-loaded sharing preference."""
+    if config.WHATSAPP_NATIVE_UX_ENABLED:
+        return send_native_main_menu(to, admin=admin)
     rows = [
         {
             "id": "menu_submit",
@@ -478,42 +513,15 @@ def send_admin_confirm_correction_buttons(to: str, body: str) -> bool:
 
 
 def send_admin_date_calendar(to: str, member_name: str, flow_token: str) -> bool:
-    if not WHATSAPP_ADMIN_DATE_FLOW_ID:
+    if not (config.WHATSAPP_FLOWS_ENABLED and config.WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED
+            and WHATSAPP_ADMIN_DATE_FLOW_ID):
         return False
-    return _send({
-        "messaging_product": "whatsapp", "to": to, "type": "interactive",
-        "interactive": {
-            "type": "flow",
-            "body": {"text": f"*Add missed TT: {member_name}*\n\nOpen the calendar to choose the TT date. Type CANCEL anytime."},
-            "action": {
-                "name": "flow",
-                "parameters": {
-                    "flow_message_version": "3",
-                    "flow_id": WHATSAPP_ADMIN_DATE_FLOW_ID,
-                    "flow_token": flow_token,
-                    "flow_cta": "Choose TT date",
-                    "flow_action": "navigate",
-                    "flow_action_payload": {
-                        "screen": "TT_DATE",
-                        "data": {"max_date": datetime.now(ZoneInfo("Africa/Johannesburg")).date().isoformat()},
-                    },
-                },
-            },
-        },
-    })
+    from app.services.flow_session_service import launch_admin_calendar
+    return launch_admin_calendar(to, member_name, flow_token, WHATSAPP_ADMIN_DATE_FLOW_ID)
 
 
 def send_admin_submission_buttons(to: str, body: str, choices: list[tuple[str, str]]) -> bool:
-    return _send({
-        "messaging_product": "whatsapp", "to": to, "type": "interactive",
-        "interactive": {
-            "type": "button", "body": {"text": body},
-            "action": {"buttons": [
-                {"type": "reply", "reply": {"id": reply_id, "title": title}}
-                for reply_id, title in choices
-            ]},
-        },
-    })
+    return _send(reply_buttons(to, body, choices))
 
 
 def send_admin_member_center_buttons(to: str, body: str) -> bool:
@@ -849,3 +857,55 @@ def send_admin_workflow_list(to, body, rows):
                       "button": "Choose", "sections": [{"title": "Admin options", "rows": [
                           {"id": key, "title": title, "description": description}
                           for key, title, description in rows]}]}}})
+
+
+def send_native_main_menu(to, admin=False):
+    options = [
+        ("menu_submit", "Submit TT result", "Check in and record your run or walk."),
+        ("menu_profile", "My profile", "View or edit your details."),
+        ("menu_progress_hub", "My progress and season", "Progress, season and personal bests."),
+        ("menu_history", "My history", "Your results across all seasons."),
+        ("menu_leaderboard", "Leaderboards", "Tonight, season and all-time results."),
+        ("menu_activities", "Club activities", "Tuesday TT and club programmes."),
+        ("menu_shop", "Irene Shop", "Club merchandise."),
+        ("menu_league_standings", "Irene League", "League standings."),
+        ("menu_privacy", "Privacy choices", "Sharing, consent, data and deletion."),
+    ]
+    sections = [{"title": "Member options", "rows": [
+        {"id": key, "title": title, "description": description} for key, title, description in options]}]
+    if admin:
+        sections.append({"title": "Administration", "rows": [{"id": "admin_menu", "title": "Admin tools"}]})
+    return _send(selection_list(to, "What would you like to do?", sections, button="Open menu",
+                                header=f"🌳 {SHORT_BRAND_NAME}", footer="Type HELP anytime."))
+
+
+def send_progress_menu(to):
+    if not config.WHATSAPP_NATIVE_UX_ENABLED:
+        return send_text(to, "Send MY PROGRESS, MY SEASON, MY PBS or MY HISTORY. MENU returns to the main menu.")
+    return _send(selection_list(to, "Explore your progress.", [{"title": "Your running", "rows": [
+        {"id": "menu_progress", "title": "My progress"},
+        {"id": "menu_season", "title": "My season"},
+        {"id": "menu_my_pbs", "title": "My personal bests"},
+        {"id": "menu_history", "title": "My history"},
+        {"id": "back_menu", "title": "Main menu"},
+    ]}]))
+
+
+def send_club_activities(to):
+    if not config.WHATSAPP_NATIVE_UX_ENABLED:
+        return send_text(to, "Send HOW TT WORKS for Tuesday TT, or MENU for club links.")
+    return _send(reply_buttons(to, "Tuesday TT: check in with the event code at the club. "
+                              "Festive hosting registration is not open in this bot yet.", [
+        ("menu_how_tt_works", "How TT works"), ("menu_submit", "Submit TT result"), ("back_menu", "Main menu")]))
+
+
+def send_contextual_text(to, body, context):
+    choices = {
+        "result": [("menu_progress", "View progress"), ("menu_leaderboard", "Leaderboard"), ("back_menu", "Main menu")],
+        "progress": [("menu_my_pbs", "My personal bests"), ("menu_history", "My history"), ("back_menu", "Main menu")],
+        "profile": [("menu_profile", "View profile"), ("back_menu", "Main menu")],
+    }
+    # Keep a single message even when a rich summary exceeds interactive limits.
+    if config.WHATSAPP_NATIVE_UX_ENABLED and len(body) <= 1024:
+        return _send(reply_buttons(to, body, choices[context]))
+    return send_text(to, body)

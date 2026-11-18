@@ -47,6 +47,9 @@ from app.whatsapp import (
     queue_inbound_replies,
     send_image,
     send_text,
+    send_contextual_text as _send_contextual_text,
+    send_progress_menu,
+    send_club_activities,
     send_distance_buttons,
     send_confirm_buttons,
     send_workout_confirm_buttons,
@@ -392,6 +395,13 @@ def recover_tonight(sender: str):
     return len(rows)
 
 
+def send_contextual_text(sender, body, context):
+    from app import config
+    if config.WHATSAPP_NATIVE_UX_ENABLED:
+        return _send_contextual_text(sender, body, context)
+    return send_text(sender, body)
+
+
 def send_user_profile(sender: str, member: dict):
     data = get_user_profile(member["id"])
     send_profile_buttons(sender, format_profile(member, data))
@@ -399,8 +409,8 @@ def send_user_profile(sender: str, member: dict):
 
 def send_user_progress(sender: str, member: dict):
     data = get_user_profile(member["id"])
-    send_text(sender, f"{format_progress(member, data)}{monthly_goal_suffix(member['id'])}\n\n"
-              "MY RECAP — last month's summary. Type MENU to go back.")
+    send_contextual_text(sender, f"{format_progress(member, data)}{monthly_goal_suffix(member['id'])}\n\n"
+              "MY RECAP — last month's summary. Type MENU to go back.", "progress")
 
 
 def monthly_goal_suffix(member_id: int):
@@ -444,7 +454,7 @@ def send_season_welcome_once(sender: str, member: dict | None):
 
 
 def send_member_season(sender: str, member: dict, year=None):
-    send_text(sender, format_season_summary(get_season_summary(member["id"], year)))
+    send_contextual_text(sender, format_season_summary(get_season_summary(member["id"], year)), "progress")
 
 
 def send_member_history(sender: str, member: dict, year=None, page=1):
@@ -889,7 +899,7 @@ def send_post_confirm_messages(
                       "MY SEASON tracks this year; MY PBS keeps your all-time bests. "
                       "Optional unfinished-result reminders: REMINDERS ON."])
     lines.extend(["", "Type MENU for more options, MY SEASON for this year, or MY HISTORY for past results."])
-    if send_text(sender, "\n".join(lines)) is False:
+    if send_contextual_text(sender, "\n".join(lines), "result") is False:
         raise RuntimeError("WhatsApp post-confirm reply was not accepted")
 
 
@@ -917,19 +927,9 @@ def extract_whatsapp_message(payload: dict):
             interactive = msg.get("interactive", {})
             button = interactive.get("button_reply") or interactive.get("list_reply")
             if interactive.get("type") == "nfm_reply":
-                # Flow replies still pass through normal signature checks,
-                # idempotency, admin authorization and per-draft token checks.
-                try:
-                    flow_data = json.loads(interactive.get("nfm_reply", {}).get("response_json", "{}"))
-                except (ValueError, TypeError):
-                    flow_data = {}
-                if not isinstance(flow_data, dict):
-                    flow_data = {}
-                button = {
-                    "id": "admin_add_calendar",
-                    "flow_token": flow_data.get("flow_token"),
-                    "event_date": flow_data.get("event_date"),
-                }
+                from app.services.flow_session_service import parse_completion
+                button = {"id": "flow_complete", "response": parse_completion(
+                    interactive.get("nfm_reply", {}).get("response_json"))}
 
         message_kind = "button" if button else "text" if text else "unknown"
         button_id = button.get("id") if button else None
@@ -938,7 +938,7 @@ def extract_whatsapp_message(payload: dict):
             message_id or "none",
             _mask_phone(sender),
             message_kind,
-            button_id,
+            "present" if button_id else "none",
         )
         return message_id, sender, text, button
 
@@ -948,6 +948,31 @@ def extract_whatsapp_message(payload: dict):
 
 
 def process_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
+    from app import config
+    from app.services.delivery_status_service import record_status
+    results = []
+    entries = payload.get("entry", []) if isinstance(payload, dict) else []
+    for entry in entries if isinstance(entries, list) else []:
+        changes = entry.get("changes", []) if isinstance(entry, dict) else []
+        for change in changes if isinstance(changes, list) else []:
+            if not isinstance(change, dict) or change.get("field", "messages") != "messages":
+                continue
+            value = change.get("value", {})
+            if not isinstance(value, dict):
+                continue
+            if config.WHATSAPP_DELIVERY_STATUS_ENABLED:
+                statuses = value.get("statuses", [])
+                for event in statuses if isinstance(statuses, list) else []:
+                    record_status(event)
+            messages = value.get("messages", [])
+            for message in messages if isinstance(messages, list) else []:
+                if isinstance(message, dict):
+                    single = {"entry": [{"changes": [{"value": {"messages": [message]}}]}]}
+                    results.append(_process_single_webhook_payload(single, background_tasks))
+    return results[0] if len(results) == 1 else {"status": "batch", "results": results} if results else {"status": "ignored"}
+
+
+def _process_single_webhook_payload(payload: dict, background_tasks: BackgroundTasks):
     started = perf_counter()
     message_id, sender, text, button = extract_whatsapp_message(payload)
 
@@ -1071,5 +1096,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         logger.warning("Rejected webhook with invalid signature")
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
-    payload = json.loads(raw_body)
+    try:
+        payload = json.loads(raw_body)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON") from None
     return await run_in_threadpool(process_webhook_payload, payload, background_tasks)

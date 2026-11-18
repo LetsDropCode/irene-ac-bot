@@ -34,10 +34,11 @@ class PrivacyServiceTests(unittest.TestCase):
         self.assertIn("popia_acknowledged = FALSE", cursor.statements[0][0])
         self.assertIn("leaderboard_opt_out = TRUE", cursor.statements[0][0])
         self.assertIn("profile_state = %s", cursor.statements[0][0])
-        self.assertEqual(cursor.statements[1][1], ("42", "27999999999", "27999999999"))
-        self.assertIn("DELETE FROM job_queue", cursor.statements[1][0])
-        self.assertIn("q.dedupe_key LIKE", cursor.statements[2][0])
-        self.assertIn(":%%", cursor.statements[2][0])
+        self.assertIn("DELETE FROM whatsapp_flow_sessions", cursor.statements[1][0])
+        self.assertEqual(cursor.statements[2][1], ("42", "27999999999", "27999999999"))
+        self.assertIn("DELETE FROM job_queue", cursor.statements[2][0])
+        self.assertIn("q.dedupe_key LIKE", cursor.statements[3][0])
+        self.assertIn(":%%", cursor.statements[3][0])
 
     def test_erasure_requires_pending_confirmation(self):
         cursor = RecordingCursor([None])
@@ -54,16 +55,17 @@ class PrivacyServiceTests(unittest.TestCase):
 
         sql = [statement for statement, _ in cursor.statements]
         self.assertIn("FOR UPDATE", sql[0])
-        self.assertIn("DELETE FROM job_queue", sql[1])
-        self.assertIn("q.dedupe_key LIKE", sql[2])
-        self.assertIn("UPDATE inbound_whatsapp_messages SET sender = NULL", sql[3])
-        self.assertIn("status = 'PROCESSED'", sql[3])
-        self.assertIn("DELETE FROM member_self_corrections", sql[4])
-        self.assertIn("DELETE FROM admin_corrections", sql[5])
-        self.assertIn("UPDATE admin_corrections SET admin_member_id = NULL", sql[6])
-        self.assertIn("DELETE FROM attendance", sql[7])
-        self.assertIn("DELETE FROM submissions", sql[8])
-        self.assertIn("DELETE FROM members", sql[9])
+        self.assertIn("DELETE FROM whatsapp_flow_sessions", sql[1])
+        self.assertIn("DELETE FROM job_queue", sql[2])
+        self.assertIn("q.dedupe_key LIKE", sql[3])
+        self.assertIn("UPDATE inbound_whatsapp_messages SET sender = NULL", sql[4])
+        self.assertIn("status = 'PROCESSED'", sql[4])
+        self.assertIn("DELETE FROM member_self_corrections", sql[5])
+        self.assertIn("DELETE FROM admin_corrections", sql[6])
+        self.assertIn("UPDATE admin_corrections SET admin_member_id = NULL", sql[7])
+        self.assertIn("DELETE FROM attendance", sql[8])
+        self.assertIn("DELETE FROM submissions", sql[9])
+        self.assertIn("DELETE FROM members", sql[10])
 
     def test_cancel_does_not_restore_consent(self):
         cursor = RecordingCursor([{"id": 42}])

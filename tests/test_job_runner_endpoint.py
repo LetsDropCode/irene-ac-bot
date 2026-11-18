@@ -11,7 +11,7 @@ from app import main
 
 class JobRunnerEndpointTests(unittest.TestCase):
     def test_run_jobs_processes_batch_with_valid_token(self):
-        with patch.object(main, "JOB_RUNNER_TOKEN", "secret"), patch.object(
+        with patch.object(main, "prune_native_diagnostics") as prune, patch.object(main, "JOB_RUNNER_TOKEN", "secret"), patch.object(
             main,
             "JOB_RUNNER_BATCH_SIZE",
             7,
@@ -23,6 +23,7 @@ class JobRunnerEndpointTests(unittest.TestCase):
             result = main.run_jobs(x_job_token="secret")
 
         self.assertEqual(result, {"status": "ok", "processed": 4, "reminder_candidates": 2, "recap_candidates": 3, "monthly_email_candidates": 1})
+        prune.assert_called_once_with()
         reminders.assert_called_once_with()
         recaps.assert_called_once_with()
         email.assert_called_once_with()

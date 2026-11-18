@@ -20,6 +20,7 @@ def get_member_result_history(member_id: int):
 
 
 def _remove_queued_member_messages(cur, member_id: int, phone: str) -> None:
+    cur.execute("DELETE FROM whatsapp_flow_sessions WHERE member_id = %s", (member_id,))
     # Both follow-up jobs and serialized WhatsApp sends can contain member data.
     # Completed/failed jobs are removed too; otherwise their payloads retain it.
     cur.execute(

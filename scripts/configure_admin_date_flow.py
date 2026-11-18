@@ -14,16 +14,20 @@ from dotenv import dotenv_values
 ROOT = Path(__file__).resolve().parents[1]
 FLOW_NAME = "irene_admin_tt_calendar_v1"
 ASSET = ROOT / "app/flows/assets/admin_tt_date.json"
-BASE = "https://graph.facebook.com/v22.0"
+sys.path.insert(0, str(ROOT))
+from app.meta_api import graph_base_url
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--waba-id", required=True)
-    parser.add_argument("--publish", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--publish", action="store_true")
+    mode.add_argument("--inspect", action="store_true", help="Read status and health only; never create or upload")
     args = parser.parse_args()
     import os
     values = {**dotenv_values(ROOT / ".env"), **os.environ}
+    base = graph_base_url(values.get("WHATSAPP_GRAPH_API_VERSION", "v22.0"))
     token = values.get("WHATSAPP_TOKEN")
     phone_id = values.get("PHONE_NUMBER_ID")
     if not token or not phone_id:
@@ -32,12 +36,11 @@ def main():
     session.headers["Authorization"] = "Bearer " + token
 
     def request(method, path, **kwargs):
-        response = session.request(method, BASE + "/" + path, timeout=30, **kwargs)
+        response = session.request(method, base + "/" + path, timeout=30, **kwargs)
         data = response.json()
         if not response.ok:
             error = data.get("error", {})
-            message = str(error.get("message", "Request failed")).replace(token, "[redacted]")
-            raise RuntimeError(f"Meta API error {error.get('code')}: {message}")
+            raise RuntimeError(f"Meta API error code={error.get('code')} subcode={error.get('error_subcode')}")
         return data
 
     def rows(path, fields):
@@ -57,6 +60,17 @@ def main():
     flows = [row for row in rows(f"{args.waba_id}/flows", "id,name,status") if row["name"] == FLOW_NAME]
     if len(flows) > 1:
         raise RuntimeError("Multiple matching calendar Flows exist; select the intended Flow in WhatsApp Manager")
+    if args.inspect:
+        if not flows:
+            print("No matching calendar Flow exists; nothing changed.")
+            return
+        status = request("GET", flows[0]["id"], params={"fields": "id,status,validation_errors,health_status"})
+        print("Flow status:", status.get("status"))
+        print("Validation errors present:", bool(status.get("validation_errors")))
+        health = status.get("health_status") or {}
+        print("Can send:", health.get("can_send_message", "UNKNOWN"))
+        print("Inspect detailed health in WhatsApp Manager. No configuration changed.")
+        return
     flow = flows[0] if flows else request("POST", f"{args.waba_id}/flows", data={
         "name": FLOW_NAME, "categories": json.dumps(["OTHER"]),
     })

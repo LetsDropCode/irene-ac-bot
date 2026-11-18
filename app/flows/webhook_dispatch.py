@@ -12,6 +12,15 @@ from app.flows.submission_dispatch import handle_submission_message
 
 
 def route_message(actions: ModuleType, sender: str, text: str | None, button: dict | None):
+    if button and button.get("id") == "flow_complete":
+        from app.services.flow_session_service import complete_flow
+        from app.whatsapp import collect_reply_job
+        status, job_id = complete_flow(sender, button.get("response", {}))
+        if job_id:
+            collect_reply_job(job_id)
+        elif status != "duplicate":
+            actions.send_text(sender, "That form is unavailable or has expired. Use the current prompt, type the date as YYYY-MM-DD, or send MENU.")
+        return {"status": "flow_" + status}
     raw_text = text.strip() if text else None
     if text:
         text = raw_text.upper()

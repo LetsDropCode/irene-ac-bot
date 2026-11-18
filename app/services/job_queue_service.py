@@ -270,6 +270,8 @@ def _claim_next_job(job_ids: list[int] | None = None):
 
 
 def _run_job(job: dict):
+    if job["job_type"] == JOB_WHATSAPP_SEND:
+        job = {**job, "payload": {**job["payload"], "_queue_job_id": job["id"]}}
     try:
         if job["job_type"] == JOB_POST_CONFIRM_MESSAGES:
             from app.whatsapp import queue_inbound_replies
@@ -308,7 +310,7 @@ def _run_job(job: dict):
 
 
 def _mark_job_failed(job: dict, exc: Exception):
-    next_status = "FAILED" if job["attempts"] >= job["max_attempts"] else "PENDING"
+    next_status = "FAILED" if getattr(exc, "permanent", False) or job["attempts"] >= job["max_attempts"] else "PENDING"
     retry_minutes = min(job["attempts"], 5)
 
     with get_cursor() as cur:
@@ -320,6 +322,10 @@ def _mark_job_failed(job: dict, exc: Exception):
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
         """, (next_status, retry_minutes, str(exc), job["id"]))
+    if (next_status == "FAILED" and job.get("job_type") == JOB_WHATSAPP_SEND
+        and job.get("payload", {}).get("payload", {}).get("interactive", {}).get("type") == "flow"):
+        from app.services.flow_session_service import queue_calendar_fallback
+        queue_calendar_fallback(job["id"])
 
 
 def _dispatch_job(job_type: str, payload: dict):
@@ -368,8 +374,21 @@ def _dispatch_job(job_type: str, payload: dict):
 
     if job_type == JOB_WHATSAPP_SEND:
         whatsapp = importlib.import_module("app.whatsapp")
-        if not whatsapp._send_direct(payload["payload"]):
-            raise RuntimeError("WhatsApp send returned false")
+        with whatsapp.outbound_job(payload.get("_queue_job_id")):
+            if payload.get("flow_session_hash"):
+                from app import config
+                from app.services.flow_session_service import flow_delivery_guard
+                if (payload["payload"].get("interactive", {}).get("type") == "flow"
+                    and not config.WHATSAPP_FLOWS_ENABLED):
+                    return
+                with flow_delivery_guard(payload["flow_session_hash"], payload["payload"]["to"]) as allowed:
+                    if not allowed:
+                        return
+                    sent = whatsapp._send_direct(payload["payload"])
+            else:
+                sent = whatsapp._send_direct(payload["payload"])
+            if not sent:
+                raise RuntimeError("WhatsApp send returned false")
         return
 
     raise ValueError(f"Unknown job type: {job_type}")

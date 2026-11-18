@@ -1,6 +1,9 @@
 HELP_COMMANDS = {"HELP", "MENU", "START", "\\HELP", "/HELP", "?"}
 
 MENU_ACTIONS = {
+    "CLUB ACTIVITIES": "ACTIVITIES",
+    "ACTIVITIES": "ACTIVITIES",
+    "PROGRESS MENU": "PROGRESS_HUB",
     "1": "SUBMIT",
     "SUBMIT": "SUBMIT",
     "SUBMIT TT": "SUBMIT",
@@ -127,6 +130,8 @@ MENU_ACTIONS = {
 }
 
 INTERACTIVE_ACTIONS = {
+    "menu_progress_hub": "PROGRESS_HUB",
+    "menu_activities": "ACTIVITIES",
     "menu_submit": "SUBMIT",
     "menu_profile": "PROFILE",
     "menu_progress": "PROGRESS",

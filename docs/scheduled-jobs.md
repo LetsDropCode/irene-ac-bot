@@ -245,3 +245,12 @@ Production configuration inspection on 11 November 2026 found the five-minute
 Railway job runner, no monthly email cron in Railway or the local crontab,
 one report recipient, and no SMTP host, sender or login configuration. No email
 was sent during inspection. The new trigger must remain off until configured.
+
+## Native WhatsApp diagnostic retention
+
+The existing authenticated `/jobs/run` call now prunes delivery diagnostics older
+than 30 days and Flow sessions one day after expiry. This runs with feature flags
+off as well, so disabling a feature does not suspend cleanup. No additional
+Railway cron is required. Keep the existing five-minute worker enabled and alert
+on its failure. Privacy withdrawal/erasure removes member sessions and cascades
+diagnostics with deleted queue rows. Cleanup never changes TT results or attendance.
