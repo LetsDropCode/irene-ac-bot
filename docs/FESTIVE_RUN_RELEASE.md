@@ -4,6 +4,18 @@
 
 ## Configuration
 
+### Isolated Meta test setup (18 November 2026)
+
+Meta test phone `+1 555 193 5738` (ID `1524654827389567`) belongs to Test Messaging Account `1638834777722587`. Its separate public key was registered and read back as **VALID**; the returned key matches the locally generated RSA pair. The approved recipient is verified. The production number's key was not changed; its read-only audit still reports MISMATCH.
+
+Railway environment `festive-test` (`930b1b8f-9404-4bf2-8b42-20981603be2f`) was created empty. It uses a new private PostgreSQL service, `Postgres-xp5s`, with hostname `postgres-xp5s.railway.internal`; no production database was copied. The test web service uses the festive feature branch and custom start command `python -m app.festive_test_runtime` with `/ready` healthcheck.
+
+That separate entry point refuses any other environment ID, phone ID or database host before opening the database. It applies migrations only after these checks, creates a mode-0600 temporary private-key file from the test-only `FESTIVE_FLOW_PRIVATE_KEY_B64` secret, and runs the existing app behind an inbound WABA/phone/recipient filter. It adds a verified GET `/webhook` challenge handler and requires a job token even with `ENV=test`. Production's entry point remains unchanged. Required test secrets are the existing Meta app secret, the test-only access token, separate webhook verification/job tokens, and the test encryption key. No production WhatsApp token is used.
+
+Use a **test-WABA callback override** when subscribing this app; never edit the shared app-level production callback. Keep `FESTIVE_UAT_MODE=true` until the endpoint and three Flows pass Meta validation. Real device tests require the test deployment's send suppression to be disabled deliberately, while the test-only inbound guard remains active. Do not configure a scheduled runner or import member data for this initial test setup.
+
+Creating these resources does not establish successful deployment or Flow/device validation; record those checks only after their actual results are available. Local key material and the setup record are Git-ignored under `.env.festive-test.d/`.
+
 | Setting | Default / purpose |
 |---|---|
 | `FESTIVE_RUNS_ENABLED` | `false`; command, data-endpoint, scheduler and delivery kill switch |
