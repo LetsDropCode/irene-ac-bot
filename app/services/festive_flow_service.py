@@ -107,15 +107,11 @@ def load_session(cur, token, actor=None):
             "Invalid festive form. Send HOST, JOIN or MY RUNS to restart."
         )
     cur.execute(
-        "SELECT * FROM festive_run_sessions WHERE token_hash=%s FOR UPDATE",
+        "SELECT * FROM festive_run_sessions WHERE token_hash=%s AND expires_at>now() FOR UPDATE",
         (token_hash(token),),
     )
     session = cur.fetchone()
-    if (
-        not session
-        or session["expires_at"] <= domain.now()
-        or (actor is not None and session["member_id"] != actor)
-    ):
+    if not session or (actor is not None and session["member_id"] != actor):
         raise domain.FestiveError(
             "This form expired or belongs to another member. Start again."
         )

@@ -331,10 +331,16 @@ def withdraw_rsvp(cur, actor, day):
 def participant_notices(cur, row, kind):
     cur.execute(
         """INSERT INTO festive_run_notifications(run_slot_id,recipient_member_id,notification_type,idempotency_key,scheduled_for)
-        SELECT %s,member_id,%s,%s || member_id::text,now() FROM festive_run_rsvps
+        SELECT %s,member_id,%s,%s || member_id::text,%s FROM festive_run_rsvps
         WHERE run_slot_id=%s AND status='ACTIVE' AND reminder_opt_in
         ON CONFLICT (idempotency_key) DO NOTHING""",
-        (row["id"], kind, f"festive:{row['id']}:{kind}:{row['revision']}:", row["id"]),
+        (
+            row["id"],
+            kind,
+            f"festive:{row['id']}:{kind}:{row['revision']}:",
+            now(),
+            row["id"],
+        ),
     )
 
 
