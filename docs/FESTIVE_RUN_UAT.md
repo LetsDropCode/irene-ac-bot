@@ -73,7 +73,9 @@ Additional executed coverage includes missing templates, unknown/past dates, tim
 
 ## Account and device acceptance — NOT PASSED
 
-Read-only Meta audit: encryption signature status **MISMATCH**. Festive Flow IDs, endpoint private-key path and approved template are absent in local configuration. No Flow uploads, validation, publication, template creation or actual test-recipient messages were performed.
+Production read-only Meta audit remains **MISMATCH**, unchanged. Isolated test setup now has a **VALID** matching key, deployed HTTPS service with database readiness passing, and a verified test-WABA webhook override. All three Flow drafts passed Meta JSON validation with no errors. Meta's encrypted endpoint health check passed using the test phone's key. Host publication failed with account integrity error **139000 / 4233020**; all drafts remain unpublished. See the [release evidence](FESTIVE_RUN_RELEASE.md) for IDs and support trace. No template approval or actual test-recipient journey has passed, and festive sends remain suppressed.
+
+The isolated runtime guard suite also passed **3 tests**; the targeted festive rerun was **23 passed, 2 physical-device skips**. This is additional deployment-boundary coverage, not evidence of Android/iOS compatibility.
 
 Before production approval, use a separate approved Meta test number, test credentials, disposable database and only the named UAT volunteers. Keep the production number and database out of this environment. This task's UAT mode deliberately suppresses all sends; a future authorised device test must use an isolated test deployment with actual delivery enabled and controlled test recipients.
 

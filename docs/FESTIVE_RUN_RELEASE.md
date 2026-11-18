@@ -1,6 +1,6 @@
 # Festive Run controlled release
 
-**Status: code and local automated UAT prepared; NOT production-ready.** No deployment, production activation, production data mutation or WhatsApp messages were performed. The current release blockers are Meta encryption **MISMATCH**, unprovisioned festive Flows/template, unexecuted Meta validation and physical Android/iOS acceptance.
+**Status: isolated test service deployed; NOT production-ready.** The test key is VALID, Meta JSON validation passes for all three drafts, and Meta's encrypted endpoint health check passes. Sandbox Host publication is blocked by Meta integrity eligibility (139000 / 4233020). Production encryption remains MISMATCH and unchanged. No production deployment, activation, data mutation or WhatsApp message was performed. Template approval and physical Android/iOS acceptance remain outstanding.
 
 ## Configuration
 
@@ -14,7 +14,21 @@ That separate entry point refuses any other environment ID, phone ID or database
 
 Use a **test-WABA callback override** when subscribing this app; never edit the shared app-level production callback. Keep `FESTIVE_UAT_MODE=true` until the endpoint and three Flows pass Meta validation. Real device tests require the test deployment's send suppression to be disabled deliberately, while the test-only inbound guard remains active. Do not configure a scheduled runner or import member data for this initial test setup.
 
-Creating these resources does not establish successful deployment or Flow/device validation; record those checks only after their actual results are available. Local key material and the setup record are Git-ignored under `.env.festive-test.d/`.
+Verified deployment: `f1328f627cb3dfc50783df90c0c885fcf61356df`, CI and secret scan passed. Railway reports deployment successful; `https://festive-test-web-festive-test.up.railway.app/ready` returns `{"status":"ready","checks":{"database":"ok"}}`. The test app secret and test-only credentials are stored in this service. Meta accepted the test-WABA subscription and GET readback shows the override callback `https://festive-test-web-festive-test.up.railway.app/webhook` for app `1598641271311837`; the shared app callback was not edited.
+
+All three sandbox drafts were created with Flow JSON 7.3 / Data API 4.0 and returned `validation_errors: []`:
+
+| Flow | Test ID | Status |
+|---|---|---|
+| Host | `1143642411969020` | DRAFT |
+| RSVP | `1130983079810609` | DRAFT |
+| Manage | `3178619158994296` | DRAFT |
+
+In the Host draft's Endpoint tab, Meta's **Run Health check** returned **Endpoint is active / Health check request successful**, using public key from test phone `+1 (555) 193-5738`. This exercises the shared encrypted endpoint; it is not a complete device journey.
+
+Host publication returned **Blocked by Integrity**, code `139000`, subcode `4233020`, non-transient, user message **Integrity requirements not met.**, trace ID `AJykhsYsXNxoByenLWhvNeU`. No repeat publication was attempted for the other drafts. Account health additionally reports WABA payment warning `141006` and business verification warning `141010`; these do not establish which condition caused the integrity rejection or guarantee that adding payment will fix it. No billing, business verification or production settings were changed.
+
+Next account-owner action: review the test account's Flow eligibility with Meta support, supplying the app/WABA/Flow IDs and trace above, and ask whether free test-number dynamic Flows require further verification. Keep `FESTIVE_UAT_MODE=true` and `FESTIVE_FLOWS_READY=false` until resolved. Draft IDs are recorded here, not configured as published runtime IDs. No festive sends or scheduled runner are enabled. Local key material and the detailed setup record are Git-ignored under `.env.festive-test.d/`.
 
 | Setting | Default / purpose |
 |---|---|
@@ -33,7 +47,7 @@ Creating these resources does not establish successful deployment or Flow/device
 
 Existing `ENV`, `DATABASE_URL`, `WHATSAPP_APP_SECRET`/`META_APP_SECRET`, `WHATSAPP_TOKEN`, `PHONE_NUMBER_ID`, `ADMIN_NUMBERS`, `JOB_RUNNER_TOKEN` and deployment URL settings retain their meaning. No credentials or feature flags were written to `.env`. Only `cryptography` and its pinned runtime dependencies were added to requirements, for authenticated Flow encryption; formatting/runtime tools were installed outside the project in temporary directories.
 
-## Required Meta preparation (not executed)
+## Meta preparation checklist (execution status above)
 
 1. Inspect the existing business public key and its owner before rotating anything. Read-only audit returned MISMATCH. Resolve the mismatch with the account administrator; use a dedicated sandbox/test number first. Never rotate a production phone's key blindly, because other dynamic Flows may depend on it.
 2. Securely generate/load an RSA key pair, keep the private key outside Git and logs, upload/sign the matching public key through Meta's business-encryption API, and verify `business_public_key_signature_status=VALID`. Configure the matching private-key mount/password and Meta App secret in the test deployment.
