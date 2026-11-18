@@ -9,6 +9,7 @@ from app.config import ENV, JOB_RUNNER_BATCH_SIZE, JOB_RUNNER_TOKEN, validate_co
 from app.migrations import require_current_schema
 from app.services.health_service import get_readiness, get_system_health
 from app.services.job_queue_service import run_due_jobs
+from app.services.delivery_status_service import prune_native_diagnostics
 from app.services.incomplete_reminder_service import queue_incomplete_submission_reminders
 from app.services.monthly_engagement_service import queue_monthly_recaps
 from app.services.monthly_email_schedule_service import queue_monthly_attendance_email
@@ -85,6 +86,7 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
     if not JOB_RUNNER_TOKEN and ENV not in {"development", "test"}:
         raise HTTPException(status_code=503, detail="JOB_RUNNER_TOKEN is not configured")
 
+    prune_native_diagnostics()
     reminder_result = queue_incomplete_submission_reminders()
     recap_result = queue_monthly_recaps()
     email_result = queue_monthly_attendance_email()

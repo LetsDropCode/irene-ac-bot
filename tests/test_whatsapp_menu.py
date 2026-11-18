@@ -5,19 +5,15 @@ from app import whatsapp
 
 
 class WhatsAppMenuTests(unittest.TestCase):
-    def test_admin_calendar_uses_published_flow_and_current_sa_date(self):
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        with patch.object(whatsapp, "WHATSAPP_ADMIN_DATE_FLOW_ID", "12345"), patch.object(whatsapp, "_send", return_value=True) as send:
+    def test_admin_calendar_requires_publication_and_uses_session_service(self):
+        from app import config
+        with patch.object(whatsapp, "WHATSAPP_ADMIN_DATE_FLOW_ID", "12345"), patch.object(
+            config, "WHATSAPP_FLOWS_ENABLED", True
+        ), patch.object(config, "WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED", True), patch(
+            "app.services.flow_session_service.launch_admin_calendar", return_value=True
+        ) as launch:
             self.assertTrue(whatsapp.send_admin_date_calendar("2771", "Test Member", "session-token"))
-        payload = send.call_args.args[0]
-        self.assertEqual(payload["interactive"]["type"], "flow")
-        params = payload["interactive"]["action"]["parameters"]
-        self.assertEqual(params["flow_id"], "12345")
-        self.assertEqual(params["flow_token"], "session-token")
-        self.assertEqual(params["flow_action_payload"], {
-            "screen": "TT_DATE", "data": {"max_date": datetime.now(ZoneInfo("Africa/Johannesburg")).date().isoformat()},
-        })
+        launch.assert_called_once_with("2771", "Test Member", "session-token", "12345")
 
     def test_unconfigured_calendar_keeps_manual_entry_available(self):
         with patch.object(whatsapp, "WHATSAPP_ADMIN_DATE_FLOW_ID", ""), patch.object(whatsapp, "_send") as send:

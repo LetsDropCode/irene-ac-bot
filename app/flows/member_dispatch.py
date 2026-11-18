@@ -244,7 +244,7 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
         parts = raw_text.split()
         actions.save_member_name(member["id"], parts[0], " ".join(parts[1:]))
         actions.clear_profile_state(member["id"])
-        actions.send_text(sender, "✅ Name updated.")
+        actions.send_contextual_text(sender, "✅ Name updated.", "profile")
         return {"status": "profile_name_updated"}
 
     if profile_state == "EDIT_PARTICIPATION":
@@ -258,7 +258,7 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
 
         actions.save_participation_type(member["id"], ptype)
         actions.clear_profile_state(member["id"])
-        actions.send_text(sender, f"✅ Participation updated to {ptype.title()}.")
+        actions.send_contextual_text(sender, f"✅ Participation updated to {ptype.title()}.", "profile")
         return {"status": "profile_type_updated"}
 
     if profile_state == "ONBOARDING_PARTICIPATION":
@@ -304,6 +304,14 @@ def handle_member_message(actions: ModuleType, sender: str, text: str | None, ra
     season_result = handle_season_message(actions, sender, member, text if not button else None, menu_action)
     if season_result is not None:
         return season_result
+
+    if menu_action == "PROGRESS_HUB":
+        actions.send_progress_menu(sender)
+        return {"status": "progress_menu"}
+
+    if menu_action == "ACTIVITIES":
+        actions.send_club_activities(sender)
+        return {"status": "activities"}
 
     if menu_action in {"PROFILE", "EDIT_PROFILE"}:
         actions.send_user_profile(sender, member)

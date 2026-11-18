@@ -311,22 +311,43 @@ With `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` available, create and validate it:
 venv/bin/python scripts/configure_admin_date_flow.py --waba-id YOUR_WHATSAPP_BUSINESS_ACCOUNT_ID
 ```
 
-After validation, rerun with `--publish`, then set the returned
-`WHATSAPP_ADMIN_DATE_FLOW_ID` on the bot service and redeploy. The script checks
-that the account owns the bot phone number and reuses the named Flow on retries.
-It sends no messages. The picker limits selection to today or earlier in
-Africa/Johannesburg; the server validates the date again. Replies must match
-the authorized admin's current draft token and date step, so an old calendar
-cannot change a later entry.
+After explicit authorization for publication, rerun with `--publish`. Only after
+Meta reports `PUBLISHED` and account health permits sending, configure the
+returned `WHATSAPP_ADMIN_DATE_FLOW_ID`, `WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED=true`
+and `WHATSAPP_FLOWS_ENABLED=true` in the authorized environment. Both flags
+default false. The script checks phone ownership and reuses the named Flow.
+It sends no messages. Use `--inspect` for read-only status/health inspection.
 
-Setup status (2026-10-27): the bot's messaging/WABA ID is `4252184618398067`
-under business portfolio `806775448995714`. Calendar Flow `1654628596196144`
-passed Meta JSON validation, but publication was blocked with error `139000`.
-Flow health reports business verification incomplete (`141010`). Complete the
-portfolio's business verification in Meta Business Settings, then rerun the
-setup command with `--waba-id 4252184618398067 --publish`. Keep
-`WHATSAPP_ADMIN_DATE_FLOW_ID` unset until Meta reports `PUBLISHED`; manual date
-entry remains available in the meantime.
+The picker uses Africa/Johannesburg dates, with independent server validation.
+Replies now require an owner-bound, 30-minute, single-use session and the exact
+current conversation state. Missing/unverified configuration uses typed date
+entry. An undeliverable calendar can queue one manual prompt while its session
+is still current. See [Meta readiness](docs/WHATSAPP_META_READINESS.md).
+
+Historical setup status (27 October 2026): JSON validation succeeded, publication
+returned 139000 and health reported business verification issue 141010. This is
+not a current account-status check. The administrator must recheck verification,
+publication, ownership and health; no verification bypass is provided.
+
+## Native WhatsApp modernization (18 November 2026)
+
+This release is prepared for review, not deployed. Run the additive migrations
+before starting it. Graph URLs now use `WHATSAPP_GRAPH_API_VERSION` (default
+`v22.0`); `v27.0` is a controlled staging target, not the production default.
+Native UX, Flows and delivery diagnostics have independent default-off flags.
+Existing buttons/lists do not depend on those flags. The reserved rich-carousel
+flag has no active adapter.
+
+- [Capability audit](docs/WHATSAPP_NATIVE_UX_AUDIT.md)
+- [Implementation and festive hosting contract](docs/WHATSAPP_NATIVE_UX_IMPLEMENTATION.md)
+- [Meta prerequisites and configuration](docs/WHATSAPP_META_READINESS.md)
+- [Tests and evidence](docs/WHATSAPP_UX_TEST_MATRIX.md)
+- [Staged rollout and rollback](docs/WHATSAPP_ROLLOUT_ROLLBACK.md)
+
+The unchanged five-minute job runner also enforces native diagnostic retention.
+Do not remove its schedule after disabling flags. No historical TT data is
+migrated or recalculated. Authorization is still required for production
+configuration, deployment and merging.
 
 ## Scheduled Jobs
 

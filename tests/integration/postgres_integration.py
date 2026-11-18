@@ -640,7 +640,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             webhook, "ADMIN_NUMBERS", frozenset({admin["phone"]})
         ), patch.object(admin_submission_flow, "send_text"), patch.object(
             admin_submission_flow, "send_admin_submission_buttons"
-        ) as buttons, patch.object(admin_submission_flow, "send_admin_date_calendar", return_value=True) as calendar:
+        ) as buttons, patch.object(config, "WHATSAPP_FLOWS_ENABLED", True), patch.object(
+            config, "WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED", True
+        ), patch("app.whatsapp.WHATSAPP_ADMIN_DATE_FLOW_ID", "test-flow-id"), patch.object(
+            admin_submission_flow, "send_admin_date_calendar", wraps=admin_submission_flow.send_admin_date_calendar
+        ) as calendar:
             for message, expected in (
                 ("ADMIN SUBMIT", "admin_add_search"),
                 (member["phone"], "admin_add_choose_member"),
@@ -648,7 +652,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ):
                 result = route_message(webhook, admin["phone"], message, None)
                 self.assertEqual(result["status"], expected)
-            token = calendar.call_args.args[2]
+            calendar.assert_called_once()
+            with cursor() as cur:
+                cur.execute("SELECT payload FROM job_queue WHERE job_type = 'whatsapp_send' ORDER BY id DESC LIMIT 1")
+                token = cur.fetchone()["payload"]["payload"]["interactive"]["action"]["parameters"]["flow_token"]
             payload = {"entry": [{"changes": [{"value": {"messages": [{
                 "id": "integration-calendar", "from": admin["phone"], "type": "interactive",
                 "interactive": {"type": "nfm_reply", "nfm_reply": {"response_json": json.dumps({
@@ -656,7 +663,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 })}},
             }]}}]}]}
             _, sender, text, button = webhook.extract_whatsapp_message(payload)
-            self.assertEqual(route_message(webhook, sender, text, button)["status"], "admin_add_mode")
+            self.assertEqual(route_message(webhook, sender, text, button)["status"], "flow_completed")
             for message, expected in (
                 ("WORKOUT", "admin_add_workout"),
                 ("Pyramid walk, 5.54km, 41:35", "admin_add_review"),

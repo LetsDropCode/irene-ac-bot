@@ -13,7 +13,8 @@ import requests
 from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "https://graph.facebook.com/v22.0"
+sys.path.insert(0, str(ROOT))
+from app.meta_api import graph_base_url
 TEMPLATE_NAME = "irene_tt_monthly_recap"
 TEMPLATE_BODY = (
     "Your requested Irene AC TT monthly summary for {{1}}.\n"
@@ -43,6 +44,7 @@ def main():
     parser.add_argument("--submit", action="store_true")
     args = parser.parse_args()
     values = {**dotenv_values(ROOT / ".env"), **os.environ}
+    base = graph_base_url(values.get("WHATSAPP_GRAPH_API_VERSION", "v22.0"))
     token, phone_id = values.get("WHATSAPP_TOKEN"), values.get("PHONE_NUMBER_ID")
     language = values.get("WHATSAPP_TEMPLATE_LANGUAGE", "en_GB").strip() or "en_GB"
     if not token or not phone_id:
@@ -51,7 +53,7 @@ def main():
     session.headers["Authorization"] = "Bearer " + token
 
     def request(method, path, **kwargs):
-        response = session.request(method, BASE + "/" + path, timeout=30, **kwargs)
+        response = session.request(method, base + "/" + path, timeout=30, **kwargs)
         data = response.json()
         if not response.ok:
             error = data.get("error", {})

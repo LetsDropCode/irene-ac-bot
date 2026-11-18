@@ -106,9 +106,9 @@ class AdminSubmissionFlowTests(unittest.TestCase):
                 "interactive": {"type": "nfm_reply", "nfm_reply": {"response_json": response}},
             }]}}]}]}
             _, sender, text, button = webhook.extract_whatsapp_message(payload)
-            self.assertEqual(button["id"], "admin_add_calendar")
-            with patch.object(webhook, "ADMIN_NUMBERS", frozenset()):
-                self.assertEqual(route_message(webhook, sender, text, button)["status"], "admin_add_forbidden")
+            self.assertEqual(button["id"], "flow_complete")
+            with patch("app.services.flow_session_service.complete_flow", return_value=("unauthorized", None)), patch.object(webhook, "send_text"):
+                self.assertEqual(route_message(webhook, sender, text, button)["status"], "flow_unauthorized")
         self.save.assert_not_called()
 
     def test_existing_result_is_never_reported_as_saved(self):

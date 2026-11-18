@@ -24,6 +24,13 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 WHATSAPP_ADMIN_DATE_FLOW_ID = os.getenv("WHATSAPP_ADMIN_DATE_FLOW_ID", "").strip()
+WHATSAPP_GRAPH_API_VERSION = os.getenv("WHATSAPP_GRAPH_API_VERSION", "v22.0")
+WHATSAPP_NATIVE_UX_ENABLED = os.getenv("WHATSAPP_NATIVE_UX_ENABLED", "false").lower() in {"true", "1", "yes"}
+WHATSAPP_FLOWS_ENABLED = os.getenv("WHATSAPP_FLOWS_ENABLED", "false").lower() in {"true", "1", "yes"}
+# An operator must verify publication and ownership before setting this flag.
+WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED = os.getenv("WHATSAPP_ADMIN_DATE_FLOW_PUBLISHED", "false").lower() in {"true", "1", "yes"}
+WHATSAPP_RICH_CAROUSELS_ENABLED = os.getenv("WHATSAPP_RICH_CAROUSELS_ENABLED", "false").lower() in {"true", "1", "yes"}
+WHATSAPP_DELIVERY_STATUS_ENABLED = os.getenv("WHATSAPP_DELIVERY_STATUS_ENABLED", "false").lower() in {"true", "1", "yes"}
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET") or os.getenv("META_APP_SECRET")
 # Kept for import-time compatibility. validate_configuration() requires an
 # explicit ENV before a process can start.
@@ -86,6 +93,8 @@ def validate_configuration(environ=None) -> None:
     """
     environ = os.environ if environ is None else environ
     env = (environ.get("ENV") or "").strip().lower()
+    from app.meta_api import graph_base_url
+    graph_base_url(environ.get("WHATSAPP_GRAPH_API_VERSION", "v22.0"))
     if env not in VALID_ENVS:
         raise RuntimeError("ENV must be explicitly set to development, test, or production")
 
