@@ -1,0 +1,266 @@
+{
+  "version": "7.3",
+  "data_api_version": "4.0",
+  "routing_model": {
+    "CHOOSE": [
+      "RSVP"
+    ],
+    "RSVP": [
+      "REVIEW"
+    ],
+    "REVIEW": [
+      "DONE"
+    ],
+    "DONE": []
+  },
+  "screens": [
+    {
+      "id": "CHOOSE",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "2026-12-13",
+              "title": "Sun 13 Dec 2026"
+            }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "choice",
+            "label": "Choose a date",
+            "required": true,
+            "data-source": "${data.options}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "choice": "${form.choice}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "RSVP",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "2026-12-13",
+              "title": "Sun 13 Dec 2026"
+            }
+          ]
+        },
+        "distance": {
+          "type": "string",
+          "__example__": ""
+        },
+        "reminders": {
+          "type": "boolean",
+          "__example__": false
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "distance",
+            "label": "Choose your distance",
+            "required": true,
+            "data-source": "${data.options}"
+          },
+          {
+            "type": "OptIn",
+            "name": "reminders",
+            "label": "Run reminders and change alerts",
+            "init-value": "${data.reminders}"
+          },
+          {
+            "type": "Footer",
+            "label": "Review RSVP",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "distance": "${form.distance}",
+                "reminders": "${form.reminders}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "OptIn",
+            "name": "confirm",
+            "label": "I confirm these details",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm and save",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "confirm": "${form.confirm}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "DONE",
+      "title": "Irene AC Festive Runs",
+      "terminal": true,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Footer",
+            "label": "Close",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -16,6 +16,11 @@ def route_message(actions: ModuleType, sender: str, text: str | None, button: di
     if text:
         text = raw_text.upper()
     admin_sender = actions.is_admin(sender)
+    from app.flows.festive_flow import handle as handle_festive
+    festive_result = handle_festive(actions, sender, raw_text, button)
+    if festive_result is not None:
+        return festive_result
+
 
     if admin_sender and text == "MENU":
         admin_member = actions.get_member(sender)
@@ -25,6 +30,10 @@ def route_message(actions: ModuleType, sender: str, text: str | None, button: di
 
     if actions.is_help_command(text):
         actions.send_help_menu(sender, admin_sender, actions.get_member(sender))
+        from app.services.festive_config import enabled
+        if enabled(sender):
+            from app.flows.festive_flow import say
+            say(sender, "🎄 Festive runs: RUNS · HOST · JOIN · MY HOSTS · MY RUNS. Send FESTIVE HELP for more.")
         return {"status": "help"}
 
     menu_action = actions.resolve_menu_action(text, admin=admin_sender) if text else None
@@ -35,6 +44,10 @@ def route_message(actions: ModuleType, sender: str, text: str | None, button: di
         if admin_sender:
             actions.clear_admin_edit_state_if_needed(actions.get_member(sender))
         actions.send_help_menu(sender, admin_sender, actions.get_member(sender))
+        from app.services.festive_config import enabled
+        if enabled(sender):
+            from app.flows.festive_flow import say
+            say(sender, "🎄 Festive runs: RUNS · HOST · JOIN · MY HOSTS · MY RUNS. Send FESTIVE HELP for more.")
         return {"status": "menu"}
 
     # Privacy commands must not be swallowed by an administrator's separate
