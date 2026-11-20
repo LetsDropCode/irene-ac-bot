@@ -24,6 +24,46 @@ from scripts.build_festive_flows import build
 
 
 class FestiveUnitTests(unittest.TestCase):
+    def test_details_validation_error_preserves_input_and_submit_intent(self):
+        from app.services import festive_flow_service as flows
+
+        session = {
+            "revision": 0,
+            "receipts": {},
+            "token_hash": "test-hash",
+            "state": {
+                "screen": "DETAILS",
+                "data": {"meeting_point": "", "start_time": "", "save_mode": "draft"},
+            },
+        }
+        data = {
+            "revision": "0",
+            "meeting_point": "Test venue",
+            "start_time": "6am",
+            "save_mode": "submit",
+        }
+        with (
+            patch.object(flows, "get_cursor"),
+            patch.object(flows, "load_session", return_value=session),
+            patch.object(
+                flows, "advance", side_effect=service.FestiveError("Check time")
+            ),
+        ):
+            result = flows.exchange(
+                {
+                    "action": "data_exchange",
+                    "flow_token": "test",
+                    "screen": "DETAILS",
+                    "data": data,
+                }
+            )
+        self.assertEqual(result["screen"], "DETAILS")
+        self.assertEqual(result["data"]["meeting_point"], "Test venue")
+        self.assertEqual(result["data"]["start_time"], "6am")
+        self.assertEqual(result["data"]["save_mode"], "submit")
+        self.assertEqual(result["data"]["error"], "Check time")
+        self.assertEqual(result["data"]["revision"], "1")
+
     def test_T01_T02_exact_dates_and_weekdays(self):
         from datetime import date
 
@@ -329,6 +369,35 @@ class FestiveEndpointTests(unittest.TestCase):
         )
         self.assertEqual(json.loads(plain)["data"]["status"], "active")
 
+    def test_secret_environment_key_and_invalid_encoding(self):
+        body, aes, iv = self.envelope({"version": "4.0", "action": "ping"})
+        with patch.dict(
+            os.environ,
+            {
+                "FESTIVE_FLOW_PRIVATE_KEY_PATH": "",
+                "FESTIVE_FLOW_PRIVATE_KEY_B64": base64.b64encode(self.pem).decode(),
+                "FESTIVE_FLOWS_READY": "true",
+            },
+        ):
+            self.assertTrue(config.capabilities()["flows"])
+            response = endpoint.process(json.dumps(body).encode())
+            plain = AESGCM(aes).decrypt(
+                bytes(b ^ 255 for b in iv), base64.b64decode(response), None
+            )
+            self.assertEqual(json.loads(plain)["data"]["status"], "active")
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "FESTIVE_FLOW_PRIVATE_KEY_PATH": "",
+                    "FESTIVE_FLOW_PRIVATE_KEY_B64": "not-base64!",
+                },
+            ),
+            self.assertRaises(endpoint.HTTPException) as exc,
+        ):
+            endpoint.process(json.dumps(body).encode())
+        self.assertEqual(exc.exception.status_code, 503)
+
     def test_token_signature_algorithm_binding_and_expiry(self):
         enc = lambda v: (
             base64.urlsafe_b64encode(json.dumps(v).encode()).decode().rstrip("=")
@@ -368,6 +437,94 @@ class FestiveEndpointTests(unittest.TestCase):
             patch.object(endpoint, "WHATSAPP_APP_SECRET", "test-secret"),
         ):
             self.assertEqual(client.post("/festive/flows", json={}).status_code, 432)
+
+    def test_optional_jwt_still_requires_http_authentication_and_session(self):
+        client = TestClient(app)
+        cases = [
+            ({}, True, False, 200),
+            ({}, False, False, 432),
+            ({}, True, True, 427),
+            ({"flow_token_signature": "forged"}, True, False, 432),
+            ({"flow_token_signature": None}, True, False, 432),
+            ({"flow_token_signature": ""}, True, False, 432),
+        ]
+        for extra, signed, expired, status in cases:
+            with self.subTest(extra=extra, signed=signed, expired=expired):
+                body, aes, iv = self.envelope(
+                    {
+                        "version": "4.0",
+                        "action": "INIT",
+                        "flow_token": "festive.test",
+                        **extra,
+                    }
+                )
+                raw = json.dumps(body).encode()
+                signature = (
+                    "sha256="
+                    + hmac.new(b"test-secret", raw, hashlib.sha256).hexdigest()
+                )
+                with (
+                    patch.dict(
+                        os.environ,
+                        {
+                            "FESTIVE_RUNS_ENABLED": "true",
+                            "FESTIVE_FLOW_PRIVATE_KEY_PATH": "/fake/key",
+                        },
+                    ),
+                    patch.object(endpoint, "WHATSAPP_APP_SECRET", "test-secret"),
+                    patch.object(Path, "read_bytes", return_value=self.pem),
+                    patch.object(
+                        endpoint,
+                        "exchange",
+                        return_value={"version": "4.0", "screen": "CHOOSE", "data": {}},
+                        side_effect=service.FestiveError("Expired")
+                        if expired
+                        else None,
+                    ) as exchange,
+                ):
+                    response = client.post(
+                        "/festive/flows",
+                        content=raw,
+                        headers={
+                            "x-hub-signature-256": signature if signed else "forged"
+                        },
+                    )
+                self.assertEqual(response.status_code, status)
+                if status == 432:
+                    exchange.assert_not_called()
+                else:
+                    exchange.assert_called_once()
+                if status == 200:
+                    result = json.loads(
+                        AESGCM(aes).decrypt(
+                            bytes(b ^ 255 for b in iv),
+                            base64.b64decode(response.text),
+                            None,
+                        )
+                    )
+                    self.assertEqual(result["screen"], "CHOOSE")
+
+    def test_client_error_ack_requires_live_session(self):
+        body, _, _ = self.envelope(
+            {
+                "version": "4.0",
+                "action": "data_exchange",
+                "flow_token": "festive.expired",
+                "data": {"error": "client error"},
+            }
+        )
+        with (
+            patch.dict(os.environ, {"FESTIVE_FLOW_PRIVATE_KEY_PATH": "/fake/key"}),
+            patch.object(Path, "read_bytes", return_value=self.pem),
+            patch.object(endpoint, "get_cursor"),
+            patch.object(
+                endpoint, "load_session", side_effect=service.FestiveError("Expired")
+            ) as session,
+            self.assertRaises(endpoint.HTTPException) as exc,
+        ):
+            endpoint.process(json.dumps(body).encode())
+        self.assertEqual(exc.exception.status_code, 427)
+        session.assert_called_once()
 
     def test_signed_encrypted_healthcheck_and_decryption_error(self):
         client = TestClient(app)

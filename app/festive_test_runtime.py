@@ -6,6 +6,7 @@ Production continues to use app.main:app. This module is never imported there.
 import base64
 import hmac
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -18,6 +19,66 @@ TEST_ENVIRONMENT_ID = "930b1b8f-9404-4bf2-8b42-20981603be2f"
 TEST_PHONE_ID = "1524654827389567"
 TEST_WABA_ID = "1638834777722587"
 TEST_DATABASE_HOST = "postgres-xp5s.railway.internal"
+
+
+def install_flow_diagnostics(endpoint):
+    """Log only failure categories, never tokens, signatures or request data."""
+    original = endpoint.verify_token_signature
+
+    def checked(request, secret):
+        valid = original(request, secret)
+        if not valid:
+            value = request.get("flow_token_signature")
+            reason = "missing" if value is None else "invalid"
+            if value is not None and not isinstance(value, str):
+                reason = "wrong_type"
+            logging.getLogger(__name__).warning(
+                "Festive test Flow token signature rejected: %s", reason
+            )
+        return valid
+
+    endpoint.verify_token_signature = checked
+
+
+def valid_unsigned_test_session(request, env):
+    """Builder draft sends can omit Meta's optional per-token JWT.
+
+    The endpoint has already authenticated the HTTP body and decrypted it.
+    This exception is confined to this isolated runtime and durable test sessions.
+    """
+    try:
+        validate_isolation(env)
+        if env.get("FESTIVE_UAT_MODE") != "true":
+            return False
+        if "flow_token_signature" in request or request.get("version") != "4.0":
+            return False
+        if request.get("action") not in {"INIT", "BACK", "data_exchange"}:
+            return False
+        from app.db import get_cursor
+        from app.services.festive_flow_service import load_session
+        from app.services.festive_service import member
+
+        with get_cursor() as cur:
+            session = load_session(cur, request.get("flow_token"))
+            actor = member(cur, session["member_id"])
+            recipients = {p.strip() for p in env["FESTIVE_UAT_ALLOWLIST"].split(",")}
+            return (
+                session["kind"] in {"HOST", "JOIN", "MANAGE"}
+                and actor["phone"] in recipients
+            )
+    except (RuntimeError, ValueError, KeyError, TypeError):
+        return False
+
+
+def install_test_flow_compatibility(endpoint, env):
+    original = endpoint.verify_token_signature
+
+    def checked(request, secret):
+        if "flow_token_signature" not in request:
+            return valid_unsigned_test_session(request, env)
+        return original(request, secret)
+
+    endpoint.verify_token_signature = checked
 
 
 def validate_isolation(env):
@@ -133,6 +194,10 @@ def main():
         import uvicorn
 
         from app.main import app
+        from app import festive_endpoint
+
+        install_flow_diagnostics(festive_endpoint)
+        install_test_flow_compatibility(festive_endpoint, os.environ)
 
         uvicorn.run(
             wrap_app(app, os.environ),

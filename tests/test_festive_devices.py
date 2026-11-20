@@ -10,13 +10,13 @@ import unittest
 
 class FestiveDeviceAcceptance(unittest.TestCase):
     @unittest.skip(
-        "Requires approved Android test recipient, published sandbox Flows and device access; no live sends authorized"
+        "Android hardware unavailable; automated checks do not certify physical-device accessibility or fallback"
     )
     def test_android_native_flows_accessibility_and_fallback(self):
         pass
 
     @unittest.skip(
-        "Requires approved iOS test recipient, published sandbox Flows and device access; no live sends authorized"
+        "iPhone draft core journeys passed manually on 2026-11-20; full accessibility and fallback checklist remains pending"
     )
     def test_ios_native_flows_accessibility_and_fallback(self):
         pass

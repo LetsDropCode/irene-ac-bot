@@ -30,9 +30,10 @@ def capabilities(client="auto"):
         kind: os.getenv(f"FESTIVE_{kind}_FLOW_ID", "").strip()
         for kind in ("HOST", "JOIN", "MANAGE")
     }
-    ready = bool(os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PATH")) and flag(
-        "FESTIVE_FLOWS_READY"
-    )
+    ready = bool(
+        os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PATH")
+        or os.getenv("FESTIVE_FLOW_PRIVATE_KEY_B64")
+    ) and flag("FESTIVE_FLOWS_READY")
     return {
         "provider": "meta_cloud",
         "graph_version": "v22.0",

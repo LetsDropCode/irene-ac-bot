@@ -17,8 +17,9 @@ from fastapi.responses import PlainTextResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.config import WHATSAPP_APP_SECRET
+from app.db import get_cursor
 from app.services.festive_config import enabled
-from app.services.festive_flow_service import exchange
+from app.services.festive_flow_service import exchange, load_session
 from app.services.festive_service import FestiveError
 
 router = APIRouter()
@@ -73,11 +74,16 @@ def verify_token_signature(request, secret):
 
 def process(raw):
     key_path = os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PATH", "")
-    if not key_path:
+    encoded_key = os.getenv("FESTIVE_FLOW_PRIVATE_KEY_B64", "")
+    if not key_path and not encoded_key:
         raise HTTPException(503, "Flow encryption is not configured")
     try:
-        pem = Path(key_path).read_bytes()
-    except OSError:
+        pem = (
+            Path(key_path).read_bytes()
+            if key_path
+            else base64.b64decode(encoded_key, validate=True)
+        )
+    except (OSError, ValueError):
         raise HTTPException(503, "Flow encryption is not available") from None
     try:
         password = os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PASSWORD", "").encode() or None
@@ -86,18 +92,29 @@ def process(raw):
         raise HTTPException(421, "Unable to decrypt") from None
     if request.get("version") != "4.0":
         raise HTTPException(400, "Data API 4.0 is required")
-    if request.get("action") != "ping" and not verify_token_signature(
-        request, WHATSAPP_APP_SECRET
+    # Meta documents the extra token JWT as optional. The HTTP HMAC and
+    # encrypted channel remain mandatory; exchange validates the durable,
+    # unexpired, member-bound session even when this additional JWT is absent.
+    if (
+        request.get("action") != "ping"
+        and "flow_token_signature" in request
+        and not verify_token_signature(request, WHATSAPP_APP_SECRET)
     ):
         raise HTTPException(432, "Invalid Flow token signature")
-    if (request.get("data") or {}).get("error"):
-        response = {"data": {"acknowledged": True}}
-    else:
-        try:
+    data = request.get("data") or {}
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Invalid Flow data")
+    try:
+        if data.get("error"):
+            # Error acknowledgements must not bypass session authorization.
+            with get_cursor() as cur:
+                load_session(cur, request.get("flow_token"))
+            response = {"data": {"acknowledged": True}}
+        else:
             response = exchange(request)
-        except FestiveError:
-            # Session failures use Meta's token-invalid response; no user data leaked.
-            raise HTTPException(427, "Open a new festive form in the chat") from None
+    except FestiveError:
+        # Session failures use Meta's token-invalid response; no user data leaked.
+        raise HTTPException(427, "Open a new festive form in the chat") from None
     return encrypt(response, aes, iv)
 
 

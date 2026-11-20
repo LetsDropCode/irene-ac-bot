@@ -1,5 +1,7 @@
 import copy
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -10,12 +12,82 @@ from app.festive_test_runtime import (
     TEST_PHONE_ID,
     TEST_WABA_ID,
     allowed_payload,
+    install_flow_diagnostics,
+    install_test_flow_compatibility,
+    valid_unsigned_test_session,
     validate_isolation,
     wrap_app,
 )
 
 
 class TestDeploymentBoundary(unittest.TestCase):
+    def test_missing_jwt_requires_isolated_allowlisted_durable_session(self):
+        request = {"version": "4.0", "action": "INIT", "flow_token": "festive.test"}
+        env = {**self.env, "FESTIVE_UAT_MODE": "true"}
+        with (
+            patch("app.db.get_cursor"),
+            patch(
+                "app.services.festive_flow_service.load_session",
+                return_value={"member_id": 1, "kind": "HOST"},
+            ) as session,
+            patch(
+                "app.services.festive_service.member",
+                return_value={"phone": "27999990001"},
+            ) as member,
+        ):
+            self.assertTrue(valid_unsigned_test_session(request, env))
+            for changes in (
+                {"ENV": "production"},
+                {"FESTIVE_UAT_MODE": "false"},
+                {"FESTIVE_UAT_ALLOWLIST": "other"},
+            ):
+                self.assertFalse(
+                    valid_unsigned_test_session(request, {**env, **changes})
+                )
+            self.assertFalse(
+                valid_unsigned_test_session(
+                    {**request, "flow_token_signature": None}, env
+                )
+            )
+            member.return_value = {"phone": "other"}
+            self.assertFalse(valid_unsigned_test_session(request, env))
+            session.side_effect = ValueError("expired or unknown session")
+            self.assertFalse(valid_unsigned_test_session(request, env))
+
+    def test_present_invalid_jwt_never_uses_test_exception(self):
+        endpoint = SimpleNamespace(verify_token_signature=Mock(return_value=False))
+        install_test_flow_compatibility(endpoint, self.env)
+        with patch("app.festive_test_runtime.valid_unsigned_test_session") as fallback:
+            for value in (None, "", "forged", {}):
+                self.assertFalse(
+                    endpoint.verify_token_signature(
+                        {"flow_token_signature": value}, "secret"
+                    )
+                )
+            fallback.assert_not_called()
+
+    def test_signature_diagnostics_preserve_rejection_and_hide_secrets(self):
+        verify = Mock(return_value=False)
+        endpoint = SimpleNamespace(verify_token_signature=verify)
+        install_flow_diagnostics(endpoint)
+        for value, reason in (
+            (None, "missing"),
+            ("private-jwt", "invalid"),
+            ({}, "wrong_type"),
+        ):
+            request = {"flow_token": "private-session"}
+            if value is not None:
+                request["flow_token_signature"] = value
+            with self.assertLogs("app.festive_test_runtime", level="WARNING") as logs:
+                self.assertFalse(
+                    endpoint.verify_token_signature(request, "private-secret")
+                )
+            self.assertIn(reason, logs.output[0])
+            self.assertNotIn("private", logs.output[0])
+            verify.assert_called_with(request, "private-secret")
+        verify.return_value = True
+        self.assertTrue(endpoint.verify_token_signature({}, "private-secret"))
+
     def setUp(self):
         self.env = {
             "ENV": "test",

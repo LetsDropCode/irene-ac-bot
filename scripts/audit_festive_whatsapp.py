@@ -27,7 +27,10 @@ def audit(remote=False):
         "flow_json_version": "7.3",
         "data_api_version": "4.0",
         "configured_festive_flows": {k: bool(v) for k, v in caps["flow_ids"].items()},
-        "private_key_configured": bool(os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PATH")),
+        "private_key_configured": bool(
+            os.getenv("FESTIVE_FLOW_PRIVATE_KEY_PATH")
+            or os.getenv("FESTIVE_FLOW_PRIVATE_KEY_B64")
+        ),
         "template_configured": bool(os.getenv("FESTIVE_NOTIFICATION_TEMPLATE")),
         "remote_checked": remote,
     }

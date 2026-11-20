@@ -175,7 +175,24 @@ def exchange(request, actor=None):
                 updated = advance(cur, session, data)
             except domain.FestiveError as exc:
                 cur.execute("ROLLBACK TO SAVEPOINT festive_action")
-                updated = {**state, "data": {**state["data"], "error": str(exc)}}
+                # Returned data supplies init-values when the native client
+                # renders this screen again. Keep the submitted form on errors,
+                # including submit-vs-draft intent, rather than resetting it.
+                entered = (
+                    {
+                        k: v
+                        for k, v in data.items()
+                        if k in DETAIL_FIELDS + ["save_mode"]
+                        and isinstance(v, str)
+                        and len(v) <= 4096
+                    }
+                    if state["screen"] == "DETAILS"
+                    else {}
+                )
+                updated = {
+                    **state,
+                    "data": {**state["data"], **entered, "error": str(exc)},
+                }
             except (TypeError, KeyError):
                 cur.execute("ROLLBACK TO SAVEPOINT festive_action")
                 updated = {

@@ -83,15 +83,21 @@ Run the following on a current Android phone and current iPhone. Record device m
 
 | Device gate | Android | iOS |
 |---|---|---|
-| Host Flow opens; all 14 dynamic dates reachable | NOT RUN | NOT RUN |
+| Host Flow opens; all 14 dynamic dates reachable | NOT RUN — device unavailable | PASS, 20 November 2026 |
 | Role selection, booking confirmation, draft save/resume | NOT RUN | NOT RUN |
 | Multi-field keyboard, time/link fields, large text accessibility | NOT RUN | NOT RUN |
 | Native BACK, close/reopen, expired session recovery | NOT RUN | NOT RUN |
-| RSVP run/distance/reminder confirmation | NOT RUN | NOT RUN |
-| Manage edit, cancellation confirmation and stale review | NOT RUN | NOT RUN |
+| RSVP run/distance/reminder confirmation | NOT RUN | PASS, 20 November 2026 |
+| Manage edit, cancellation confirmation and stale review | NOT RUN | Edit/resubmit and RSVP cancellation PASS; stale review NOT RUN |
 | List pagination, reply buttons, approved pin/Maps/route links | NOT RUN | NOT RUN |
 | FESTIVE SIMPLE and FESTIVE TEXT fallback | NOT RUN | NOT RUN |
 | Approved template delivery and quick-reply callback | NOT RUN | NOT RUN |
 | Network interruption, duplicate tap and retry | NOT RUN | NOT RUN |
 
 No automated test claims to establish physical-device compatibility. The two skipped acceptance tests are deliberate release gates, not suppressed failures.
+
+## 20 November compatibility follow-up
+
+The tester has an iPhone and no Android device. Core iPhone results above are supported by completed session and database evidence in `FESTIVE_DRAFT_TEST_2026-11-20.md`; model, OS and WhatsApp version were not recorded. Full physical-device gates remain skipped. No Android compatibility claim is inferred from server tests.
+
+Automated verification: 436 unit tests passed with 2 physical-device skips; 76 disposable local PostgreSQL integration tests passed with mocked transports. The added regression verifies that invalid time input preserves all host fields and submit intent across session reopening, and that correction then completes submission for review. Production and billing were untouched.

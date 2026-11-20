@@ -398,6 +398,28 @@ class FestiveIntegrationTests(unittest.TestCase):
             "PENDING_APPROVAL",
         )
 
+    def test_flow_validation_error_survives_resume_and_corrected_submission(self):
+        token, response = f.create_session(self.lead, "HOST")
+        response = self.step(token, response, choice=DAY, role="LEAD")
+        response = self.step(token, response, confirm=True)
+        entered = {**DETAILS, "start_time": "6am", "save_mode": "submit"}
+        response = self.step(token, response, **entered)
+        self.assertEqual(response["screen"], "DETAILS")
+        self.assertTrue(response["data"]["error"])
+        resumed = f.exchange({"flow_token": token, "action": "INIT"})
+        for key, value in entered.items():
+            self.assertEqual(resumed["data"][key], value)
+        response = self.step(token, resumed, **{**entered, "start_time": "06:00"})
+        self.assertEqual(response["screen"], "REVIEW")
+        response = self.step(token, response, confirm=True)
+        self.assertEqual(response["screen"], "DONE")
+        self.assertEqual(
+            self.sql("SELECT status FROM festive_run_slots WHERE run_date=%s", (DAY,))[
+                0
+            ]["status"],
+            "PENDING_APPROVAL",
+        )
+
     def test_flow_rsvp_and_manage_complete_journey(self):
         self.published()
         token, r = f.create_session(self.runner, "JOIN")
@@ -760,7 +782,10 @@ class FestiveIntegrationTests(unittest.TestCase):
             "SENT",
         )
 
-    def test_signed_encrypted_endpoint_returns_dynamic_dates(self):
+    def test_signed_encrypted_endpoint_without_optional_jwt(self):
+        self.test_signed_encrypted_endpoint_returns_dynamic_dates(include_jwt=False)
+
+    def test_signed_encrypted_endpoint_returns_dynamic_dates(self, include_jwt=True):
         import base64
         import hashlib
         import hmac
@@ -795,6 +820,8 @@ class FestiveIntegrationTests(unittest.TestCase):
             "flow_token": token,
             "flow_token_signature": f"{jwt_head}.{jwt_body}.{jwt_sig}",
         }
+        if not include_jwt:
+            plain.pop("flow_token_signature")
         private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = private.private_bytes(
             serialization.Encoding.PEM,
