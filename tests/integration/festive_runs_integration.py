@@ -542,13 +542,13 @@ class FestiveIntegrationTests(unittest.TestCase):
                 for i, o in enumerate(state["response"]["data"]["options"])
                 if o["id"] == option
             )
-            send(member_index, key=f"festive:pick:{state['revision']}:{index}")
+            send(member_index, key=f"festive:pick:{chat.callback_revision(state)}:{index}")
 
         def confirm(member_index):
             send(
                 member_index,
                 key="festive:confirm:"
-                + chat.chat_state(self.members[member_index]["id"])["revision"],
+                + chat.callback_revision(chat.chat_state(self.members[member_index]["id"])),
             )
 
         with patch.object(
@@ -567,6 +567,7 @@ class FestiveIntegrationTests(unittest.TestCase):
             )
             confirm(1)
             send(3, "FESTIVE ADMIN")
+            send(3, key="festive:admin:queue:all")
             pick(3, DAY)
             pick(3, "APPROVE")
             confirm(3)
@@ -591,6 +592,7 @@ class FestiveIntegrationTests(unittest.TestCase):
             send(1, "meeting_point=Changed test park\nsave_mode=submit")
             confirm(1)
             send(3, "FESTIVE ADMIN")
+            send(3, key="festive:admin:queue:all")
             pick(3, DAY)
             pick(3, "APPROVE")
             confirm(3)
@@ -614,6 +616,7 @@ class FestiveIntegrationTests(unittest.TestCase):
             pick(1, "withdraw_host")
             confirm(1)
             send(3, "FESTIVE ADMIN")
+            send(3, key="festive:admin:queue:all")
             pick(3, DAY)
             pick(3, "REOPEN")
             confirm(3)
