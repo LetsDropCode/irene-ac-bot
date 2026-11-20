@@ -130,33 +130,49 @@ def value(key, data):
 
 
 def details(data, approved=None):
-    lines = []
+    fields = {}
     for key, label in FIELDS.items():
         if key not in data and (not approved or key not in approved):
             continue
         if approved and data.get(key) != approved.get(key):
-            lines.append(
+            fields[key] = (
                 f"✏️ *{label} changed*\nWas: {value(key, approved)}\nNow: {value(key, data)}"
             )
-        else:
-            lines.append(f"{label}: {value(key, data)}")
-    return "\n".join(lines) or "No run details saved yet."
+        elif data.get(key) not in (None, "", []):
+            separator = ":\n" if key in {"maps_url", "route_url"} else ": "
+            fields[key] = f"{label}{separator}{value(key, data)}"
+    sections = []
+    if "title" in fields:
+        sections.append(
+            fields["title"]
+            if fields["title"].startswith("✏️")
+            else f"*{value('title', data)}*"
+        )
+    for heading, keys in (
+        ("📍 When & where", ("start_time", "meeting_point", "location_description")),
+        ("🏃 The run", ("distances", "walkers_welcome", "pace_information")),
+        ("☕ Coffee / breakfast", ("coffee_arrangements",)),
+        ("Route notes", ("route_description",)),
+        ("Safety notes", ("safety_notes",)),
+        ("Links & location", ("maps_url", "route_url", "latitude", "longitude")),
+    ):
+        entries = [fields[key] for key in keys if key in fields]
+        if entries:
+            # Notes and URLs need their own lines on narrow phone screens.
+            if len(keys) == 1 and not entries[0].startswith("✏️"):
+                entries = [value(keys[0], data)]
+            sections.append(f"*{heading}*\n" + "\n".join(entries))
+    return "\n\n".join(sections) or "No run details saved yet."
 
 
 def review(row):
-    lines = [f"📅 *{day_label(row['run_date'])}*", STATUS[row["status"]]]
+    lines = [f"📅 *{day_label(row['run_date'])}*", STATUS[row["status"]], ""]
     for host in row["hosts"]:
         lines.append(
-            ("🏃 Lead: " if host["host_role"] == "LEAD" else "🩵 Co-host: ")
-            + host_name(host)
+            ("Host: " if host["host_role"] == "LEAD" else "Co-host: ") + host_name(host)
         )
     if not row["hosts"]:
         lines.append("🙋 No host assigned")
-    lines.append(f"🏃 {row['rsvp_count']} active RSVPs")
-    if row.get("counts"):
-        lines.append(
-            " · ".join(f"{c['selected_distance']}: {c['count']}" for c in row["counts"])
-        )
     draft, published = row.get("draft") or {}, row.get("published") or {}
     approval = row.get("approval_status")
     if row["status"] == "CANCELLED":
@@ -175,14 +191,19 @@ def review(row):
             lines.append(
                 "These details are not visible to members until you approve them."
             )
-        lines.append(details(draft, published))
+        lines.append("\n" + details(draft, published))
     elif draft and (not published or draft != published):
         lines.append("\n⏳ *Private draft · not submitted*")
         if published:
             lines.append("Members still see the previous approved details.")
-        lines.append(details(draft, published))
+        lines.append("\n" + details(draft, published))
     elif published:
-        lines.extend(["\n✅ *Approved member details*", details(published)])
+        lines[1] = (
+            "✅ Published · visible to members"
+            if row["status"] == "PUBLISHED"
+            else STATUS[row["status"]]
+        )
+        lines.append("\n" + details(published))
     else:
         lines.append(
             "\nRun details to follow. The lead host can save them using MY HOSTS."
@@ -191,6 +212,11 @@ def review(row):
         missing = [FIELDS[k] for k in domain.REQUIRED if not draft.get(k)]
         if missing:
             lines.append("\nStill needed: " + ", ".join(missing))
+    lines.append(f"\n*RSVPs*\n{row['rsvp_count']} planning to join")
+    if row.get("counts"):
+        lines.append(
+            " · ".join(f"{c['selected_distance']}: {c['count']}" for c in row["counts"])
+        )
     if not options(row):
         lines.append("\nNo changes are available for this run's current status/date.")
     return "\n".join(lines)

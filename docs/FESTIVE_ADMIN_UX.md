@@ -19,6 +19,8 @@ Dates have readable day/date labels, status descriptions and lead-host names. Em
 
 A run review displays the lead/co-host, aggregate RSVPs, and labeled venue, time, distances, maps, route, coffee and safety information. No raw JSON or internal enum names are presented in normal reviews. Private drafts, submitted details and approved member-visible details have distinct headings. Pending amendments highlight **Was / Now** values, while the screen explains that members still see the previous approved version. Missing required details are listed. Cancelled runs retain saved details for reference.
 
+Published-date reviews use spaced sections for meeting information, the run, coffee, route and safety notes, and links. Empty optional fields are omitted, RSVP totals appear together at the end, and the published status is shown once. Removed values remain visible in amendment comparisons.
+
 Only actions appropriate to the run's state and date are displayed. Submitted details can be approved or returned to draft; eligible dates allow host assignment; cancelled dates can reopen; past published runs can be completed. Existing server-side validation remains authoritative.
 
 Choosing a lead host now offers a member-name or member-ID search. Results show names and member IDs to distinguish duplicates, never phone numbers. Only existing members with active consent and a usable name are shown. Searches are literal and bounded to nine matches; a more specific search finds additional matches. Choosing a match opens a confirmation that names the person and explains that old run details will be cleared. Nothing changes until confirmation. Choosing the current lead leaves their details intact and explains why no reassignment is needed.
