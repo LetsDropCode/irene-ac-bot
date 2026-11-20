@@ -9,8 +9,9 @@ from app.services import festive_flow_service as flows
 from app.services import festive_service as domain
 from app.services import festive_transport as transport
 from app.services.festive_config import capabilities, enabled
+from app.flows import festive_weekly_flow as weekly
 
-COMMANDS = {
+COMMANDS = weekly.COMMANDS | {
     "RUNS",
     "HOST",
     "MY HOSTS",
@@ -273,6 +274,9 @@ def handle(actions, sender, raw_text, button):
     if not recognized and command in {"BACK", "CANCEL"} and not state.get("mode"):
         return None
     try:
+        weekly_result = weekly.handle(sender, actor, state, command, key, raw_text)
+        if weekly_result is not None:
+            return weekly_result
         with get_cursor() as cur:
             domain.member(cur, actor)
         if command == "FESTIVE HELP":
