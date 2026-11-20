@@ -12,6 +12,7 @@ from app.migrations.versions import (
     v20261111_monthly_recaps,
     v20261111_admin_undo,
     v20261118_festive_runs,
+    v20261120_festive_weekly,
 )
 
 MIGRATIONS = (
@@ -25,6 +26,7 @@ MIGRATIONS = (
     v20261111_monthly_recaps,
     v20261111_admin_undo,
     v20261118_festive_runs,
+    v20261120_festive_weekly,
 )
 _MIGRATION_LOCK = 733120260106
 

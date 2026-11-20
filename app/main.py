@@ -95,6 +95,11 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
         schedule_festive()
     except Exception:
         logging.getLogger(__name__).exception("Festive scheduling failed; continuing the TT job runner")
+    from app.services.festive_weekly_service import schedule as schedule_weekly
+    try:
+        schedule_weekly()
+    except Exception:
+        logging.getLogger(__name__).exception("Festive weekly scheduling failed; retrying on the next runner tick")
     processed = run_due_jobs(JOB_RUNNER_BATCH_SIZE)
     return {
         "status": "ok",

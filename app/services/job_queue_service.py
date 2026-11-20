@@ -323,6 +323,12 @@ def _mark_job_failed(job: dict, exc: Exception):
 
 
 def _dispatch_job(job_type: str, payload: dict):
+    if job_type == "festive_weekly_notice":
+        from app.services.festive_weekly_notifications import deliver
+        return deliver(payload)
+    if job_type == "festive_weekly_reply":
+        from app.flows.festive_weekly_flow import deliver_reply
+        return deliver_reply(payload)
     if job_type == "festive_reply":
         from app.services.festive_transport import deliver_reply
         deliver_reply(payload)
