@@ -5,24 +5,29 @@ import json
 from psycopg2.extras import Json
 
 from app.db import get_cursor
+from app.flows import festive_admin_flow as admin_ui
+from app.flows import festive_weekly_flow as weekly
 from app.services import festive_flow_service as flows
 from app.services import festive_service as domain
 from app.services import festive_transport as transport
 from app.services.festive_config import capabilities, enabled
-from app.flows import festive_weekly_flow as weekly
 
-COMMANDS = weekly.COMMANDS | {
-    "RUNS",
-    "HOST",
-    "MY HOSTS",
-    "HOST SCHEDULE",
-    "JOIN",
-    "MY RUNS",
-    "FESTIVE ADMIN",
-    "FESTIVE SIMPLE",
-    "FESTIVE TEXT",
-    "FESTIVE HELP",
-}
+COMMANDS = (
+    weekly.COMMANDS
+    | admin_ui.COMMANDS
+    | {
+        "RUNS",
+        "HOST",
+        "MY HOSTS",
+        "HOST SCHEDULE",
+        "JOIN",
+        "MY RUNS",
+        "FESTIVE ADMIN",
+        "FESTIVE SIMPLE",
+        "FESTIVE TEXT",
+        "FESTIVE HELP",
+    }
+)
 HELP = "🎄 Irene AC Festive Run Adventures\nDifferent hosts. Different routes. One Irene family. 💚\nRUNS · calendar\nHOST · volunteer\nMY HOSTS · edit or withdraw hosting\nHOST SCHEDULE · public host schedule\nJOIN · optional RSVP\nMY RUNS · change or cancel RSVP\nFESTIVE SIMPLE · lists/buttons fallback\nFESTIVE TEXT · numbered fallback\nBACK · start this form again\nCANCEL · stop (saved drafts are kept)"
 
 
@@ -64,6 +69,9 @@ def menu(sender, actor, state, body, options, page=0):
         shown += [(f"festive:page:{page - 1}", "Previous page", "")]
     if page + 1 < pages:
         shown += [(f"festive:page:{page + 1}", "Next page", "")]
+    if state.get("kind") == "ADMIN" and len(body) > 950:
+        say(sender, body)
+        body = "🎄 Review the details above, then choose an action."
     state.update(options=options, shown=[r[0] for r in shown], page=page, body=body)
     save_chat(actor, state)
     if not shown:
@@ -91,8 +99,20 @@ def menu(sender, actor, state, body, options, page=0):
         )
 
 
+def callback_revision(state):
+    revision = str(state.get("revision", ""))
+    if state.get("kind") == "ADMIN" and state.get("token"):
+        return revision + "." + flows.token_hash(state["token"])[:12]
+    return revision
+
+
 def render(sender, actor, state, response):
+    is_admin = state.get("kind") == "ADMIN"
+    if is_admin and response["screen"] == "CHOOSE":
+        response = admin_ui.selection(actor, state, response)
     screen, data = response["screen"], response["data"]
+    if is_admin:
+        state.update(mode="form", replacement_pending=False)
     state.update(
         screen=screen,
         revision=data["revision"],
@@ -104,13 +124,25 @@ def render(sender, actor, state, response):
         summary = data["error"] + "\n\n" + summary
     if screen in {"CHOOSE", "ACTION", "RSVP"}:
         options = [
-            (f"festive:pick:{data['revision']}:{n}", o["title"], "")
+            (
+                f"festive:pick:{callback_revision(state)}:{n}",
+                o["title"],
+                o.get("description", ""),
+            )
             for n, o in enumerate(data.get("options", []))
         ]
+        if is_admin:
+            options.append(
+                (
+                    "festive:admin:home",
+                    "Captain desk",
+                    "Review queues and weekly announcements",
+                )
+            )
         menu(sender, actor, state, summary, options)
     elif screen in {"BOOK", "REVIEW"}:
         state["shown"] = [
-            "festive:confirm:" + data["revision"],
+            "festive:confirm:" + callback_revision(state),
             "festive:back",
             "festive:cancel",
         ]
@@ -126,12 +158,12 @@ def render(sender, actor, state, response):
                 say(sender, summary)
                 summary = "Review the details above, then confirm."
             buttons = [
-                (state["shown"][0], "Confirm"),
+                (state["shown"][0], data.get("confirm_label", "Confirm")),
                 (
                     state["shown"][1],
                     "Confirm + reminders" if screen == "BOOK" else "Back",
                 ),
-                ("festive:cancel", "Cancel"),
+                ("festive:cancel", "Close menu" if is_admin else "Cancel"),
             ]
             transport.send(
                 transport.buttons_payload(
@@ -148,7 +180,7 @@ def render(sender, actor, state, response):
                 + (
                     "\n1. Confirm\n2. Confirm + reminders\n3. Cancel\nBACK to change date."
                     if screen == "BOOK"
-                    else "\n1. Confirm\n2. Back\n3. Cancel"
+                    else f"\n1. {data.get('confirm_label', 'Confirm')}\n2. Back\n3. {'Close menu' if is_admin else 'Cancel'}"
                 ),
             )
     elif screen == "DETAILS":
@@ -173,6 +205,22 @@ def render(sender, actor, state, response):
         state.update(token=None, shown=[])
         save_chat(actor, state)
         say(sender, summary)
+        if is_admin:
+            menu(
+                sender,
+                actor,
+                state,
+                "What would you like to do next?",
+                [
+                    (
+                        "festive:admin:queue:review",
+                        "Next review",
+                        "See details awaiting approval",
+                    ),
+                    ("festive:admin:queue:all", "All dates", "Open another run"),
+                    ("festive:admin:home", "Captain desk", "Return to the dashboard"),
+                ],
+            )
 
 
 def calendar(sender, actor, state, page=0):
@@ -209,7 +257,7 @@ def start(sender, actor, state, kind):
     token, response = flows.create_session(actor, kind)
     state.update(mode="form", token=token, kind=kind)
     caps = capabilities(state.get("client", "auto"))
-    if not response["data"].get("options"):
+    if not response["data"].get("options") and kind != "ADMIN":
         state.update(token=None, mode=None)
         save_chat(actor, state)
         say(sender, response["data"]["summary"])
@@ -269,6 +317,7 @@ def handle(actions, sender, raw_text, button):
         and not state.get("token")
         and command not in {"BACK", "CANCEL"}
         and not (raw_text or "").isdigit()
+        and state.get("mode") != "admin_search"
     ):
         return None
     if not recognized and command in {"BACK", "CANCEL"} and not state.get("mode"):
@@ -277,6 +326,9 @@ def handle(actions, sender, raw_text, button):
         weekly_result = weekly.handle(sender, actor, state, command, key, raw_text)
         if weekly_result is not None:
             return weekly_result
+        admin_result = admin_ui.handle(sender, actor, state, command, key, raw_text)
+        if admin_result is not None:
+            return admin_result
         with get_cursor() as cur:
             domain.member(cur, actor)
         if command == "FESTIVE HELP":
@@ -298,16 +350,6 @@ def handle(actions, sender, raw_text, button):
                 "MY HOSTS": "MANAGE",
                 "FESTIVE ADMIN": "ADMIN",
             }.get(command, command)
-            if kind == "ADMIN":
-                with get_cursor() as cur:
-                    rows = domain.calendar(cur, actor, admin=True)
-                hosted = sum(bool(r["hosts"]) for r in rows)
-                say(
-                    sender,
-                    f"Festive captain dashboard\nDates: {len(rows)} · Hosted: {hosted} · Vacant: {len(rows) - hosted}\n"
-                    f"Published: {sum(r['status'] == 'PUBLISHED' for r in rows)} · RSVPs: {sum(r['rsvp_count'] for r in rows)}\n"
-                    f"Need attention: {sum(r['status'] not in {'PUBLISHED', 'COMPLETED'} or r.get('approval_status') == 'PENDING' for r in rows)}\nSelect a date to review draft venue, time, hosts and counts.",
-                )
             start(sender, actor, state, kind)
         elif key == "festive:completion":
             say(sender, flows.completion(button.get("flow_token"), actor))
@@ -338,6 +380,8 @@ def handle(actions, sender, raw_text, button):
             elif command == "BACK" or key == "festive:back":
                 if state.get("token"):
                     submit(sender, actor, state, {}, back=True)
+                elif state.get("kind") == "ADMIN":
+                    admin_ui.home(sender, actor, state)
                 else:
                     calendar(sender, actor, state)
             elif key.startswith("festive:calendar:"):
@@ -423,7 +467,7 @@ def handle(actions, sender, raw_text, button):
                     submit(sender, actor, state, {"choice": day})
             elif state.get("token"):
                 if key.startswith(("festive:confirm:", "festive:confirm_remind:")):
-                    if key.rsplit(":", 1)[1] != state.get("revision"):
+                    if key.rsplit(":", 1)[1] != callback_revision(state):
                         raise domain.FestiveError(
                             "This confirmation is old. Use the latest form."
                         )
@@ -438,7 +482,7 @@ def handle(actions, sender, raw_text, button):
                     )
                 elif key.startswith("festive:pick:"):
                     _, _, revision, index = key.split(":")
-                    if revision != state.get("revision"):
+                    if revision != callback_revision(state):
                         raise domain.FestiveError(
                             "That menu is old. Use the latest choices."
                         )
@@ -464,11 +508,7 @@ def handle(actions, sender, raw_text, button):
                                 "Reminders and change/cancellation alerts?\n1. Yes please\n2. No thanks",
                             )
                     elif option == "REASSIGN":
-                        state["replacement_pending"] = True
-                        save_chat(actor, state)
-                        say(
-                            sender, "Send the existing member ID for the new lead host."
-                        )
+                        admin_ui.search_prompt(sender, actor, state)
                     else:
                         values = {"choice": option}
                         if state["kind"] == "HOST" and state["screen"] == "CHOOSE":

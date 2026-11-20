@@ -3,10 +3,12 @@
 import hashlib
 import json
 import secrets
+from datetime import date
 
 from psycopg2.extras import Json
 
 from app.db import get_cursor
+from app.services import festive_admin_presenter as admin_ui
 from app.services import festive_service as domain
 from app.services.festive_config import enabled
 
@@ -65,7 +67,7 @@ def selection_view(cur, session):
                     ("r:" + day, day + " · " + row["mine"]["selected_distance"])
                 )
         elif kind == "ADMIN":
-            options.append((day, day + " · " + row["status"]))
+            options.append((day, admin_ui.day_label(row["run_date"])))
     return view(
         "CHOOSE",
         options=choices(options),
@@ -148,6 +150,11 @@ def exchange(request, actor=None):
             updated = history[-1] if history else selection_view(cur, session)
             if updated["screen"] == "CHOOSE":
                 updated = selection_view(cur, session)
+            elif session["kind"] == "ADMIN" and updated["screen"] == "ACTION":
+                selected = updated["selected"]
+                updated = admin_view(
+                    current_row(cur, session, selected["day"]), selected
+                )
             updated["history"] = history[:-1]
         else:
             revision = str(data.get("revision", ""))
@@ -241,6 +248,22 @@ def current_row(cur, session, day):
     )
 
 
+def admin_view(row, selected):
+    if not row:
+        raise domain.FestiveError(
+            "This run is no longer available. Return to FESTIVE ADMIN."
+        )
+    return {
+        **view(
+            "ACTION",
+            summary=admin_ui.review(row),
+            options=admin_ui.options(row),
+            replacement="",
+        ),
+        "selected": {**selected, "revision": row["revision"]},
+    }
+
+
 def details_view(row, selected):
     d = row.get("draft") or {}
     fields = {k: d.get(k, "") for k in DETAIL_FIELDS}
@@ -312,22 +335,7 @@ def advance(cur, session, data):
         )
         summary = domain.public_summary(row)
         if kind == "ADMIN":
-            options = [
-                (k, v)
-                for k, v in (
-                    ("APPROVE", "Approve"),
-                    ("CHANGES", "Request changes"),
-                    ("CANCEL", "Cancel run"),
-                    ("REOPEN", "Reopen slot"),
-                    ("REASSIGN", "Reassign lead"),
-                    ("COMPLETE", "Complete run"),
-                )
-            ]
-            summary += (
-                "\nDraft for review:\n"
-                + json.dumps(row.get("draft") or {}, ensure_ascii=False)
-                + f"\nApproval: {row.get('approval_status') or 'No details'}"
-            )
+            return admin_view(row, selected)
         if row.get("counts"):
             summary += "\nBy distance: " + ", ".join(
                 f"{c['selected_distance']}: {c['count']}" for c in row["counts"]
@@ -359,6 +367,12 @@ def advance(cur, session, data):
         if action not in {o["id"] for o in state["data"]["options"]}:
             raise domain.FestiveError("Choose a listed action.")
         row = current_row(cur, session, day)
+        if kind == "ADMIN":
+            domain.check_revision(row, selected["revision"])
+            if action not in {o["id"] for o in admin_ui.options(row)}:
+                raise domain.FestiveError(
+                    "This action is no longer available. Go BACK to refresh the run."
+                )
         selected["revision"] = row["revision"]
         if action == "edit":
             domain.require_lead(cur, actor, row)
@@ -378,6 +392,27 @@ def advance(cur, session, data):
             if action == "withdraw_host"
             else ""
         )
+        if kind == "ADMIN":
+            replacement = (
+                domain.member(cur, selected["replacement"])
+                if action == "REASSIGN"
+                else None
+            )
+            if replacement and any(
+                h["host_role"] == "LEAD" and h["member_id"] == replacement["id"]
+                for h in row["hosts"]
+            ):
+                raise domain.FestiveError(
+                    "That member is already the lead host. Their saved details have been kept. Choose another member or go BACK."
+                )
+            return {
+                **view(
+                    "REVIEW",
+                    summary=admin_ui.confirmation(row, action, replacement),
+                    confirm_label=admin_ui.ACTIONS[action][0][:20],
+                ),
+                "selected": selected,
+            }
         return {
             **view(
                 "REVIEW",
@@ -460,7 +495,10 @@ def advance(cur, session, data):
             domain.admin_action(
                 cur, actor, day, op, selected["revision"], selected.get("replacement")
             )
-            summary = "Administrator change saved."
+            return view(
+                "DONE",
+                summary=f"📅 {admin_ui.day_label(date.fromisoformat(day))}\n{admin_ui.success(op)}",
+            )
         else:
             raise domain.FestiveError("Invalid operation.")
         return view("DONE", summary=f"{day}\n{summary}\nThank you, Irene family 💚")

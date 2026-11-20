@@ -76,7 +76,8 @@ def menu(sender, actor, state, body=None, options=None, page=0):
     body = body or (
         "🎄 *FESTIVE WEEKLY ANNOUNCEMENTS*\n"
         "Automatic generation · captain sharing\n"
-        "WEEKLY TEXT for numbered menus. WEEKLY ALERTS ON / OFF for optional template notifications."
+        "WEEKLY TEXT for numbered menus. WEEKLY ALERTS ON / OFF for optional template notifications.\n"
+        "FESTIVE ADMIN returns to the captain desk."
     )
     state.update(
         mode="weekly",
