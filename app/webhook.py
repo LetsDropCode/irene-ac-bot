@@ -913,6 +913,13 @@ def extract_whatsapp_message(payload: dict):
         if msg.get("type") == "text":
             text = msg.get("text", {}).get("body", "").strip()
 
+        elif msg.get("type") in {"button", "location"}:
+            from app.services.festive_config import enabled as festive_enabled
+            if festive_enabled(sender):
+                if msg["type"] == "button":
+                    button = {"id": msg.get("button", {}).get("payload", "")}
+                else:
+                    button = {"id": "festive:location", "location": msg.get("location", {})}
         elif msg.get("type") == "interactive":
             interactive = msg.get("interactive", {})
             button = interactive.get("button_reply") or interactive.get("list_reply")
@@ -925,11 +932,14 @@ def extract_whatsapp_message(payload: dict):
                     flow_data = {}
                 if not isinstance(flow_data, dict):
                     flow_data = {}
-                button = {
-                    "id": "admin_add_calendar",
-                    "flow_token": flow_data.get("flow_token"),
-                    "event_date": flow_data.get("event_date"),
-                }
+                if str(flow_data.get("flow_token", "")).startswith("festive."):
+                    button = {"id": "festive:completion", "flow_token": flow_data.get("flow_token")}
+                else:
+                    button = {
+                        "id": "admin_add_calendar",
+                        "flow_token": flow_data.get("flow_token"),
+                        "event_date": flow_data.get("event_date"),
+                    }
 
         message_kind = "button" if button else "text" if text else "unknown"
         button_id = button.get("id") if button else None

@@ -5,6 +5,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.webhook import router as webhook_router
+from app.festive_endpoint import router as festive_router
 from app.config import ENV, JOB_RUNNER_BATCH_SIZE, JOB_RUNNER_TOKEN, validate_configuration
 from app.migrations import require_current_schema
 from app.services.health_service import get_readiness, get_system_health
@@ -32,6 +33,7 @@ def startup():
     require_current_schema()
 
 app.include_router(webhook_router)
+app.include_router(festive_router)
 
 @app.get("/")
 def read_root():
@@ -88,6 +90,11 @@ def run_jobs(x_job_token: str | None = Header(default=None)):
     reminder_result = queue_incomplete_submission_reminders()
     recap_result = queue_monthly_recaps()
     email_result = queue_monthly_attendance_email()
+    from app.services.festive_notifications import schedule as schedule_festive
+    try:
+        schedule_festive()
+    except Exception:
+        logging.getLogger(__name__).exception("Festive scheduling failed; continuing the TT job runner")
     processed = run_due_jobs(JOB_RUNNER_BATCH_SIZE)
     return {
         "status": "ok",

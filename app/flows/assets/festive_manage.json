@@ -1,0 +1,582 @@
+{
+  "version": "7.3",
+  "data_api_version": "4.0",
+  "routing_model": {
+    "CHOOSE": [
+      "ACTION"
+    ],
+    "ACTION": [
+      "DETAILS",
+      "RSVP",
+      "REVIEW"
+    ],
+    "DETAILS": [
+      "REVIEW"
+    ],
+    "RSVP": [
+      "REVIEW"
+    ],
+    "REVIEW": [
+      "DONE"
+    ],
+    "DONE": []
+  },
+  "screens": [
+    {
+      "id": "CHOOSE",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "2026-12-13",
+              "title": "Sun 13 Dec 2026"
+            }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "choice",
+            "label": "Choose a date",
+            "required": true,
+            "data-source": "${data.options}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "choice": "${form.choice}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ACTION",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "2026-12-13",
+              "title": "Sun 13 Dec 2026"
+            }
+          ]
+        },
+        "replacement": {
+          "type": "string",
+          "__example__": ""
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "choice",
+            "label": "Manage selection",
+            "required": true,
+            "data-source": "${data.options}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "choice": "${form.choice}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "DETAILS",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "title": {
+          "type": "string",
+          "__example__": ""
+        },
+        "meeting_point": {
+          "type": "string",
+          "__example__": ""
+        },
+        "location_description": {
+          "type": "string",
+          "__example__": ""
+        },
+        "start_time": {
+          "type": "string",
+          "__example__": ""
+        },
+        "distances": {
+          "type": "string",
+          "__example__": ""
+        },
+        "route_description": {
+          "type": "string",
+          "__example__": ""
+        },
+        "maps_url": {
+          "type": "string",
+          "__example__": ""
+        },
+        "route_url": {
+          "type": "string",
+          "__example__": ""
+        },
+        "pace_information": {
+          "type": "string",
+          "__example__": ""
+        },
+        "safety_notes": {
+          "type": "string",
+          "__example__": ""
+        },
+        "walkers_welcome": {
+          "type": "string",
+          "__example__": "no"
+        },
+        "coffee_arrangements": {
+          "type": "string",
+          "__example__": "TBC"
+        },
+        "save_mode": {
+          "type": "string",
+          "__example__": "draft"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "TextInput",
+            "name": "title",
+            "label": "Run title",
+            "required": false,
+            "init-value": "${data.title}"
+          },
+          {
+            "type": "TextInput",
+            "name": "meeting_point",
+            "label": "Meeting point",
+            "required": false,
+            "init-value": "${data.meeting_point}"
+          },
+          {
+            "type": "TextArea",
+            "name": "location_description",
+            "label": "Meeting instructions",
+            "required": false,
+            "init-value": "${data.location_description}"
+          },
+          {
+            "type": "TextInput",
+            "name": "start_time",
+            "label": "Start time (HH:MM)",
+            "required": false,
+            "init-value": "${data.start_time}"
+          },
+          {
+            "type": "TextInput",
+            "name": "distances",
+            "label": "Distances: 5km, 10km",
+            "required": false,
+            "init-value": "${data.distances}"
+          },
+          {
+            "type": "TextArea",
+            "name": "route_description",
+            "label": "Route descriptions",
+            "required": false,
+            "init-value": "${data.route_description}"
+          },
+          {
+            "type": "TextArea",
+            "name": "maps_url",
+            "label": "Maps HTTPS link",
+            "required": false,
+            "init-value": "${data.maps_url}"
+          },
+          {
+            "type": "TextArea",
+            "name": "route_url",
+            "label": "Route HTTPS link",
+            "required": false,
+            "init-value": "${data.route_url}"
+          },
+          {
+            "type": "TextInput",
+            "name": "pace_information",
+            "label": "Pace / group info",
+            "required": false,
+            "init-value": "${data.pace_information}"
+          },
+          {
+            "type": "TextArea",
+            "name": "safety_notes",
+            "label": "Safety / parking notes",
+            "required": false,
+            "init-value": "${data.safety_notes}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "walkers_welcome",
+            "label": "Walking friendly?",
+            "required": true,
+            "data-source": [
+              {
+                "id": "yes",
+                "title": "Yes"
+              },
+              {
+                "id": "no",
+                "title": "No"
+              }
+            ],
+            "init-value": "${data.walkers_welcome}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "coffee_arrangements",
+            "label": "Coffee / breakfast?",
+            "required": true,
+            "data-source": [
+              {
+                "id": "yes",
+                "title": "Yes"
+              },
+              {
+                "id": "no",
+                "title": "No"
+              },
+              {
+                "id": "TBC",
+                "title": "To be confirmed"
+              }
+            ],
+            "init-value": "${data.coffee_arrangements}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "save_mode",
+            "label": "Save details",
+            "required": true,
+            "data-source": [
+              {
+                "id": "draft",
+                "title": "Save unfinished draft"
+              },
+              {
+                "id": "submit",
+                "title": "Submit for approval"
+              }
+            ],
+            "init-value": "${data.save_mode}"
+          },
+          {
+            "type": "Footer",
+            "label": "Review details",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "title": "${form.title}",
+                "meeting_point": "${form.meeting_point}",
+                "location_description": "${form.location_description}",
+                "start_time": "${form.start_time}",
+                "distances": "${form.distances}",
+                "route_description": "${form.route_description}",
+                "maps_url": "${form.maps_url}",
+                "route_url": "${form.route_url}",
+                "pace_information": "${form.pace_information}",
+                "safety_notes": "${form.safety_notes}",
+                "walkers_welcome": "${form.walkers_welcome}",
+                "coffee_arrangements": "${form.coffee_arrangements}",
+                "save_mode": "${form.save_mode}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "RSVP",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "2026-12-13",
+              "title": "Sun 13 Dec 2026"
+            }
+          ]
+        },
+        "distance": {
+          "type": "string",
+          "__example__": ""
+        },
+        "reminders": {
+          "type": "boolean",
+          "__example__": false
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "distance",
+            "label": "Choose your distance",
+            "required": true,
+            "data-source": "${data.options}"
+          },
+          {
+            "type": "OptIn",
+            "name": "reminders",
+            "label": "Run reminders and change alerts",
+            "init-value": "${data.reminders}"
+          },
+          {
+            "type": "Footer",
+            "label": "Review RSVP",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "distance": "${form.distance}",
+                "reminders": "${form.reminders}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW",
+      "title": "Irene AC Festive Runs",
+      "terminal": false,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "OptIn",
+            "name": "confirm",
+            "label": "I confirm these details",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm and save",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "revision": "${data.revision}",
+                "confirm": "${form.confirm}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "DONE",
+      "title": "Irene AC Festive Runs",
+      "terminal": true,
+      "refresh_on_back": true,
+      "data": {
+        "revision": {
+          "type": "string",
+          "__example__": "0"
+        },
+        "error": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Irene AC Festive Run Adventures"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "${data.error}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "Footer",
+            "label": "Close",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
